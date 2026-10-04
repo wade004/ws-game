@@ -1,0 +1,722 @@
+#nullable enable
+// ReferenceSkinPlayModeTests：参考皮肤包 skin.reference_fantasy（assets/_reference_fantasy，ADR-0152）的真实美术 PlayMode 验收。
+//
+// EquipUiSkinPlayModeTests 用"程序生成的纯色皮肤"证明换皮肤链路成立；本类换成真实美术（本地出图 + 后处理的一整套皮肤、物品图标、纸娃娃静态层图），
+// 把"真实素材走完整条链路"变成永久回归，目的是让问题在框架里暴露，而不是等具体游戏接入时才发现：
+//   - 逐元素完整性：清单展开的每个元素（8 槽位 × 5 品质 × 全部状态/可选项）解析到的精灵像素 = 皮肤包里那张文件的像素，0 回落、0 可选缺失；
+//   - 主题：theme.json 的颜色逐个读回，九宫格 border 取 theme 令牌；
+//   - 真实面板：装备面板（槽位框、品质框、真实图标、纸娃娃预览五个方向）、背包面板（物品格）、衣橱场景（带皮肤逐件穿戴 + 轮播）零异常；
+//   - 本地截图（环境变量 GF_SKIN_SHOTS_DIR 指向目录时输出，不进 git）：皮肤画廊、装备面板、背包面板、衣橱拼图。
+//
+// 资源内容根：把占位资产（皮肤、图标、静态层）与参考资产叠成一个临时根，经 UnityResourceLoader.RootDirOverrideForTests 指过去；
+// 面板用自己新建的资源加载器（不与进程里其它用例共享缓存，避免读到别的用例已缓存的占位图标）。
+// 判断记录（范围边界）：纸娃娃的"身体层"（placeholder_hero）与逐层动画剪辑（sprite_anim）仍用占位美术，不在皮肤包范围内，用例不核对它们的像素。
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using Adapter.Unity.EngineAdapter;
+using Adapter.Unity.LabHost;
+using Adapter.Unity.Ui;
+using Adapter.Unity.Ui.Panels;
+using Core.Foundation.Common;
+using Lab;
+using NUnit.Framework;
+using Presentation.Ui;
+using UnityEngine;
+using UnityEngine.TestTools;
+using UnityEngine.UI;
+
+namespace Adapter.Unity.Tests.LabHost
+{
+    [Category("module:ui")]
+    [Category("module:lab")]
+    public sealed class ReferenceSkinPlayModeTests
+    {
+        private const string PackName = "reference_fantasy";
+        private const string PackRef = "skin." + PackName;
+
+        private readonly List<GameObject> _spawned = new List<GameObject>();
+        private readonly List<IDisposable> _disposables = new List<IDisposable>();
+        private string _root = string.Empty;
+        private string _packDir = string.Empty;
+        private string _referenceDir = string.Empty;
+        private string? _previousOverride;
+
+        // ───────── 夹具 ─────────
+
+        [SetUp]
+        public void SetUp()
+        {
+            _referenceDir = Path.Combine(SkinTestKit.RepoRoot, "assets", "_reference_fantasy");
+            Assert.IsTrue(Directory.Exists(_referenceDir), "缺参考资产目录 " + _referenceDir);
+            var placeholder = Path.Combine(SkinTestKit.RepoRoot, "assets", "_placeholder");
+            _root = Path.Combine(Application.temporaryCachePath, "reference_skin_tests", Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(_root);
+            CopyDirectory(Path.Combine(placeholder, "ui", "skin", "default"), Path.Combine(_root, "ui", "skin", "default"));
+            CopyDirectory(Path.Combine(_referenceDir, "ui", "skin", PackName), Path.Combine(_root, "ui", "skin", PackName));
+            foreach (var sub in new[] { "icons", "sprites" })
+            {
+                CopyDirectory(Path.Combine(placeholder, sub), Path.Combine(_root, sub));   // 先铺占位（身体层、未换美术的物品），再叠参考美术
+                if (Directory.Exists(Path.Combine(_referenceDir, sub)))
+                {
+                    CopyDirectory(Path.Combine(_referenceDir, sub), Path.Combine(_root, sub));
+                }
+            }
+
+            _packDir = Path.Combine(_root, "ui", "skin", PackName);
+            _previousOverride = UnityResourceLoader.RootDirOverrideForTests;
+            UnityResourceLoader.RootDirOverrideForTests = _root;
+        }
+
+        [UnityTearDown]
+        public IEnumerator TearDown()
+        {
+            UiSkin.Reset();
+            UnityResourceLoader.RootDirOverrideForTests = _previousOverride;
+            foreach (var go in _spawned)
+            {
+                if (go != null)
+                {
+                    UnityEngine.Object.Destroy(go);
+                }
+            }
+
+            _spawned.Clear();
+            foreach (var d in _disposables)
+            {
+                d.Dispose();
+            }
+
+            _disposables.Clear();
+            SkinTestKit.Delete(_root);
+            yield return null;
+        }
+
+        private static void CopyDirectory(string from, string to)
+        {
+            Directory.CreateDirectory(to);
+            foreach (var file in Directory.GetFiles(from))
+            {
+                File.Copy(file, Path.Combine(to, Path.GetFileName(file)), true);
+            }
+
+            foreach (var dir in Directory.GetDirectories(from))
+            {
+                CopyDirectory(dir, Path.Combine(to, Path.GetFileName(dir)));
+            }
+        }
+
+        private WardrobeStage NewStage()
+        {
+            var template = LabHostTestSupport.Script(EquipWardrobeRunner.TemplateScript);
+            var stage = WardrobeStage.Create(LabHostTestSupport.Host.Runner, template);
+            _disposables.Add(stage);
+            return stage;
+        }
+
+        private UiRoot NewUiRoot()
+        {
+            var root = UiRoot.Create("ReferenceSkinTestRoot");
+            _spawned.Add(root.gameObject);
+            return root;
+        }
+
+        private UiSkinPack LoadPack(string name)
+        {
+            var pack = UiSkinPack.Load("skin." + name, _root);
+            _disposables.Add(pack);
+            return pack;
+        }
+
+        /// <summary>皮肤包里实际带的槽位名与品质名（从文件列出，不写裸清单）。</summary>
+        private (List<string> Slots, List<string> Qualities) PackNames()
+        {
+            List<string> Names(string sub) => Directory.GetFiles(Path.Combine(_packDir, sub), "*.png")
+                .Select(f => Path.GetFileNameWithoutExtension(f)!).Where(n => !n.StartsWith("_", StringComparison.Ordinal)).OrderBy(n => n, StringComparer.Ordinal).ToList();
+            return (Names("slot_frame"), Names("quality_frame"));
+        }
+
+        private static Color32[] FilePixels(string path, out int width, out int height)
+        {
+            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            try
+            {
+                Assert.IsTrue(ImageConversion.LoadImage(texture, File.ReadAllBytes(path)), "读不出 " + path);
+                width = texture.width;
+                height = texture.height;
+                return texture.GetPixels32();
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(texture);
+            }
+        }
+
+        /// <summary>精灵所在纹理的像素与磁盘文件一致（允许极少量编码/采样差异：每通道差不超过 <paramref name="tolerance"/>，超差像素不超过 0.5%）。</summary>
+        private static void AssertPixelsEqualFile(Sprite? sprite, string file, string what, int tolerance = 2)
+        {
+            Assert.IsNotNull(sprite, what + " 没有精灵：" + file);
+            var texture = sprite!.texture;
+            var expected = FilePixels(file, out var w, out var h);
+            Assert.AreEqual(w, texture.width, $"{what}: 宽度与文件 {file} 不一致");
+            Assert.AreEqual(h, texture.height, $"{what}: 高度与文件 {file} 不一致");
+            var actual = texture.GetPixels32();
+            var bad = 0;
+            for (var i = 0; i < expected.Length; i++)
+            {
+                var a = actual[i];
+                var e = expected[i];
+                if (Math.Abs(a.a - e.a) > tolerance
+                    || (e.a > 0 && (Math.Abs(a.r - e.r) > tolerance || Math.Abs(a.g - e.g) > tolerance || Math.Abs(a.b - e.b) > tolerance)))
+                {
+                    bad++;
+                }
+            }
+
+            Assert.LessOrEqual(bad, expected.Length / 200, $"{what}: 精灵像素与文件 {file} 不一致（{bad}/{expected.Length} 个像素超差）");
+        }
+
+        private string PackFile(string relative) => Path.Combine(_packDir, relative.Replace('/', Path.DirectorySeparatorChar));
+
+        private static void Pump(UnityResourceLoader loader)
+        {
+            var watch = Stopwatch.StartNew();
+            while (loader.PendingLoadCount > 0 && watch.ElapsedMilliseconds < 8000)
+            {
+                loader.Tick();
+                Thread.Sleep(1);
+            }
+
+            loader.Tick();
+        }
+
+        private static Color32 Hex(string hex)
+        {
+            var h = hex.TrimStart('#');
+            return new Color32(Convert.ToByte(h.Substring(0, 2), 16), Convert.ToByte(h.Substring(2, 2), 16), Convert.ToByte(h.Substring(4, 2), 16), 255);
+        }
+
+        /// <summary>图标资源 id（<c>icon.item.std_sword_1h</c>）→ 仓库里参考资产的文件路径（<c>icons/item/std_sword_1h.png</c>）。</summary>
+        private string IconFile(Id iconId)
+        {
+            var parts = iconId.Value.Split('.');
+            Assert.AreEqual("icon", parts[0], "图标资源 id 形状：" + iconId.Value);
+            return Path.Combine(_referenceDir, "icons", parts[1], string.Join(".", parts.Skip(2)) + ".png");
+        }
+
+        private string LayerFile(string spriteSet, string direction, string layer) =>
+            Path.Combine(_referenceDir, "sprites", spriteSet, direction, layer + ".png");
+
+        // ───────── 截图（本地产物，环境变量缺省时不输出） ─────────
+
+        private static string? ShotDir => Environment.GetEnvironmentVariable("GF_SKIN_SHOTS_DIR") is { Length: > 0 } dir ? dir : null;
+
+        private IEnumerator Shot(UiRoot root, string fileName, int width, int height)
+        {
+            var dir = ShotDir;
+            if (dir == null)
+            {
+                yield break;
+            }
+
+            Directory.CreateDirectory(dir);
+            var camGo = new GameObject("SkinShotCamera");
+            _spawned.Add(camGo);
+            var camera = camGo.AddComponent<Camera>();
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = new Color(0.11f, 0.12f, 0.15f, 1f);
+            camera.cullingMask = 1 << root.gameObject.layer;
+            camera.orthographic = true;
+            var texture = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
+            camera.targetTexture = texture;
+            var canvas = root.Canvas;
+            var scaler = root.GetComponent<CanvasScaler>();
+            canvas.renderMode = RenderMode.ScreenSpaceCamera;
+            canvas.worldCamera = camera;
+            canvas.planeDistance = 1f;
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+            scaler.scaleFactor = 1f;
+            Canvas.ForceUpdateCanvases();
+            yield return null;
+            Canvas.ForceUpdateCanvases();
+            camera.Render();
+            var previous = RenderTexture.active;
+            RenderTexture.active = texture;
+            var picture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            picture.ReadPixels(new UnityEngine.Rect(0, 0, width, height), 0, 0);
+            picture.Apply();
+            RenderTexture.active = previous;
+            File.WriteAllBytes(Path.Combine(dir, fileName), ImageConversion.EncodeToPNG(picture));
+            UnityEngine.Object.DestroyImmediate(picture);
+            camera.targetTexture = null;
+            texture.Release();
+            UnityEngine.Object.Destroy(texture);
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            TestContext.Out.WriteLine("[skin-shot] " + Path.Combine(dir, fileName));
+        }
+
+        // ───────── 清单逐元素与主题 ─────────
+
+        [Test]
+        public void Pack_WalksEveryManifestElement_EveryPixelComesFromThePackFiles_NoFallbacksNoOptionalAbsent()
+        {
+            var manifest = SkinTestKit.LoadManifest();
+            var (slots, qualities) = PackNames();
+            Assert.GreaterOrEqual(slots.Count, 8, "参考包覆盖 8 个槽位");
+            Assert.GreaterOrEqual(qualities.Count, 5, "参考包覆盖五档品质");
+            var pack = LoadPack(PackName);
+            var def = LoadPack("default");
+            Assert.IsFalse(pack.IsPlaceholder);
+            Assert.IsFalse(pack.RefInvalid);
+
+            var files = manifest.Expand(slots, qualities);
+            var walked = 0;
+            var optionalWalked = 0;
+            foreach (var f in files)
+            {
+                if (!f.Element.IsImage)
+                {
+                    continue;
+                }
+
+                var generic = pack.ElementSprite(f);
+                AssertPixelsEqualFile(generic, PackFile(f.Path), "清单元素 " + f.Path, tolerance: 0);
+                Assert.IsTrue(UiSkinTypedAccess.TryGet(pack, f, out var typed), "清单元素没有类型化取用：" + f.Element.Id);
+                Assert.AreSame(generic, typed, "类型化取用与清单路径不一致：" + f.Path);
+                if (f.Element.Requirement == "optional")
+                {
+                    optionalWalked++;
+                }
+
+                // 对照：占位皮肤里同名元素（若有）的像素不同于参考包（证明读到的确实是参考美术，不是占位残留）。
+                var placeholder = def.ElementSprite(f);
+                if (placeholder != null && placeholder.texture.width == generic!.texture.width && placeholder.texture.height == generic.texture.height)
+                {
+                    CollectionAssert.AreNotEqual(placeholder.texture.GetPixels32(), generic.texture.GetPixels32(), "与占位皮肤逐像素相同：" + f.Path);
+                }
+
+                walked++;
+            }
+
+            Assert.AreEqual(files.Count(x => x.Element.IsImage), walked);
+            Assert.Greater(optionalWalked, 0, "可选元素也要有（目标 optional_absent 为空）");
+            Assert.AreEqual(0, pack.Fallbacks.Count, "参考包是全元素的，不应发生回落：" + string.Join(", ", pack.Fallbacks.Select(x => x.Item)));
+            Assert.AreEqual(0, pack.OptionalAbsent.Count, "参考包带全部可选元素：" + string.Join(", ", pack.OptionalAbsent));
+            // 包里的 PNG 恰好是清单展开的全集，没有清单之外的多余图片。
+            var onDisk = Directory.GetFiles(_packDir, "*.png", SearchOption.AllDirectories)
+                .Select(p => p.Substring(_packDir.Length + 1).Replace('\\', '/')).OrderBy(p => p, StringComparer.Ordinal).ToList();
+            var expected = files.Where(x => x.Element.IsImage).Select(x => x.Path).OrderBy(p => p, StringComparer.Ordinal).ToList();
+            CollectionAssert.AreEqual(expected, onDisk);
+            TestContext.Out.WriteLine($"[reference-skin] walked={walked} optional={optionalWalked} slots={slots.Count} qualities={qualities.Count} fallbacks=0 optional-absent=0");
+        }
+
+        [Test]
+        public void Theme_ColorsReadBackAndNineSliceBordersFollowTheTokens()
+        {
+            var manifest = SkinTestKit.LoadManifest();
+            var pack = LoadPack(PackName);
+            var theme = (Core.Foundation.Common.Json.JsonObject)Core.Foundation.Common.Json.JsonReader.Parse(File.ReadAllText(PackFile("theme.json")));
+            Assert.IsTrue(theme.TryGetValue("colors", out var colorsValue));
+            var colors = (Core.Foundation.Common.Json.JsonObject)colorsValue;
+            foreach (var key in manifest.ColorTokens)
+            {
+                Assert.IsTrue(colors.TryGetValue(key, out var value), "theme.json 缺颜色 " + key);
+                var c = pack.ThemeColor(key);
+                Assert.IsTrue(c.HasValue, "读不到主题颜色 " + key);
+                Assert.IsTrue(SkinTestKit.Same(Hex(((Core.Foundation.Common.Json.JsonString)value!).Value), (Color32)c!.Value), "主题颜色读回不一致：" + key);
+            }
+
+            foreach (var e in manifest.Elements.Where(x => x.IsNineSlice))
+            {
+                var border = pack.NineSliceBorder(e.NineSliceToken!, e.NineSliceDefault);
+                Assert.AreNotEqual(e.NineSliceDefault, border, $"{e.Id}: 参考包的令牌应当是非缺省值（证明运行期读的是 theme.json）");
+            }
+
+            var panel = pack.PanelBackground()!;
+            Assert.AreEqual(pack.NineSliceBorder("panel_border", 5), panel.border.x);
+            Assert.AreEqual(pack.NineSliceBorder("panel_border", 5), panel.border.w);
+            var tooltip = pack.TooltipBackground();
+            Assert.AreEqual(pack.NineSliceBorder("tooltip_border", 2), tooltip.border.x);
+            var button = pack.Button()!;
+            Assert.AreEqual(pack.NineSliceBorder("button_border", 4), button.Normal!.border.x);
+            Assert.IsNotNull(pack.CreateOverride(), "非占位皮肤会安装覆盖");
+        }
+
+        [Test]
+        public void ResolveCellSize_ZeroMeansTheFramesNativeWidth_ForBothPanels()
+        {
+            var pack = LoadPack(PackName);
+            var native = pack.SlotFrameDefault().rect.width;
+            Assert.Greater(native, 48f, "参考包的槽位框原生边长不是占位皮肤的 48");
+            Assert.AreEqual(native, UiPanelLayout.ResolveCellSize(0f, pack.SlotFrameDefault()), "cell_size=0 取皮肤包槽位框原生宽度（背包曾把它当成 32）");
+            Assert.AreEqual(40f, UiPanelLayout.ResolveCellSize(40f, pack.SlotFrameDefault()));
+        }
+
+        // ───────── 真实面板 ─────────
+
+        private (EquipmentPanel Panel, UiVisuals Visuals, UnityResourceLoader Loader) BuildEquipmentPanel(WardrobeStage stage, UiSkinPack pack, UiRoot root)
+        {
+            var loader = new UnityResourceLoader();
+            var visuals = new UiVisuals(pack, stage.Registry, stage.DisplayInfo, loader);
+            _disposables.Add(visuals);
+            var go = UiWidgets.CreateRoot("EquipmentPanelHost", root.Content);
+            var panel = go.gameObject.AddComponent<EquipmentPanel>();
+            var layout = visuals.LayoutOf(UiPanel.Equipment, EquipmentPanel.DefaultLayout);
+            layout = new UiPanelLayout(layout.Anchor, layout.Columns, layout.CellSize, layout.PreviewScale, "placeholder_hero", layout.PreviewDirection);
+            panel.Construct(go, stage.Panel, visuals, null, layout);
+            return (panel, visuals, loader);
+        }
+
+        private static void Settle(EquipmentPanel panel, UnityResourceLoader loader)
+        {
+            panel.RefreshUi();      // 首次请求发起加载
+            Pump(loader);
+            panel.RefreshUi();      // 加载完成后的刷新拿到精灵
+        }
+
+        [UnityTest]
+        public IEnumerator EquipmentPanel_WithRealArt_ShowsPackFramesRealIconsAndPaperdollInEveryDirection()
+        {
+            var stage = NewStage();
+            var pack = LoadPack(PackName);
+            UiSkin.Install(pack.CreateOverride()!);
+            var root = NewUiRoot();
+            var (panel, visuals, loader) = BuildEquipmentPanel(stage, pack, root);
+
+            Assert.AreEqual(UnityEngine.UI.Image.Type.Sliced, panel.Background.GetComponent<Image>().type);
+            AssertPixelsEqualFile(panel.Background.GetComponent<Image>().sprite, PackFile("panel/background.png"), "面板底图", 0);
+            Assert.AreEqual(pack.NineSliceBorder("panel_border", 5), panel.Background.GetComponent<Image>().sprite.border.x);
+            AssertPixelsEqualFile(panel.Preview.Background.sprite, PackFile("paperdoll_preview/background.png"), "预览区背景", 0);
+            foreach (var cell in panel.Cells)
+            {
+                AssertPixelsEqualFile(cell.Frame.sprite, PackFile("slot_frame/" + cell.SlotName + ".png"), "槽位框 " + cell.SlotName, 0);
+                var state = cell.Button.spriteState;
+                AssertPixelsEqualFile(state.highlightedSprite, PackFile("slot_frame/_highlight.png"), "槽位框 hover", 0);
+                AssertPixelsEqualFile(state.pressedSprite, PackFile("slot_frame/_pressed.png"), "槽位框 pressed", 0);
+                AssertPixelsEqualFile(state.selectedSprite, PackFile("slot_frame/_selected.png"), "槽位框 selected", 0);
+                AssertPixelsEqualFile(state.disabledSprite, PackFile("slot_frame/_disabled.png"), "槽位框 disabled", 0);
+                Assert.AreEqual(panel.CellSize, cell.Root.sizeDelta.x);
+            }
+
+            var iconsChecked = 0;
+            var layersChecked = 0;
+            var paperdollItems = 0;
+            foreach (var entry in stage.Entries)
+            {
+                Assert.IsTrue(stage.Equip(entry.ItemId), "穿不上 " + entry.ItemId);
+                Settle(panel, loader);
+                var slotIndex = stage.Panel.Slots.ToList().FindIndex(s => s.SlotId.Value == entry.SlotId);
+                var slot = stage.Panel.Slots[slotIndex];
+                var cell = panel.Cells[slotIndex];
+                Assert.IsTrue(slot.Occupied);
+
+                // 真实图标：像素 = 参考资产里这件物品的图标文件。
+                var iconId = visuals.IconOfTemplate(new Id(entry.ItemId));
+                Assert.IsTrue(iconId.HasValue, entry.ItemId + " 没有 display.map.icon_id");
+                Assert.IsTrue(cell.Icon.enabled, entry.ItemId + " 的图标没出现");
+                AssertPixelsEqualFile(cell.Icon.sprite, IconFile(iconId!.Value), "图标 " + entry.ItemId);
+                iconsChecked++;
+
+                // 品质框来自皮肤包。
+                Assert.IsTrue(cell.Quality.enabled);
+                AssertPixelsEqualFile(cell.Quality.sprite, PackFile("quality_frame/" + slot.QualityName + ".png"), "品质框 " + slot.QualityName, 0);
+
+                if (!entry.IsPaperdoll)
+                {
+                    continue;
+                }
+
+                paperdollItems++;
+                // 纸娃娃：五个方向逐个核对该件装备的静态层是参考层图。
+                foreach (var direction in PaperdollPreview.Directions)
+                {
+                    panel.Preview.SetDirection(direction);
+                    Settle(panel, loader);
+                    Assert.AreEqual(stage.Panel.PaperdollLayers.Count, panel.Preview.EquipmentLayerCount);
+                    foreach (var (layer, set, image) in panel.Preview.EquipmentLayers)
+                    {
+                        Assert.IsTrue(image.enabled, $"{entry.ItemId} {direction}/{layer} 没有精灵");
+                        if (File.Exists(LayerFile(set, direction, layer)))
+                        {
+                            AssertPixelsEqualFile(image.sprite, LayerFile(set, direction, layer), $"静态层 {set}/{direction}/{layer}");
+                            layersChecked++;
+                        }
+                    }
+
+                    Assert.IsTrue(panel.Preview.BodyHasSprite, "身体层（占位美术）没有出现");
+                }
+            }
+
+            Assert.AreEqual(stage.Entries.Count, iconsChecked);
+            Assert.Greater(paperdollItems, 0);
+            Assert.Greater(layersChecked, 0, "至少核对过一张参考静态层图");
+            Assert.AreEqual(0, visuals.FailedCount, "有图标/层图加载失败");
+            Assert.AreEqual(0, pack.Fallbacks.Count);
+            Assert.AreEqual(0, pack.OptionalAbsent.Count);
+            TestContext.Out.WriteLine($"[reference-equipment-panel] cells={panel.Cells.Count} icons={iconsChecked} paperdoll-items={paperdollItems} static-layers={layersChecked} cell={panel.CellSize}");
+
+            panel.Preview.SetDirection("front_side_r");
+            Settle(panel, loader);
+            yield return Shot(root, "02_equipment_panel.png", 900, 560);
+        }
+
+        [UnityTest]
+        public IEnumerator InventoryPanel_WithRealArt_ShowsRealIconsAndPackQualityFrames()
+        {
+            var stage = NewStage();
+            var pack = LoadPack(PackName);
+            UiSkin.Install(pack.CreateOverride()!);
+            var root = NewUiRoot();
+            var loader = new UnityResourceLoader();
+            var visuals = new UiVisuals(pack, stage.Registry, stage.DisplayInfo, loader);
+            _disposables.Add(visuals);
+
+            // 把全部物品放进背包：逐件穿上再全部卸下（卸下的物品回到背包）。
+            foreach (var entry in stage.Entries)
+            {
+                Assert.IsTrue(stage.Equip(entry.ItemId));
+            }
+
+            stage.UnequipAll();
+            var slotIds = stage.Panel.Slots.Select(s => s.SlotId).ToList();
+            var vm = new InventoryViewModel(stage.Data, slotIds);
+            _disposables.Add(vm);
+            Assert.AreEqual(stage.Entries.Count, vm.Slots.Count, "背包里应有全部样例物品");
+
+            var go = UiWidgets.CreateRoot("InventoryPanelHost", root.Content);
+            var panel = go.gameObject.AddComponent<InventoryPanel>();
+            panel.Construct(go, vm, null!, visuals);
+            panel.RefreshUi();
+            Pump(loader);
+            panel.RefreshUi();
+
+            Assert.AreEqual(vm.Slots.Count, panel.Cells.Count);
+            Canvas.ForceUpdateCanvases();
+            LayoutRebuilder.ForceRebuildLayoutImmediate(panel.Background);
+            foreach (var cell in panel.Cells)
+            {
+                // 复现：竖直列表不控制行高、横向布局不控宽，格子曾按矩形缺省 100 x 100 画出，cell_size 形同虚设（面板 260 高只放得下两行）。
+                var rect = cell.Frame.rectTransform.rect;
+                Assert.AreEqual(panel.CellSize, rect.width, 0.5f, "物品格宽度应取 cell_size");
+                Assert.AreEqual(panel.CellSize, rect.height, 0.5f, "物品格高度应取 cell_size");
+            }
+
+            AssertPixelsEqualFile(panel.Background.GetComponent<Image>().sprite, PackFile("panel/background.png"), "背包面板底图", 0);
+            for (var i = 0; i < vm.Slots.Count; i++)
+            {
+                var template = vm.Slots[i].TemplateId;
+                var cell = panel.Cells[i];
+                AssertPixelsEqualFile(cell.Frame.sprite, PackFile("slot_frame/_default.png"), "物品格框", 0);
+                Assert.IsTrue(cell.Icon.enabled, template.Value + " 的图标没出现");
+                AssertPixelsEqualFile(cell.Icon.sprite, IconFile(visuals.IconOfTemplate(template)!.Value), "背包图标 " + template.Value);
+                Assert.IsTrue(cell.Quality.enabled);
+                AssertPixelsEqualFile(cell.Quality.sprite, PackFile("quality_frame/" + visuals.QualityNameOf(template) + ".png"), "背包品质框", 0);
+            }
+
+            Assert.AreEqual(0, visuals.FailedCount);
+            Assert.AreEqual(32f, panel.CellSize, "没有布局行时背包格子取缺省 32 px（缺省行为不变）");
+            yield return Shot(root, "03_inventory_panel.png", 900, 560);
+        }
+
+        // ───────── 画廊（拖拽态、提示框三件、状态变体、九宫格各尺寸） ─────────
+
+        [UnityTest]
+        public IEnumerator Gallery_DrawsEveryElement_NineSliceBordersMatchTheTokens_AndShotsTheWholePack()
+        {
+            var manifest = SkinTestKit.LoadManifest();
+            var (slots, qualities) = PackNames();
+            var pack = LoadPack(PackName);
+            UiSkin.Install(pack.CreateOverride()!);
+            var root = NewUiRoot();
+            var gallery = UiSkinGallery.Build(root.Content, pack, manifest, slots, qualities);
+            Assert.AreEqual(0, gallery.Absent.Count, "参考包没有可选缺失");
+            foreach (var entry in gallery.Entries.Where(e => e.File.Element.IsNineSlice))
+            {
+                var expected = pack.NineSliceBorder(entry.File.Element.NineSliceToken!, entry.File.Element.NineSliceDefault);
+                Assert.AreEqual(new Vector4(expected, expected, expected, expected), entry.Image.sprite.border, entry.File.Path);
+                Assert.AreEqual(1f, entry.Image.pixelsPerUnit, 1e-4f);
+            }
+
+            var drawn = gallery.Entries.Select(e => e.File.Path).Distinct().Count();
+            Assert.AreEqual(manifest.Expand(slots, qualities).Count(f => f.Element.IsImage), drawn);
+            yield return Shot(root, "01_skin_gallery.png", 1280, 1180);
+        }
+
+        // ───────── 衣橱场景 + 拼图 ─────────
+
+        [UnityTest]
+        public IEnumerator WardrobeScene_WithTheReferenceSkin_WalksEveryItemAndTheCarouselWithoutExceptions()
+        {
+            var host = LabHostTestSupport.Host;
+            // 进程里别的用例可能已经把占位图标/层图缓存进全局加载器：先卸掉这次要用的资源 id，让场景从参考资产重新加载。
+            var template = LabHostTestSupport.Script(EquipWardrobeRunner.TemplateScript);
+            var probe = WardrobeStage.Create(host.Runner, template);
+            _disposables.Add(probe);
+            var global = UnityEngineHost.Ensure().ResourceLoader;
+            var probeVisuals = new UiVisuals(LoadPack("default"), probe.Registry, probe.DisplayInfo, global);
+            foreach (var entry in probe.Entries)
+            {
+                var icon = probeVisuals.IconOfTemplate(new Id(entry.ItemId));
+                if (icon.HasValue)
+                {
+                    global.Unload(icon.Value);
+                }
+
+                var set = UiVisuals.SetName(entry.ItemId);
+                foreach (var direction in PaperdollPreview.Directions)
+                {
+                    foreach (var layer in new[] { "hand_main", "chest", "hand_off", "head", "legs", "feet", "hands", "neck" })
+                    {
+                        global.Unload(UiVisuals.LayerId(set, direction, layer));
+                    }
+                }
+            }
+
+            var go = new GameObject("ReferenceWardrobeScene");
+            _spawned.Add(go);
+            var scene = go.AddComponent<EquipWardrobeScene>();
+            typeof(EquipWardrobeScene).GetField("autoAdvance", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(scene, false);
+            scene.SkinRef = PackRef;
+            scene.Begin(host);
+            yield return null;
+
+            Assert.AreEqual(PackRef, scene.Visuals!.Pack.SkinRef);
+            Assert.IsFalse(scene.Visuals.Pack.IsPlaceholder);
+            Assert.IsTrue(UiSkin.IsOverrideInstalled, "非占位皮肤会像生产宿主一样安装皮肤覆盖");
+            var stage = scene.Stage!;
+            var panel = scene.Panel!;
+            AssertPixelsEqualFile(panel.Preview.Background.sprite, PackFile("paperdoll_preview/background.png"), "场景预览区背景", 0);
+            for (var i = 0; i < stage.Entries.Count; i++)
+            {
+                Assert.IsTrue(scene.StepNext());
+                scene.AdvanceCarousel();
+                for (var frame = 0; frame < 3; frame++)
+                {
+                    yield return null;       // 全局加载器由宿主每帧 Tick
+                }
+
+                var entry = stage.Entries[i];
+                var slotIndex = stage.Panel.Slots.ToList().FindIndex(s => s.SlotId.Value == entry.SlotId);
+                var cell = panel.Cells[slotIndex];
+                var waited = 0;
+                while (!cell.Icon.enabled && waited++ < 120)
+                {
+                    yield return null;
+                }
+
+                Assert.IsTrue(cell.Icon.enabled, entry.ItemId + " 的图标没出现");
+                var iconId = scene.Visuals.IconOfTemplate(new Id(entry.ItemId));
+                AssertPixelsEqualFile(cell.Icon.sprite, IconFile(iconId!.Value), "场景图标 " + entry.ItemId);
+            }
+
+            Assert.IsFalse(scene.StepNext(), "穿完一圈后下一步是卸空回绕");
+            Assert.AreEqual(0, stage.Panel.OccupiedCount);
+            var lap = scene.Carousel!.Lap();
+            Assert.AreEqual(scene.Carousel.Count, lap.Count);
+            Assert.AreEqual(0, scene.Visuals.FailedCount, "场景里有图标/层图加载失败");
+            Assert.AreEqual(0, scene.Visuals.Pack.Fallbacks.Count);
+        }
+
+        [UnityTest]
+        public IEnumerator Wardrobe_Montage_EveryPaperdollItemInEveryDirection_RendersRealStaticLayers()
+        {
+            var stage = NewStage();
+            var pack = LoadPack(PackName);
+            UiSkin.Install(pack.CreateOverride()!);
+            var root = NewUiRoot();
+            var loader = new UnityResourceLoader();
+            var visuals = new UiVisuals(pack, stage.Registry, stage.DisplayInfo, loader);
+            _disposables.Add(visuals);
+
+            var items = stage.Entries.Where(e => e.IsPaperdoll).ToList();
+            Assert.Greater(items.Count, 0);
+            const float cellW = 150f;
+            const float cellH = 225f;
+            var directions = PaperdollPreview.Directions;
+            var previews = new List<(PaperdollPreview Preview, IReadOnlyList<EquipmentPaperdollLayer> Layers, string Item, string Direction)>();
+            for (var row = 0; row < items.Count; row++)
+            {
+                stage.UnequipAll();
+                Assert.IsTrue(stage.Equip(items[row].ItemId));
+                var layers = stage.Panel.PaperdollLayers.ToList();
+                Assert.Greater(layers.Count, 0, items[row].ItemId + " 没有纸娃娃图层");
+                for (var col = 0; col < directions.Length; col++)
+                {
+                    var preview = new PaperdollPreview(root.Content, visuals, "placeholder_hero", 0.58f, directions[col]);
+                    var rect = preview.Root;
+                    rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0f, 1f);
+                    rect.anchoredPosition = new Vector2(8f + col * (cellW + 6f), -(8f + row * (cellH + 6f)));
+                    previews.Add((preview, layers, items[row].ItemId, directions[col]));
+                }
+            }
+
+            foreach (var (preview, layers, _, _) in previews)
+            {
+                preview.Refresh(layers);
+            }
+
+            Pump(loader);
+            var checkedLayers = 0;
+            foreach (var (preview, layers, item, direction) in previews)
+            {
+                preview.Refresh(layers);
+                Assert.IsTrue(preview.BodyHasSprite, $"{item}/{direction} 身体层没有出现");
+                Assert.AreEqual(layers.Count, preview.EquipmentLayersWithSprite, $"{item}/{direction} 有纸娃娃层没拿到精灵");
+                foreach (var (layer, set, image) in preview.EquipmentLayers)
+                {
+                    var file = LayerFile(set, direction, layer);
+                    if (File.Exists(file))
+                    {
+                        AssertPixelsEqualFile(image.sprite, file, $"拼图 {set}/{direction}/{layer}");
+                        checkedLayers++;
+                    }
+                }
+            }
+
+            Assert.AreEqual(items.Count * directions.Length, previews.Count);
+            Assert.Greater(checkedLayers, 0);
+            TestContext.Out.WriteLine($"[reference-montage] items={items.Count} directions={directions.Length} static-layers={checkedLayers}");
+            yield return Shot(root, "04_wardrobe_montage.png", (int)(16 + directions.Length * (cellW + 6f)), (int)(16 + items.Count * (cellH + 6f)));
+        }
+    }
+
+    /// <summary>清单元素 → 面板实际用的类型化取用（同 EquipUiSkinPlayModeTests 的映射；任一边漂移用例都会红）。</summary>
+    internal static class UiSkinTypedAccess
+    {
+        public static bool TryGet(UiSkinPack pack, UiSkinFile f, out Sprite? sprite)
+        {
+            switch (f.Element.Id)
+            {
+                case "slot_frame": sprite = pack.SlotFrame(f.Name!); return true;
+                case "slot_frame_default": sprite = pack.SlotFrameDefault(); return true;
+                case "slot_frame_hover": sprite = pack.SlotState("highlight"); return true;
+                case "slot_frame_disabled": sprite = pack.SlotState("disabled"); return true;
+                case "slot_frame_drag_hover": sprite = pack.SlotState("drag_hover"); return true;
+                case "slot_frame_pressed": sprite = pack.SlotSpriteState().pressedSprite; return true;
+                case "slot_frame_selected": sprite = pack.SlotSpriteState().selectedSprite; return true;
+                case "quality_frame": sprite = pack.QualityFrame(f.Name!); return true;
+                case "quality_frame_default": sprite = pack.QualityFrame(string.Empty); return true;
+                case "drag_ghost": sprite = pack.DragState("ghost"); return true;
+                case "drag_target_ok": sprite = pack.DragState("target_ok"); return true;
+                case "drag_target_blocked": sprite = pack.DragState("target_blocked"); return true;
+                case "tooltip_background": sprite = pack.TooltipBackground(); return true;
+                case "tooltip_divider": sprite = pack.TooltipDivider(); return true;
+                case "tooltip_row": sprite = pack.TooltipRow(); return true;
+                case "paperdoll_preview_background": sprite = pack.PaperdollBackground(); return true;
+                case "panel_background": sprite = pack.PanelBackground(); return true;
+                case "button_normal": sprite = pack.Button()?.Normal; return true;
+                case "button_hover": sprite = pack.Button()?.Hover; return true;
+                case "button_pressed": sprite = pack.Button()?.Pressed; return true;
+                case "button_disabled": sprite = pack.Button()?.Disabled; return true;
+                case "button_selected": sprite = pack.Button()?.Selected; return true;
+            }
+
+            sprite = null;
+            return false;
+        }
+    }
+}

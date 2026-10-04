@@ -27,6 +27,7 @@ namespace Adapter.Unity.LabHost
         [SerializeField] private string cell = "2d_action";
         [SerializeField] private string bodySet = "placeholder_hero";
         [SerializeField] private string repoRoot = string.Empty;
+        [SerializeField] private string skinRef = string.Empty;
         [SerializeField] private bool autoStart = true;
         [SerializeField] private bool autoAdvance = true;
         [SerializeField] private float stepSeconds = 0.7f;
@@ -39,6 +40,18 @@ namespace Adapter.Unity.LabHost
         private float _clipTime;
         private int _stepIndex;
         private bool _ended;
+        private bool _skinInstalled;
+
+        /// <summary>
+        /// 界面皮肤包引用（如 <c>skin.reference_fantasy</c>，包在资源内容根的 <c>ui/skin/&lt;名&gt;/</c>）；空 = 占位皮肤。必须在 <see cref="Begin"/> 之前设定。
+        /// 判断记录：此前场景写死 <c>UiSkinPack.Load(null)</c>，装备面板与衣橱在实验室里只能看占位皮肤，真皮肤包要等游戏接入才第一次被面板渲染；
+        /// 现在非占位皮肤会像生产宿主一样安装皮肤覆盖（面板底图、按钮、主题色），场景销毁时复位。
+        /// </summary>
+        public string SkinRef
+        {
+            get => skinRef;
+            set => skinRef = value ?? string.Empty;
+        }
 
         public EngineLabHost? Host { get; private set; }
 
@@ -91,7 +104,15 @@ namespace Adapter.Unity.LabHost
             }
 
             Stage = WardrobeStage.Create(Host.Runner, template);
-            Visuals = new UiVisuals(UiSkinPack.Load(null), Stage.Registry, Stage.DisplayInfo);
+            var pack = UiSkinPack.Load(skinRef.Length > 0 ? skinRef : null);
+            var skinOverride = pack.CreateOverride();
+            if (skinOverride != null)
+            {
+                UiSkin.Install(skinOverride);
+                _skinInstalled = true;
+            }
+
+            Visuals = new UiVisuals(pack, Stage.Registry, Stage.DisplayInfo);
             Carousel = new WardrobeCarouselModel(Stage.Entries, PaperdollPreview.Directions);
 
             _ui = UiRoot.Create("EquipWardrobeUi");
@@ -295,6 +316,12 @@ namespace Adapter.Unity.LabHost
             _ended = true;
             Stage?.Dispose();
             Visuals?.Dispose();
+            if (_skinInstalled)
+            {
+                UiSkin.Reset();
+                _skinInstalled = false;
+            }
+
             if (_ui != null)
             {
                 Destroy(_ui.gameObject);

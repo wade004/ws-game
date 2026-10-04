@@ -343,6 +343,7 @@ namespace Adapter.Unity.Ui.Panels
     public sealed class InventoryPanel : UiPanelBehaviour
     {
         private const float DefaultCellSize = 32f;
+        private const float MinRowHeight = 24f;
 
         private InventoryViewModel _vm = null!;
         private UiIntents _intents = null!;
@@ -392,7 +393,8 @@ namespace Adapter.Unity.Ui.Panels
 
             _visuals = visuals;
             var layout = visuals.LayoutOf(UiPanel.Inventory, new UiPanelLayout("top_right", 1, DefaultCellSize, 1f, string.Empty, "front"));
-            _cellSize = layout.CellSize > 0f ? layout.CellSize : DefaultCellSize;
+            // 布局的 cell_size 为 0 = 取皮肤包槽位框原生宽度（UiPanelLayout.CellSize 契约，与装备面板一致）；没有布局行时取缺省 32。
+            _cellSize = UiPanelLayout.ResolveCellSize(layout.CellSize, visuals.Pack.SlotFrameDefault());
             layout.ApplyAnchor(Background, new Vector2(260f, 260f));
         }
 
@@ -409,6 +411,9 @@ namespace Adapter.Unity.Ui.Panels
                 hl.spacing = 6f; hl.childControlWidth = false; hl.childControlHeight = true; hl.childForceExpandWidth = false;
                 if (_visuals != null)
                 {
+                    // 竖直列表不控制子项高度（childControlHeight=false），行高取行自己的矩形（缺省 100）、横向布局也不控宽：
+                    // 不显式设定，格子会按 100 x 100 画出，cell_size 形同虚设。只在带皮肤的重载里设（无皮肤的文字行保持原样）。
+                    rect.sizeDelta = new Vector2(rect.sizeDelta.x, Mathf.Max(_cellSize, MinRowHeight));
                     _cells.Add(CreateItemCell(rect));
                 }
 
@@ -447,6 +452,7 @@ namespace Adapter.Unity.Ui.Panels
             var go = new GameObject("Cell", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(LayoutElement));
             var rect = (RectTransform)go.transform;
             rect.SetParent(row, false);
+            rect.sizeDelta = new Vector2(_cellSize, _cellSize);       // 横向布局不控宽（childControlWidth=false）：宽度取矩形自己的值
             var element = go.GetComponent<LayoutElement>();
             element.preferredWidth = _cellSize;
             element.preferredHeight = _cellSize;

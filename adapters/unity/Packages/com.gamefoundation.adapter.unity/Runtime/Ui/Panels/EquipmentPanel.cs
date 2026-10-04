@@ -72,7 +72,7 @@ namespace Adapter.Unity.Ui.Panels
             Layout = layout;
 
             var defaultFrame = visuals.Pack.SlotFrameDefault();
-            CellSize = Layout.CellSize > 0f ? Layout.CellSize : defaultFrame.rect.width;
+            CellSize = UiPanelLayout.ResolveCellSize(Layout.CellSize, defaultFrame);
             var columns = Mathf.Max(1, Layout.Columns);
             var rows = Mathf.Max(1, Mathf.CeilToInt(vm.Slots.Count / (float)columns));
             var gridW = columns * CellSize + (columns - 1) * Spacing;

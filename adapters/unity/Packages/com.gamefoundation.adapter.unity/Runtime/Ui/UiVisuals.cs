@@ -54,6 +54,13 @@ namespace Adapter.Unity.Ui
             PreviewDirection = previewDirection;
         }
 
+        /// <summary>
+        /// 格子边长：布局的 <c>cell_size</c> 大于 0 取它，为 0（或负）按契约取皮肤包槽位框的原生宽度（<see cref="CellSize"/> 注释）。
+        /// 装备面板与背包面板共用这一处，避免两个面板对"0"各解各的（背包曾把 0 当成缺省 32 px）。
+        /// </summary>
+        public static float ResolveCellSize(float configured, Sprite defaultFrame) =>
+            configured > 0f ? configured : defaultFrame.rect.width;
+
         /// <summary>读某面板的布局行（没有该面板的行取缺省）；<paramref name="defaults"/> 提供缺省值。</summary>
         public static UiPanelLayout Read(IDataRegistryView? registry, UiPanel panel, UiPanelLayout defaults)
         {
