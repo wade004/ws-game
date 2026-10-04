@@ -713,7 +713,10 @@ Invoke-Step "模板 PlayMode 测试（-testFilter Game.Template.Tests）" {
     if (-not (Test-Path $resultsXml)) {
         return [PSCustomObject]@{ Ok = $false; Detail = "未生成结果 XML：$resultsXml，Unity 退出码 $($proc.ExitCode)，见 $log$upmNote" }
     }
-    [xml]$xml = Get-Content -Path $resultsXml -Raw
+    # 按 XML 声明（utf-8）读字节，不用 Get-Content -Raw（5.1 按 ANSI 解码会让中文 CDATA 吞掉 "]]>"，同
+    # toolchain/_gate_unity_verdicts.ps1 的 Get-UnityTestRunVerdict）。
+    $xml = New-Object System.Xml.XmlDocument
+    $xml.Load((Resolve-Path -LiteralPath $resultsXml).ProviderPath)
     $root = $xml.DocumentElement
     [PSCustomObject]@{
         Ok = ($root.result -eq "Passed")

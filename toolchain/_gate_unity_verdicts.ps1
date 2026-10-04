@@ -18,7 +18,12 @@ function Get-UnityTestRunVerdict {
     if (-not (Test-Path -LiteralPath $ResultsXml)) {
         return [PSCustomObject]@{ Exists = $false; Ok = $false; Result = ""; Failed = "" }
     }
-    [xml]$xml = Get-Content -LiteralPath $ResultsXml -Raw
+    # 不用 `[xml]$x = Get-Content -Raw`：Windows PowerShell 5.1 的 Get-Content 无 BOM 时按 ANSI 代码页（GBK）
+    # 解码，Unity 写进 CDATA 的中文原因（如 Assert.Ignore 消息以全角句号结尾，字节 E3 80 82 紧邻 "]]>"）
+    # 会吞掉 "]]>" 的第一个 "]"，CDATA 无法闭合，整份结果 XML 转换失败（1.98.0 发布门禁 PlayMode 619/619
+    # 全过却判 FAIL）。XmlDocument.Load 按 XML 声明（utf-8）读字节，不随宿主默认编码变。
+    $xml = New-Object System.Xml.XmlDocument
+    $xml.Load((Resolve-Path -LiteralPath $ResultsXml).ProviderPath)
     $root = $xml.DocumentElement
     return [PSCustomObject]@{
         Exists = $true
