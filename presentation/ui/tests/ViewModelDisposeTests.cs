@@ -42,7 +42,7 @@ namespace Tests.PresentationUi
         public static IEnumerable<object[]> ViewModelNames() => new[]
         {
             "Hud", "CharacterStats", "Inventory", "ActionBar", "QuestLog", "SkillBook",
-            "Dialog", "PauseMenu", "SaveSlots", "Settings", "Shop",
+            "Dialog", "PauseMenu", "SaveSlots", "Settings", "Shop", "Equipment",
         }.Select(n => new object[] { n });
 
         private static IDisposable Build(string name, UiWorldFixture world, IUiDataSource ds)
@@ -77,6 +77,8 @@ namespace Tests.PresentationUi
                     return new SettingsViewModel(ds, l10n, new FakeInputMapHost(), new FakeAudioLayerVolumeHost());
                 case "Shop":
                     return new ShopViewModel(ds, ShopViewModelTests.BuildEconomy(world), world.PlayerId);
+                case "Equipment":
+                    return new EquipmentViewModel(ds, EquipmentViewModelTests.BuildRegistry(world), null);
                 default:
                     throw new ArgumentException("未知视图模型：" + name);
             }
