@@ -66,6 +66,7 @@ namespace Core.Foundation.InputMap
         private readonly IEventBus _bus;
         private readonly InputBufferOptions _options;
         private readonly Dictionary<Id, ActionDefinition> _definitions = new Dictionary<Id, ActionDefinition>();
+        private readonly HashSet<Id> _heldOnly = new HashSet<Id>();
         private readonly Dictionary<Id, ActorBuffer> _actors = new Dictionary<Id, ActorBuffer>();
         private readonly List<Id> _actorOrder = new List<Id>();
         private readonly HashSet<Id> _known = new HashSet<Id>();
@@ -144,6 +145,10 @@ namespace Core.Foundation.InputMap
             /// <summary>此刻被按住的输入动作（按下边沿处理时加入、抬起边沿处理时移除；<see cref="IInputBufferQuery.IsHeld"/> 的数据来源）。</summary>
             public readonly HashSet<Id> Held = new HashSet<Id>();
 
+            /// <summary>只追踪按住状态的动作（<see cref="ActionDefinition.IsHeldTracked"/>）的当前按住集合：按下/抬起即时生效（不经待处理边沿），
+            /// 缓冲清空（<see cref="InputBufferHost.Clear"/>）不影响——它反映的是按键物理状态，不是缓冲内容。</summary>
+            public readonly HashSet<Id> HeldOnly = new HashSet<Id>();
+
             public long LastAcceptTick = -1;
         }
 
@@ -155,7 +160,8 @@ namespace Core.Foundation.InputMap
         public long CurrentTick => _tick;
 
         /// <summary>
-        /// 登记动作定义：只有按钮型且声明了非 <see cref="ActionClass.Move"/> 类别的动作经缓冲（<see cref="ActionDefinition.IsBuffered"/>），
+        /// 登记动作定义：只有按钮型且声明了非 <see cref="ActionClass.Move"/> 类别的动作经缓冲（<see cref="ActionDefinition.IsBuffered"/>）；
+        /// 按钮型 <see cref="ActionClass.Move"/> 类动作只追踪按住状态（<see cref="ActionDefinition.IsHeldTracked"/>，ADR-0153，按住冲刺用）；
         /// 其余（既有行为：未声明类别、轴类）被忽略。同名重复登记以后者为准（热加载数据）。
         /// </summary>
         public void DeclareActions(IEnumerable<ActionDefinition> actions)
@@ -167,10 +173,17 @@ namespace Core.Foundation.InputMap
                 if (def.IsBuffered)
                 {
                     _definitions[def.ActionId] = def;
+                    _heldOnly.Remove(def.ActionId);
+                }
+                else if (def.IsHeldTracked)
+                {
+                    _definitions.Remove(def.ActionId);
+                    _heldOnly.Add(def.ActionId);
                 }
                 else
                 {
                     _definitions.Remove(def.ActionId);
+                    _heldOnly.Remove(def.ActionId);
                 }
             }
 
@@ -272,6 +285,11 @@ namespace Core.Foundation.InputMap
         {
             if (!_localActor.HasValue) return;
             var actionId = new Id(actionName);
+            if (_heldOnly.Contains(actionId))
+            {
+                SetHeldOnly(_localActor.Value, actionId, isDown);
+                return;
+            }
             if (!_definitions.ContainsKey(actionId)) return;
             if (isDown) Press(_localActor.Value, actionId, _directionProbe?.Invoke());
             else Release(_localActor.Value, actionId);
@@ -284,6 +302,11 @@ namespace Core.Foundation.InputMap
         /// <summary>某行动者按下某动作（本地输入、AI、自动战斗同一入口，手感设计/01 第 1 节）。不经缓冲的动作被忽略。</summary>
         public void Press(Id actorId, Id actionId, Vec2? direction = null)
         {
+            if (_heldOnly.Contains(actionId))
+            {
+                SetHeldOnly(actorId, actionId, true);
+                return;
+            }
             if (!_definitions.ContainsKey(actionId)) return;
             GetOrCreate(actorId).Pending.Add(new PendingEdge(EdgeKind.Press, actionId, direction));
         }
@@ -291,6 +314,11 @@ namespace Core.Foundation.InputMap
         /// <summary>某行动者抬起某动作。</summary>
         public void Release(Id actorId, Id actionId)
         {
+            if (_heldOnly.Contains(actionId))
+            {
+                SetHeldOnly(actorId, actionId, false);
+                return;
+            }
             if (!_definitions.ContainsKey(actionId)) return;
             GetOrCreate(actorId).Pending.Add(new PendingEdge(EdgeKind.Release, actionId, null));
         }
@@ -316,7 +344,19 @@ namespace Core.Foundation.InputMap
         }
 
         /// <summary>该行动者的该输入动作此刻是否仍被按住（<see cref="IInputBufferQuery.IsHeld"/>）。</summary>
-        public bool IsHeld(Id actorId, Id actionId) => _actors.TryGetValue(actorId, out var buffer) && buffer.Held.Contains(actionId);
+        public bool IsHeld(Id actorId, Id actionId) =>
+            _actors.TryGetValue(actorId, out var buffer) && (buffer.Held.Contains(actionId) || buffer.HeldOnly.Contains(actionId));
+
+        /// <summary>动作是否只追踪按住状态（按钮型 move 类，ADR-0153）。</summary>
+        public bool IsHeldTracked(Id actionId) => _heldOnly.Contains(actionId);
+
+        private void SetHeldOnly(Id actorId, Id actionId, bool down)
+        {
+            var buffer = down ? GetOrCreate(actorId) : (_actors.TryGetValue(actorId, out var existing) ? existing : null);
+            if (buffer == null) return;
+            if (down) buffer.HeldOnly.Add(actionId);
+            else buffer.HeldOnly.Remove(actionId);
+        }
 
         /// <summary>
         /// 蓄力规则来源（可空，ADR-0143）：非空时，声明了蓄力的动作在按住满上限时自动释放，抬起时按下限判门槛。缺省 null 即既有行为。

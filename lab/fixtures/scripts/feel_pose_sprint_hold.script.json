@@ -1,0 +1,455 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_pose_sprint_hold",
+    "scriptVersion": 1,
+    "description": "按住冲刺（M5-S8，ADR-0153）：预设 feel.preset.pose_motion（冲刺速度比 1.6）钉死，冲刺是数据声明的输入动作 input.action.sprint（按钮型 move 类，由输入缓冲追踪按住状态）。第 10 tick 起推杆向 -x 走（走路速度 = 基础移速 × 走路速度比），第 50 tick 按住冲刺键升冲刺（稳态速度 = 基础移速 × 冲刺速度比），第 90 tick 松键回走路，第 120 tick 松开推杆，第 125 到 135 tick 原地按住冲刺键（没有移动输入，不产生移动请求，单位保持静止）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.pose_motion",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 150,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_slash"
+    },
+    "poseExt": {},
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/pose",
+      "lab/fixtures/data/pose_sprint"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 10,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": -1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 50,
+      "action": "input.action.sprint",
+      "kind": "press"
+    },
+    {
+      "tick": 90,
+      "action": "input.action.sprint",
+      "kind": "release"
+    },
+    {
+      "tick": 120,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "tick": 125,
+      "action": "input.action.sprint",
+      "kind": "press"
+    },
+    {
+      "tick": 135,
+      "action": "input.action.sprint",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "auto.response.move_response_ticks",
+      "metric": "response.move_response_ticks",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.response.visible_move_frames",
+      "metric": "response.visible_move_frames",
+      "op": "approx",
+      "value": 1,
+      "tolerance": 1
+    },
+    {
+      "id": "auto.response.visible_move_ms",
+      "metric": "response.visible_move_ms",
+      "op": "approx",
+      "value": 16.666666667,
+      "tolerance": 17
+    },
+    {
+      "id": "auto.movement.ticks_requested",
+      "metric": "movement.ticks_requested",
+      "op": "eq",
+      "value": 110
+    },
+    {
+      "id": "auto.movement.path_length",
+      "metric": "movement.path_length",
+      "op": "eq",
+      "value": 8.280926286
+    },
+    {
+      "id": "auto.movement.net_displacement",
+      "metric": "movement.net_displacement",
+      "op": "eq",
+      "value": 8.280926286
+    },
+    {
+      "id": "auto.movement.speed_steady",
+      "metric": "movement.speed_steady",
+      "op": "eq",
+      "value": 8
+    },
+    {
+      "id": "auto.movement.accel_ticks",
+      "metric": "movement.accel_ticks",
+      "op": "eq",
+      "value": 43
+    },
+    {
+      "id": "auto.movement.stop_ticks",
+      "metric": "movement.stop_ticks",
+      "op": "eq",
+      "value": 2
+    },
+    {
+      "id": "auto.movement.stop_distance",
+      "metric": "movement.stop_distance",
+      "op": "eq",
+      "value": 0.023809524
+    },
+    {
+      "id": "auto.movement.reversal_count",
+      "metric": "movement.reversal_count",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.movement.min_axis_magnitude_moved",
+      "metric": "movement.min_axis_magnitude_moved",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "auto.movement.sub_threshold_ticks",
+      "metric": "movement.sub_threshold_ticks",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.movement.partial_step_ticks",
+      "metric": "movement.partial_step_ticks",
+      "op": "eq",
+      "value": 73
+    },
+    {
+      "id": "auto.movement.blocked_ticks",
+      "metric": "movement.blocked_ticks",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.movement.obstructed_speed_fraction",
+      "metric": "movement.obstructed_speed_fraction",
+      "op": "eq",
+      "value": 0.308519558
+    },
+    {
+      "id": "auto.movement.obstructed_jitter_ticks",
+      "metric": "movement.obstructed_jitter_ticks",
+      "op": "eq",
+      "value": 67
+    },
+    {
+      "id": "auto.attack.casts_submitted",
+      "metric": "attack.casts_submitted",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.attack.cast_success",
+      "metric": "attack.cast_success",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.attack.cast_failed",
+      "metric": "attack.cast_failed",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.attack.attack_instances",
+      "metric": "attack.attack_instances",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.attack.damage_events",
+      "metric": "attack.damage_events",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.attack.damage_total",
+      "metric": "attack.damage_total",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.attack.targets_hit",
+      "metric": "attack.targets_hit",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.attack.kills",
+      "metric": "attack.kills",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.attack.hits_per_instance_max",
+      "metric": "attack.hits_per_instance_max",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.attack.dedupe_violations",
+      "metric": "attack.dedupe_violations",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.performance.ticks",
+      "metric": "performance.ticks",
+      "op": "eq",
+      "value": 150
+    },
+    {
+      "id": "auto.performance.event_count_total",
+      "metric": "performance.event_count_total",
+      "op": "eq",
+      "value": 430
+    },
+    {
+      "id": "auto.performance.frames",
+      "metric": "performance.frames",
+      "op": "approx",
+      "value": 150,
+      "tolerance": 1
+    },
+    {
+      "id": "auto.inputbuf.press_ticks",
+      "metric": "inputbuf.press_ticks",
+      "op": "eq",
+      "value": "50:sprint;125:sprint"
+    },
+    {
+      "id": "auto.inputbuf.slot_visible_ticks",
+      "metric": "inputbuf.slot_visible_ticks",
+      "op": "eq",
+      "value": "50:lab_a_skill;125:lab_a_skill"
+    },
+    {
+      "id": "auto.inputbuf.drop_events",
+      "metric": "inputbuf.drop_events",
+      "op": "eq",
+      "value": "58:lab_a_skill:Expired;133:lab_a_skill:Expired"
+    },
+    {
+      "id": "auto.inputbuf.drop_counts",
+      "metric": "inputbuf.drop_counts",
+      "op": "eq",
+      "value": "Expired:2"
+    },
+    {
+      "id": "auto.inputbuf.expire_ticks",
+      "metric": "inputbuf.expire_ticks",
+      "op": "eq",
+      "value": "58:lab_a_skill;133:lab_a_skill"
+    },
+    {
+      "id": "auto.inputbuf.max_slot_occupancy",
+      "metric": "inputbuf.max_slot_occupancy",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "auto.inputbuf.slot_occupied_ticks",
+      "metric": "inputbuf.slot_occupied_ticks",
+      "op": "eq",
+      "value": 16
+    },
+    {
+      "id": "auto.actiontl.combo_segments",
+      "metric": "actiontl.combo_segments",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.actiontl.unfinished_at_end",
+      "metric": "actiontl.unfinished_at_end",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.hitstop.started_ticks_player",
+      "metric": "hitstop.started_ticks_player",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.hitstop.frozen_ticks_player",
+      "metric": "hitstop.frozen_ticks_player",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.hitstop.nested_starts",
+      "metric": "hitstop.nested_starts",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.hitstop.unended_at_end",
+      "metric": "hitstop.unended_at_end",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.hitstop.presentation_frozen_at_end",
+      "metric": "hitstop.presentation_frozen_at_end",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.reaction.kills",
+      "metric": "reaction.kills",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.motion.mode_sequence",
+      "metric": "motion.mode_sequence",
+      "op": "eq",
+      "value": "Grounded/Nonex10,Grounded/Regularx112,Grounded/Nonex28"
+    },
+    {
+      "id": "auto.motion.speed_max",
+      "metric": "motion.speed_max",
+      "op": "eq",
+      "value": 8
+    },
+    {
+      "id": "auto.motion.ticks_to_full_speed",
+      "metric": "motion.ticks_to_full_speed",
+      "op": "eq",
+      "value": 43
+    },
+    {
+      "id": "auto.motion.ticks_to_stop",
+      "metric": "motion.ticks_to_stop",
+      "op": "eq",
+      "value": 3
+    },
+    {
+      "id": "auto.motion.facing_final",
+      "metric": "motion.facing_final",
+      "op": "eq",
+      "value": 3.141592654
+    },
+    {
+      "id": "auto.motion.end_position",
+      "metric": "motion.end_position",
+      "op": "eq",
+      "value": "-8.280926286,0"
+    },
+    {
+      "id": "auto.spatialhit.hit_confirmed",
+      "metric": "spatialhit.hit_confirmed",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.spatialhit.avoided",
+      "metric": "spatialhit.avoided",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.spatialhit.duplicate_confirmations",
+      "metric": "spatialhit.duplicate_confirmations",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.spatialhit.unconfirmed_damage",
+      "metric": "spatialhit.unconfirmed_damage",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.spatialhit.confirmed_without_damage",
+      "metric": "spatialhit.confirmed_without_damage",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "auto.poseext.pose_requests",
+      "metric": "poseext.pose_requests",
+      "op": "eq",
+      "value": "10:player:Move"
+    },
+    {
+      "id": "auto.poseext.hit_pose_total",
+      "metric": "poseext.hit_pose_total",
+      "op": "approx",
+      "value": 0,
+      "tolerance": 1E-06
+    },
+    {
+      "id": "auto.poseext.rate_max",
+      "metric": "poseext.rate_max",
+      "op": "approx",
+      "value": 1.6,
+      "tolerance": 1E-06
+    },
+    {
+      "id": "auto.poseext.rate_min",
+      "metric": "poseext.rate_min",
+      "op": "approx",
+      "value": 0.5,
+      "tolerance": 1E-06
+    },
+    {
+      "id": "auto.presentation.sfx_count",
+      "metric": "presentation.sfx_count",
+      "op": "approx",
+      "value": 0,
+      "tolerance": 1E-06
+    }
+  ]
+}

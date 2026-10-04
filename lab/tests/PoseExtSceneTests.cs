@@ -161,6 +161,87 @@ namespace Tests.Lab
             Assert.All(moveRates, r => Assert.InRange(r, 0.5 - 1e-9, 2.0 + 1e-9));
         }
 
+        // ------------------------------------------------------------------ 按住冲刺（M5-S8，ADR-0153）
+
+        private const string SprintHold = "feel_pose_sprint_hold";
+
+        /// <summary>每个 tick 的位移速度（该 tick 末位置与上一 tick 末位置的距离 ÷ 步长）；键为 tick。</summary>
+        private static Dictionary<int, double> TickSpeeds(LabRecording record)
+        {
+            var speeds = new Dictionary<int, double>();
+            for (var i = 1; i < record.Ticks.Count; i++)
+            {
+                var a = record.Ticks[i - 1].Position;
+                var b = record.Ticks[i].Position;
+                var dx = b.X - a.X;
+                var dy = b.Y - a.Y;
+                speeds[record.Ticks[i].Tick] = Math.Sqrt(dx * dx + dy * dy) / record.StepSeconds;
+            }
+
+            return speeds;
+        }
+
+        private static (int From, int To) Window(InputScript script, string action, string kind, string endKind)
+        {
+            var begin = script.Events.First(e => e.Action == action && e.Kind.ToString().Equals(kind, StringComparison.OrdinalIgnoreCase)).Tick;
+            var end = script.Events.First(e => e.Action == action && e.Kind.ToString().Equals(endKind, StringComparison.OrdinalIgnoreCase) && e.Tick > begin).Tick;
+            return (begin, end);
+        }
+
+        [Theory]
+        [InlineData("2d_action")]
+        [InlineData("2_5d_action")]
+        [InlineData("3d_action")]
+        public void HoldSprint_SteadySpeedFollowsTheHeldKey_WalkBeforeAndAfter(string cell)
+        {
+            var script = LabTestSupport.Script(SprintHold);
+            var record = Run(SprintHold, cell);
+            var speeds = TickSpeeds(record);
+            var baseSpeed = CalibrationBaseSpeed();
+            var walkSpeed = FeelRules.Preset("feel.preset.arpg_responsive").N("walk_speed_ratio") * baseSpeed;
+            var sprintSpeed = PresetValue("sprint_speed_ratio") * baseSpeed;
+            Assert.True(sprintSpeed > walkSpeed);
+
+            var push = Window(script, "input.action.move", "axis", "axis");           // 推杆起止
+            var hold = Window(script, "input.action.sprint", "press", "release");     // 第一次按住（有推杆）
+            var settle = 10;                                                             // 起步/转速过渡的容差 tick（只用于选稳态窗口，不进断言数值）
+
+            // 复现：按住冲刺键之前只是走路（达不到冲刺速度），按住后稳态达到冲刺速度；松键后回到走路速度。
+            double MaxIn(int from, int to) => Enumerable.Range(from, to - from).Max(t => speeds[t]);
+            Assert.Equal(walkSpeed, MaxIn(push.From, hold.From), 6);
+            Assert.Equal(sprintSpeed, MaxIn(hold.From, hold.To), 6);
+            Assert.Equal(walkSpeed, MaxIn(hold.To + settle, push.To), 6);
+
+            // 不变量：任何 tick 的速度都不超过冲刺上限；按住窗口之外（含松键后的过渡）速度从不超过走路上限，除了按住窗口刚结束的减速尾巴（只会比冲刺低）。
+            Assert.All(speeds.Values, v => Assert.True(v <= sprintSpeed + 1e-9));
+            foreach (var t in Enumerable.Range(push.From, hold.From - push.From))
+            {
+                Assert.True(speeds[t] <= walkSpeed + 1e-9, $"tick {t}");
+            }
+        }
+
+        [Theory]
+        [InlineData("2d_action")]
+        [InlineData("2_5d_action")]
+        [InlineData("3d_action")]
+        public void HoldSprint_WithoutMoveInput_ProducesNoMovement(string cell)
+        {
+            var script = LabTestSupport.Script(SprintHold);
+            var record = Run(SprintHold, cell);
+            var speeds = TickSpeeds(record);
+            var stops = script.Events.Where(e => e.Action == "input.action.move").Select(e => e.Tick).OrderBy(t => t).ToList();
+            var idleHold = script.Events.Where(e => e.Action == "input.action.sprint" && e.Tick > stops.Last()).Select(e => e.Tick).OrderBy(t => t).ToList();
+
+            // 复现：推杆松开后又按住冲刺键（没有移动输入）——这段时间没有移动请求，位置不变。
+            Assert.Equal(2, idleHold.Count);
+            var decelTicks = FeelRules.T(FeelRules.Preset("feel.preset.arpg_responsive").N("decel_ms"));
+            foreach (var tick in Enumerable.Range(stops.Last() + decelTicks + 2, idleHold[1] - (stops.Last() + decelTicks + 2)))
+            {
+                Assert.False(record.Ticks.First(s => s.Tick == tick).MoveRequested, $"tick {tick}");
+                Assert.Equal(0.0, speeds[tick], 9);
+            }
+        }
+
         // ------------------------------------------------------------------ 既有脚本不受影响
 
         [Fact]
@@ -173,7 +254,7 @@ namespace Tests.Lab
             }
 
             var withPose = LabTestSupport.FeelScripts().Where(s => s.Meta.PoseExt != null).Select(s => s.Meta.ScriptId).OrderBy(x => x).ToList();
-            Assert.Equal(new[] { Armor, Motion, React }.OrderBy(x => x).ToList(), withPose);
+            Assert.Equal(new[] { Armor, Motion, React, SprintHold }.OrderBy(x => x).ToList(), withPose);
         }
     }
 }

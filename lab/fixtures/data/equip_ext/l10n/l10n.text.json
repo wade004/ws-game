@@ -1,0 +1,26 @@
+{
+  "table": "l10n.text",
+  "schema_version": 1,
+  "rows": [
+    {
+      "key": "l10n.item.slot.std_off_hand.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "副手"
+    },
+    {
+      "key": "l10n.item.slot.std_trinket.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "饰品"
+    },
+    {
+      "key": "l10n.item.std_offhand_dagger.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "占位副手匕首"
+    },
+    {
+      "key": "l10n.item.std_lantern.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "占位提灯"
+    }
+  ]
+}

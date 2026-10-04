@@ -1,0 +1,76 @@
+{
+  "table": "display.map",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.map.std_offhand_dagger",
+      "category": "item",
+      "logical_id": "item.std_offhand_dagger",
+      "kind": "sprite",
+      "icon_id": "icon.item.std_offhand_dagger",
+      "weapon_style_ref": "display.weapon_style.offhand_dagger",
+      "sprite_set_id": "sprite.item.std_offhand_dagger",
+      "direction_count": 8,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.front_side_l",
+          "mirror_of": "dir.front_side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.back_side_l",
+          "mirror_of": "dir.back_side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.std_lantern",
+      "category": "item",
+      "logical_id": "item.std_lantern",
+      "kind": "sprite",
+      "icon_id": "icon.item.std_lantern",
+      "sprite_set_id": "sprite.item.std_lantern",
+      "direction_count": 8,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.front_side_l",
+          "mirror_of": "dir.front_side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.back_side_l",
+          "mirror_of": "dir.back_side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.std_socket_host",
+      "category": "creature",
+      "logical_id": "creature.std_socket_host",
+      "kind": "model",
+      "shadow": "blob",
+      "sort_offset": 0,
+      "model_ref": "model.std_dummy_biped",
+      "anim_set_ref": "display.anim_set.std_dummy_biped_model",
+      "sockets": [
+        "socket.main_hand",
+        "socket.off_hand"
+      ],
+      "slots": [
+        "slot.head"
+      ]
+    }
+  ]
+}

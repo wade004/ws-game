@@ -353,6 +353,10 @@ namespace Presentation.Assembly
         /// <c>hitFrameSource</c> 同时是 <see cref="IAnimMarkerSource"/>（框架自带的 <c>CharacterRigHitFrameSource</c> 是）时装配，否则为 null。</summary>
         public AnimMarkerDirector? AnimMarkers { get; private set; }
 
+        /// <summary>装备/卸装音效（手感设计/08 第 4 节 <c>item.template.equip_sfx_ref</c>，ADR-0153）。仅当至少一个物品模板声明了
+        /// <c>equip_sfx_ref</c> 时装配，否则为 null（总线上不新增订阅，行为与此前逐位一致）。</summary>
+        public EquipSfxDirector? EquipSfx { get; private set; }
+
         public ShellHost Shell { get; }
 
         public ShellViewModel ShellViewModel { get; }
@@ -787,6 +791,39 @@ namespace Presentation.Assembly
                 _subscriptions.Add(bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, e => AnimMarkers.Forget(e.EntityId)));
             }
 
+            // ADR-0153：装备/卸装音效。复用同一个出声通路（feedbackSink.PlaySfx，同脚步/打击）；目录里没有模板声明 equip_sfx_ref 时不装配。
+            {
+                var equipSfxByTemplate = new Dictionary<Id, Id>();
+                if (registry.TryGetAll("item.template", out var itemTemplates))
+                {
+                    foreach (var template in itemTemplates)
+                    {
+                        if (template.TryGetId("equip_sfx_ref", out var equipSfxRef))
+                        {
+                            equipSfxByTemplate[template.GetId("id")] = equipSfxRef;
+                        }
+                    }
+                }
+                if (equipSfxByTemplate.Count > 0)
+                {
+                    var carriersInventory = gameplay.Carriers.Inventory;
+                    var carriersEquipment = gameplay.Carriers.Equipment;
+                    EquipSfx = new EquipSfxDirector(
+                        bus, feedbackSink, equipSfxByTemplate,
+                        (unitId, instanceId) =>
+                        {
+                            var inBag = carriersInventory.FindInstance(unitId, instanceId);
+                            if (inBag.HasValue) return inBag.Value.TemplateId;
+                            foreach (var kv in carriersEquipment.GetAllEquippedInstances(unitId))
+                            {
+                                if (kv.Value.InstanceId.Equals(instanceId)) return kv.Value.TemplateId;
+                            }
+                            return null;
+                        },
+                        id => entityPositionResolver(id));
+                }
+            }
+
             // 根治修复（W5c，第三轮审计"离散回放门‘零事件步骤’无自动通知"仍保留项收口）：
             // Feedback（播放队列 Queue 随之就绪）已构造完成，把"当前是否存在尚未回放完的表现动作"
             // 探针经 GameplayAssembly.SetPendingPlaybackProbe 回填给 gameplay.Pacing（若其具体类型
@@ -1200,6 +1237,10 @@ namespace Presentation.Assembly
             if (AnimMarkers != null)
             {
                 Release(nameof(AnimMarkers), AnimMarkers.Dispose);
+            }
+            if (EquipSfx != null)
+            {
+                Release(nameof(EquipSfx), EquipSfx.Dispose);
             }
             Release(nameof(Feedback), Feedback.Dispose);
             Release(nameof(Shell), Shell.Dispose);
