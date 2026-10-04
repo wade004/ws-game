@@ -90,6 +90,20 @@ def verdicts(tmp_path_factory: pytest.TempPathFactory) -> dict:
     failed_xml = tmp / "failed.xml"
     failed_xml.write_text(_nunit_xml("Failed(Child)", 1), encoding="utf-8")
     missing_xml = tmp / "missing.xml"
+    # 复现（1.98.0 发布门禁，Unity PlayMode 步骤 FAIL 而 619/619 实际全过）：Unity 把 Assert.Ignore 的中文
+    # 原因写进 <![CDATA[ ... 。]]>；全角句号 UTF-8 字节 E3 80 82 紧邻 "]]>"，Windows PowerShell 5.1 的
+    # Get-Content -Raw 按 ANSI 代码页（GBK）解码时，"82 5D" 凑成一个双字节字符吞掉第一个 "]"，
+    # CDATA 无法闭合，[xml] 转换抛 "开始标记 message 与结束标记 output 不匹配"。
+    cjk_xml = tmp / "cjk_cdata.xml"
+    cjk_xml.write_text(
+        _nunit_xml("Passed", 0).replace(
+            "></test-run>",
+            "><test-suite><reason><message><![CDATA[未设置 GF_LAB_SCREENSHOT_DIR，跳过截图。]]></message></reason>"
+            "<output><![CDATA[[TestFirstChance] Finished: result=Passed message=跳过截图。\n]]></output>"
+            "</test-suite></test-run>",
+        ),
+        encoding="utf-8",
+    )
 
     # 清单用例：(name, package, entry paths)。
     manifest_cases: list[dict] = []
@@ -127,7 +141,12 @@ def verdicts(tmp_path_factory: pytest.TempPathFactory) -> dict:
 
     import json
     payload = {
-        "xml": {"passed": str(passed_xml), "failed": str(failed_xml), "missing": str(missing_xml)},
+        "xml": {
+            "passed": str(passed_xml),
+            "failed": str(failed_xml),
+            "missing": str(missing_xml),
+            "cjk_cdata": str(cjk_xml),
+        },
         "manifest": manifest_cases,
         "smoke": [{"name": n, "text": t, "discrete": d} for n, t, d in smoke_cases],
     }
@@ -139,7 +158,7 @@ def verdicts(tmp_path_factory: pytest.TempPathFactory) -> dict:
 $p = Get-Content -LiteralPath {ps_quote(payload_path)} -Raw -Encoding UTF8 | ConvertFrom-Json
 $out = [ordered]@{{}}
 $out.xml = [ordered]@{{}}
-foreach ($k in @("passed","failed","missing")) {{
+foreach ($k in @("passed","failed","missing","cjk_cdata")) {{
     $v = Get-UnityTestRunVerdict -ResultsXml $p.xml.$k
     $out.xml[$k] = [ordered]@{{ exists = [bool]$v.Exists; ok = [bool]$v.Ok; result = [string]$v.Result; failed = [string]$v.Failed }}
 }}
@@ -173,6 +192,19 @@ def test_failed_result_xml_is_rejected_and_reports_failed_count(verdicts: dict) 
     assert v["ok"] is False
     assert v["result"] == "Failed(Child)"
     assert v["failed"] == "1"
+
+
+def test_result_xml_with_cjk_cdata_is_read_as_utf8_on_every_host(verdicts: dict) -> None:
+    # 不变量：结果 XML 一律按 UTF-8 读（不随宿主默认代码页变），中文 CDATA 紧邻 "]]>" 也能解析、判为 Passed。
+    v = verdicts["xml"]["cjk_cdata"]
+    assert v == {"exists": True, "ok": True, "result": "Passed", "failed": "0"}
+
+
+def test_consumer_smoke_reads_result_xml_without_the_ansi_default() -> None:
+    # consumer_smoke.ps1 的 PlayMode 结果解析与门禁同源：不得再用 [xml]$x = Get-Content -Raw（5.1 下按 ANSI 解码）。
+    text = (TOOLCHAIN_DIR / "consumer_smoke.ps1").read_text(encoding="utf-8-sig")
+    assert "Get-Content -Path $resultsXml -Raw" not in text
+    assert "Get-UnityTestRunVerdict" in text or "XmlDocument" in text
 
 
 def test_missing_result_xml_reports_not_exists(verdicts: dict) -> None:
