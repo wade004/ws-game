@@ -347,13 +347,13 @@ namespace Adapter.Unity.Tests.LabHost
 
         // ───────── 背包面板尺寸（item 3a） ─────────
 
-        /// <summary>给 ui_layout_definition 的 inventory 行加 cell_size 的数据视图包装（其它表原样透传）。</summary>
+        /// <summary>改写 ui_layout_definition 的 inventory 行的数据视图包装：<c>cell</c> 有值 = 该行取这个 cell_size，null = 去掉该行（没有布局行时的缺省）；其它表原样透传。</summary>
         private sealed class LayoutOverrideRegistry : IDataRegistryView
         {
             private readonly IDataRegistryView _inner;
-            private readonly float _cell;
+            private readonly float? _cell;
 
-            public LayoutOverrideRegistry(IDataRegistryView inner, float cell)
+            public LayoutOverrideRegistry(IDataRegistryView inner, float? cell)
             {
                 _inner = inner;
                 _cell = cell;
@@ -384,10 +384,10 @@ namespace Adapter.Unity.Tests.LabHost
                     result.Add(row);
                 }
 
-                if (template != null)
+                if (template != null && _cell.HasValue)
                 {
                     var raw = Core.Foundation.Common.Json.JsonReader.Parse(
-                        "{\"id\":\"" + template.Key + "\",\"panel\":\"inventory\",\"fields\":{\"anchor\":\"top_right\",\"cell_size\":" + _cell.ToString(System.Globalization.CultureInfo.InvariantCulture) + "},\"skin_ref\":\"skin.default\"}");
+                        "{\"id\":\"" + template.Key + "\",\"panel\":\"inventory\",\"fields\":{\"anchor\":\"top_right\",\"cell_size\":" + _cell.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + "},\"skin_ref\":\"skin.default\"}");
                     result.Add(new DataRecord(template.Table, template.Key, template.Id, (Core.Foundation.Common.Json.JsonObject)raw));
                 }
 
@@ -401,6 +401,17 @@ namespace Adapter.Unity.Tests.LabHost
             public IReadOnlyList<string> Tables => _inner.Tables;
 
             public TableSchema? GetSchema(string table) => _inner.GetSchema(table);
+        }
+
+        /// <summary>数据集（data/_equip）里 inventory 布局行的 cell_size（读文件，不写死）。</summary>
+        private static float DataInventoryCellSize()
+        {
+            var text = File.ReadAllText(Path.Combine(SkinTestKit.RepoRoot, "data", "_equip", "ui", "ui_layout_definition.json"));
+            var at = text.IndexOf("\"panel\": \"inventory\"", StringComparison.Ordinal);
+            Assert.GreaterOrEqual(at, 0, "数据里没有 inventory 布局行");
+            var match = System.Text.RegularExpressions.Regex.Match(text.Substring(at), @"""cell_size"":\s*([0-9.]+)");
+            Assert.IsTrue(match.Success, "inventory 布局行没有 cell_size");
+            return float.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
         }
 
         /// <summary>每个物品名都是一长串字的本地化宿主（测面板宽度随内容变）。</summary>
@@ -449,16 +460,19 @@ namespace Adapter.Unity.Tests.LabHost
         [UnityTest]
         public IEnumerator InventoryPanel_SizeFollowsContent_NothingOverflows_WithAndWithoutSkin_AtAnyCellSizeAndNameLength()
         {
-            var cases = new (string? Skin, float? Cell, bool LongNames)[]
+            // Data = 用数据集里真实的 inventory 布局行（data/_equip，带 cell_size）；Cell 有值 = 用这个 cell_size 覆盖；
+            // 两者都没有 = 没有任何布局行（"没声明"的缺省：32 px 格子、260 x 260 面板）。
+            var cases = new (string? Skin, float? Cell, bool LongNames, bool Data)[]
             {
-                (null, null, false), (PackRef, null, false),
-                (null, 96f, false), (PackRef, 96f, false),
-                (null, null, true), (PackRef, 64f, true),
+                (null, null, false, false), (PackRef, null, false, false),
+                (null, null, false, true), (PackRef, null, false, true),
+                (null, 96f, false, false), (PackRef, 96f, false, false),
+                (null, null, true, false), (PackRef, 64f, true, false),
             };
-            foreach (var (skin, cell, longNames) in cases)
+            foreach (var (skin, cell, longNames, data) in cases)
             {
-                var what = $"skin={skin ?? "placeholder"} cell={cell?.ToString() ?? "default"} longNames={longNames}";
-                var rig = BuildRig(skin, _rootRef, cell.HasValue ? r => new LayoutOverrideRegistry(r, cell.Value) : (Func<IDataRegistryView, IDataRegistryView>?)null);
+                var what = $"skin={skin ?? "placeholder"} cell={cell?.ToString() ?? (data ? "data" : "none")} longNames={longNames}";
+                var rig = BuildRig(skin, _rootRef, data ? (Func<IDataRegistryView, IDataRegistryView>?)null : r => new LayoutOverrideRegistry(r, cell));
                 if (longNames)
                 {
                     rig.Visuals.L10n = new LongNameL10n();
@@ -478,14 +492,25 @@ namespace Adapter.Unity.Tests.LabHost
                     Assert.AreEqual(panel.CellSize, c.Frame.rectTransform.rect.height, 0.5f, what + " 物品格高");
                 }
 
-                if (!cell.HasValue && !longNames)
+                if (data)
+                {
+                    // 数据声明的格子边长：布局行 cell_size（读数据文件，不写死）；图标矩形 = 格子减两侧 2 px 内边距。
+                    Assert.AreEqual(DataInventoryCellSize(), panel.CellSize, 0.01f, what + " 格子边长应取数据 cell_size");
+                    foreach (var c in panel.Cells)
+                    {
+                        Assert.AreEqual(DataInventoryCellSize() - 4f, c.Icon.rectTransform.rect.width, 0.5f, what + " 图标宽");
+                        Assert.AreEqual(DataInventoryCellSize() - 4f, c.Icon.rectTransform.rect.height, 0.5f, what + " 图标高");
+                    }
+                }
+
+                if (!cell.HasValue && !longNames && !data)
                 {
                     // 不变量：内容放得下缺省尺寸时面板仍是缺省的 260 x 260（缺省行为不变）。
                     Assert.AreEqual(260f, size.x, 0.01f, what);
                     Assert.AreEqual(260f, size.y, 0.01f, what);
                 }
 
-                if (cell.HasValue)
+                if (cell.HasValue || data)
                 {
                     // 规则算出的期望高度：内边距 2 x 8 + 行高 x 行数 + 行间距 2 x (行数 - 1)。
                     var expectHeight = Mathf.Max(260f, 16f + rows * panel.CellSize + (rows - 1) * 2f);
@@ -560,6 +585,62 @@ namespace Adapter.Unity.Tests.LabHost
                 var shortId = bareSlots[i].TemplateId.Value.Substring(bareSlots[i].TemplateId.Value.LastIndexOf('.') + 1);
                 StringAssert.StartsWith(shortId + " x", bareTexts[i], "没有本地化宿主时退回 id 短名");
             }
+        }
+
+        [UnityTest]
+        public IEnumerator Naming_BackpackLabel_TooltipTitle_AndSlotLabels_ShareOneDisplayNamePath()
+        {
+            // 复现（第 2 轮截图）：同一个背包面板，一张图里行标签是 id（std_bow），另一张图里是显示名（占位弓）——
+            // 根因是截图夹具没给 UiVisuals 接本地化宿主，而不是两条取名路径。现在所有取名都经 ItemTooltipBuilder.ItemName / SlotText，
+            // 这里逐项断言三处（背包行标签、提示框标题、装备槽位标签/提示框槽位行）对同一物品同一槽位给出同一个名字。
+            foreach (var (skin, root) in new[] { (PackRef, _rootRef), ((string?)null, _rootPh) })
+            {
+                var rig = BuildRig(skin, root);
+                var labels = rig.Inventory.LabelTexts;
+                var slots = rig.Stage.Bag.Slots.ToList();
+                for (var i = 0; i < slots.Count; i++)
+                {
+                    var template = slots[i].TemplateId;
+                    var name = ItemNameOf(rig.Stage, template.Value);
+                    StringAssert.StartsWith(name + " x", labels[i], "背包行标签 " + template.Value);
+                    Assert.AreEqual(name, rig.Visuals.ItemName(template), "UiVisuals.ItemName " + template.Value);
+                    var cell = rig.Inventory.Cells[i];
+                    Enter(cell.Frame.gameObject, rig.Interaction.ScreenOf(cell.Frame.rectTransform));
+                    Assert.AreEqual(name, rig.Interaction.Tooltip.TitleText, "提示框标题 " + template.Value);
+                    Exit(cell.Frame.gameObject, rig.Interaction.ScreenOf(cell.Frame.rectTransform));
+                }
+
+                // 槽位：空槽标签 = 槽位定义 name_key 的文案，也 = 该槽位里物品的提示框"槽位"行。
+                foreach (var slot in rig.Stage.Panel.Slots)
+                {
+                    Assert.IsFalse(slot.Occupied, "夹具里所有槽位应是空的");
+                    var key = rig.Stage.Registry.Get("item.slot_definition", slot.SlotId)!.GetString("name_key");
+                    var expected = L10nText(rig.Stage, key);
+                    var cell = SlotCell(rig, slot.SlotId.Value);
+                    Assert.AreEqual(expected, cell.Label.text, "槽位标签 " + slot.SlotId.Value);
+                    StringAssert.DoesNotContain("std_", cell.Label.text, "槽位标签不应是 id：" + cell.Label.text);
+                    Assert.AreEqual(expected, rig.Visuals.SlotName(slot.SlotId), "UiVisuals.SlotName " + slot.SlotId.Value);
+                }
+
+                foreach (var template in slots.Select(sl => sl.TemplateId).ToList())
+                {
+                    var content = rig.Visuals.TooltipOf(template)!;
+                    var slotId = rig.Stage.Registry.Get("item.template", template)!.GetId("slot");
+                    Assert.AreEqual(rig.Visuals.SlotName(slotId), content.SlotText, "提示框槽位行与装备槽位标签应一致 " + template.Value);
+                }
+
+                UnityEngine.Object.Destroy(rig.Root.gameObject);
+                yield return null;
+            }
+
+            // 不变量：缺显示名才回落 id 短名（没有本地化宿主）——物品名、槽位名同时回落，不抛异常。
+            var bare = BuildRig(PackRef, _rootRef, null, l10n: false);
+            foreach (var slot in bare.Stage.Panel.Slots)
+            {
+                Assert.AreEqual(slot.SlotName, SlotCell(bare, slot.SlotId.Value).Label.text, "没有本地化宿主时槽位标签退回短名 " + slot.SlotId.Value);
+            }
+
+            Assert.AreEqual("std_bow", bare.Visuals.ItemName(new Id(BowId)));
         }
 
         // ───────── 运行期换皮肤（item 4） ─────────

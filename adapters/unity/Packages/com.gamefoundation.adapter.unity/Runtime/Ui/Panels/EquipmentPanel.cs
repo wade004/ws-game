@@ -289,7 +289,7 @@ namespace Adapter.Unity.Ui.Panels
 
             var icon = CreateChildImage("Icon", rect, 3f);
             var quality = CreateChildImage("Quality", rect, 0f);
-            var label = UiWidgets.CreateLabel("Label", rect, slotName, 10, TextAlignmentOptions.Bottom);
+            var label = UiWidgets.CreateLabel("Label", rect, _visuals.SlotName(slotId), 10, TextAlignmentOptions.Bottom);
             UiWidgets.SetRect(label.rectTransform, Vector2.zero, Vector2.one, new Vector2(2f, 1f), new Vector2(-2f, -1f));
             label.overflowMode = TextOverflowModes.Ellipsis;
 
@@ -351,7 +351,7 @@ namespace Adapter.Unity.Ui.Panels
                     cell.Icon.sprite = null;
                     cell.Icon.enabled = false;
                     cell.Quality.enabled = false;
-                    cell.Label.text = slot.SlotName;
+                    cell.Label.text = _visuals.SlotName(slot.SlotId);   // 槽位显示名（slot_definition.name_key 本地化，取不到退回短名）；SlotName 仍是皮肤文件名用的短名
                 }
             }
 

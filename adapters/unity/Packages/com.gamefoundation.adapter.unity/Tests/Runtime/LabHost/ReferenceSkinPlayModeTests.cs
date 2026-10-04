@@ -110,6 +110,24 @@ namespace Adapter.Unity.Tests.LabHost
             }
         }
 
+        private static string L10nText(WardrobeStage stage, string key)
+        {
+            var row = stage.Registry.GetAll("l10n.text").FirstOrDefault(r => r.TryGetString("key", out var k) && k == key);
+            Assert.IsNotNull(row, "l10n.text 没有键 " + key);
+            return row!.GetString("text");
+        }
+
+        /// <summary>数据集（data/_equip）里 inventory 布局行的 cell_size（读文件，不写死）。</summary>
+        private static float DataInventoryCellSize()
+        {
+            var text = File.ReadAllText(Path.Combine(SkinTestKit.RepoRoot, "data", "_equip", "ui", "ui_layout_definition.json"));
+            var at = text.IndexOf("\"panel\": \"inventory\"", StringComparison.Ordinal);
+            Assert.GreaterOrEqual(at, 0, "数据里没有 inventory 布局行");
+            var match = System.Text.RegularExpressions.Regex.Match(text.Substring(at), @"""cell_size"":\s*([0-9.]+)");
+            Assert.IsTrue(match.Success, "inventory 布局行没有 cell_size");
+            return float.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         private WardrobeStage NewStage()
         {
             var template = LabHostTestSupport.Script(EquipWardrobeRunner.TemplateScript);
@@ -362,6 +380,7 @@ namespace Adapter.Unity.Tests.LabHost
         {
             var loader = new UnityResourceLoader();
             var visuals = new UiVisuals(pack, stage.Registry, stage.DisplayInfo, loader);
+            visuals.L10n = stage.L10n;       // 与生产宿主一致（UiPanelHost / 换装场景都给 Visuals 接本地化宿主）：槽位标签、物品名取显示名
             _disposables.Add(visuals);
             var go = UiWidgets.CreateRoot("EquipmentPanelHost", root.Content);
             var panel = go.gameObject.AddComponent<EquipmentPanel>();
@@ -400,6 +419,11 @@ namespace Adapter.Unity.Tests.LabHost
                 AssertPixelsEqualFile(state.selectedSprite, PackFile("slot_frame/_selected.png"), "槽位框 selected", 0);
                 AssertPixelsEqualFile(state.disabledSprite, PackFile("slot_frame/_disabled.png"), "槽位框 disabled", 0);
                 Assert.AreEqual(panel.CellSize, cell.Root.sizeDelta.x);
+
+                // 复现：空槽标签曾显示 std_main_hand 这类 id；现在取 slot_definition.name_key 的本地化文案（期望值读数据行）。
+                var slotKey = stage.Registry.Get("item.slot_definition", cell.SlotId)!.GetString("name_key");
+                Assert.AreEqual(L10nText(stage, slotKey), cell.Label.text, "空槽标签 " + cell.SlotName);
+                StringAssert.DoesNotContain("std_", cell.Label.text, "空槽标签不应是 id");
             }
 
             var iconsChecked = 0;
@@ -473,6 +497,7 @@ namespace Adapter.Unity.Tests.LabHost
             var root = NewUiRoot();
             var loader = new UnityResourceLoader();
             var visuals = new UiVisuals(pack, stage.Registry, stage.DisplayInfo, loader);
+            visuals.L10n = stage.L10n;       // 与生产宿主一致：行标签取物品显示名（复现：夹具没接本地化宿主时截图里是 std_bow 这类 id）
             _disposables.Add(visuals);
 
             // 把全部物品放进背包：逐件穿上再全部卸下（卸下的物品回到背包）。
@@ -517,8 +542,26 @@ namespace Adapter.Unity.Tests.LabHost
                 AssertPixelsEqualFile(cell.Quality.sprite, PackFile("quality_frame/" + visuals.QualityNameOf(template) + ".png"), "背包品质框", 0);
             }
 
+            // 格子边长取数据里 inventory 布局行的 cell_size（数据集 data/_equip 声明 48，读文件取值，不写死）；图标矩形 = 格子减两侧 2 px 内边距。
+            var dataCell = DataInventoryCellSize();
+            Assert.AreEqual(dataCell, panel.CellSize, 0.01f, "背包格子应取数据 cell_size");
+            Assert.Greater(dataCell, 32f, "数据声明的格子比缺省 32 px 大，图标才看得清");
+            foreach (var cell in panel.Cells)
+            {
+                Assert.AreEqual(dataCell - 4f, cell.Icon.rectTransform.rect.width, 0.5f, "背包图标宽度 = 数据格子边长 - 4");
+                Assert.AreEqual(dataCell - 4f, cell.Icon.rectTransform.rect.height, 0.5f, "背包图标高度 = 数据格子边长 - 4");
+            }
+
+            // 行标签是物品显示名（读 l10n.text 数据行），不是 id。
+            var labels = panel.LabelTexts;
+            for (var i = 0; i < vm.Slots.Count; i++)
+            {
+                var nameKey = stage.Registry.Get("item.template", vm.Slots[i].TemplateId)!.GetString("name_key");
+                StringAssert.StartsWith(L10nText(stage, nameKey) + " x", labels[i], "背包行标签应是显示名");
+                StringAssert.DoesNotContain("std_", labels[i], "背包行标签不应是 id");
+            }
+
             Assert.AreEqual(0, visuals.FailedCount);
-            Assert.AreEqual(32f, panel.CellSize, "没有布局行时背包格子取缺省 32 px（缺省行为不变）");
             yield return Shot(root, "v2_inventory_panel.png", 900, 560);
         }
 

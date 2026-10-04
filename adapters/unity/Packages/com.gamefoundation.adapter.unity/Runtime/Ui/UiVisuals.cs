@@ -212,26 +212,17 @@ namespace Adapter.Unity.Ui
         }
 
         /// <summary>物品显示名：<c>item.template.name_key</c> 经 <see cref="L10n"/> 取文案；没有键、没有 L10n 或取不到时退回模板 id 的短名（如 <c>std_bow</c>）。</summary>
-        public string ItemName(Id template)
-        {
-            var row = Registry?.Get("item.template", template);
-            if (L10n != null && row != null && row.TryGetId("name_key", out var key))
-            {
-                var text = L10n.Text(key);
-                if (!string.IsNullOrEmpty(text))
-                {
-                    return text;
-                }
-            }
+        public string ItemName(Id template) => ItemTooltipBuilder.ItemName(Registry, template, TextFunc());
 
-            var value = template.Value;
-            var dot = value.LastIndexOf('.');
-            return dot >= 0 ? value.Substring(dot + 1) : value;
-        }
+        /// <summary>槽位显示名：槽位定义的 <c>name_key</c> 经 <see cref="L10n"/> 取文案；取不到时退回槽位短名（如 <c>std_main_hand</c>）。</summary>
+        public string SlotName(Id slotId) =>
+            Registry == null ? EquipmentViewModel.SlotShortName(slotId) : ItemTooltipBuilder.SlotText(Registry, slotId, TextFunc());
+
+        private Func<Id, string>? TextFunc() => L10n == null ? (Func<Id, string>?)null : key => L10n.Text(key);
 
         /// <summary>物品提示框内容（名称、品质、属性行）；数据里没有该模板返回 null。</summary>
         public ItemTooltipContent? TooltipOf(Id template) =>
-            Registry == null ? null : ItemTooltipBuilder.Build(Registry, template, L10n == null ? (Func<Id, string>?)null : key => L10n.Text(key));
+            Registry == null ? null : ItemTooltipBuilder.Build(Registry, template, TextFunc());
 
         /// <summary>物品模板的品质短名（<c>item.template.quality</c> 去前缀）；没有为空串。</summary>
         public string QualityNameOf(Id template)
