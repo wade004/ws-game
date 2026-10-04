@@ -1,0 +1,16 @@
+{
+  "colors": {
+    "panel": "#040c21",
+    "panel_edge": "#4c2d15",
+    "text": "#f0e4c8",
+    "text_dim": "#b3a58a",
+    "highlight": "#f2c14e",
+    "disabled": "#6d6a66",
+    "ok": "#6fcf7c",
+    "blocked": "#e0584c"
+  },
+  "font": "fonts/noto_sans_cjk_sc.otf",
+  "panel_border": 16,
+  "tooltip_border": 10,
+  "button_border": 12
+}

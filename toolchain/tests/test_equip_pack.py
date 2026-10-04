@@ -293,9 +293,14 @@ def test_icon_rules(real_tables, tmp_path):
     assert _checks(_run(t, assets), "error") == [E.CHECK_ICON_FILE_MISSING]
     Image.new("RGBA", (64, 48), (255, 0, 0, 255)).save(icon)
     assert _checks(_run(t, assets), "error") == [E.CHECK_ICON_SIZE_INVALID]
-    Image.new("RGBA", (64, 64), (255, 0, 0, 255)).save(icon)          # 满铺 = 贴边（疑似含品质框）
+    Image.new("RGBA", (64, 64), (255, 0, 0, 255)).save(icon)          # 满铺 = 不透明底（说清楚是没有透明像素，不误导成"贴边"）
     r = _run(t, assets)
-    assert _checks(r, "error") == [E.CHECK_ICON_ALPHA_INVALID] and "贴边" in r.issues[0].message
+    assert _checks(r, "error") == [E.CHECK_ICON_ALPHA_INVALID] and "没有任何透明像素" in r.issues[0].message
+    edge = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    edge.paste((255, 0, 0, 255), (0, 10, 40, 50))                      # 主体贴左边：报出包围盒
+    edge.save(icon)
+    r = _run(t, assets)
+    assert _checks(r, "error") == [E.CHECK_ICON_ALPHA_INVALID] and "贴边" in r.issues[0].message and "0,10" in r.issues[0].message
     Image.new("RGBA", (64, 64), (0, 0, 0, 0)).save(icon)
     r = _run(t, assets)
     assert _checks(r, "error") == [E.CHECK_ICON_ALPHA_INVALID] and "全透明" in r.issues[0].message

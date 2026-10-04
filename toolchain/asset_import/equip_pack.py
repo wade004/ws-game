@@ -398,11 +398,15 @@ def check_icon_image(path: Path) -> Optional[tuple[str, str]]:
             return CHECK_ICON_SIZE_INVALID, f"不是正方形（{w}x{h}）"
         if not (ICON_MIN_SIDE <= w <= ICON_MAX_SIDE) or (w & (w - 1)) != 0:
             return CHECK_ICON_SIZE_INVALID, f"边长 {w} 不是 {ICON_MIN_SIDE}～{ICON_MAX_SIDE} 内 2 的幂"
-        bbox = im.getchannel("A").getbbox()
+        alpha = im.getchannel("A")
+        bbox = alpha.getbbox()
         if bbox is None:
             return CHECK_ICON_ALPHA_INVALID, "图标全透明"
+        if alpha.getextrema()[0] == 255:
+            return CHECK_ICON_ALPHA_INVALID, "没有任何透明像素（不透明底图标放进槽位会露出方块底；图标须是带 alpha 通道的 PNG，主体外透明）"
         if bbox[0] <= 0 or bbox[1] <= 0 or bbox[2] >= w or bbox[3] >= h:
-            return CHECK_ICON_ALPHA_INVALID, "主体贴边（14 第 7 节要求四周留透明边距，且图标不含品质框）"
+            return CHECK_ICON_ALPHA_INVALID, (f"主体贴边（不透明区域包围盒 {bbox[0]},{bbox[1]}～{bbox[2]},{bbox[3]}，图像 {w}x{h}）；"
+                                              "契约要求四周留透明边距，且图标不含品质框")
     return None
 
 

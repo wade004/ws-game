@@ -236,8 +236,14 @@ def _image_issues(x: M.ExpandedElement, path: Path, theme: Optional[dict], ref: 
         issue(CHECK_SKIN_ALPHA_INVALID, "没有任何透明像素（框不能是实心方块）")
     elif e.alpha == M.ALPHA_TRANSPARENT_CENTER:
         box = (w // 4, h // 4, w - w // 4, h - h // 4)
-        if alpha.crop(box).getextrema()[1] != 0:
-            issue(CHECK_SKIN_ALPHA_INVALID, "中心区域不是全透明（品质框叠在图标上，不能盖住图标）")
+        centre = alpha.crop(box)
+        top = centre.getextrema()[1]
+        if top != 0:
+            # 出图模型的"透明"处常留 alpha 1~9 的底噪（肉眼不可见）：报出最大 alpha 与位置，便于直接定位到像素
+            hit = centre.point(lambda v: 255 if v == top else 0).getbbox()
+            where = f"({box[0] + hit[0]}, {box[1] + hit[1]})" if hit else "?"
+            issue(CHECK_SKIN_ALPHA_INVALID,
+                  f"中心区域不是全透明（最大 alpha={top}，首个位置 {where}；品质框叠在图标上，不能盖住图标）")
     return out
 
 
