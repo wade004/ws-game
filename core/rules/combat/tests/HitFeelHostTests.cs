@@ -853,7 +853,7 @@ namespace Tests.Rules.Combat
             Assert.Empty(fx.Knock.Calls);
         }
 
-        // ------------------------------------------------------------------ 击飞（竖直轴能力包，手感设计/06 第 10 节勘误 9）
+        // ------------------------------------------------------------------ 击飞（竖直轴能力包，手感设计/06 第 1.2 节）
 
         [Fact]
         public void Launch_ApexFollowsLaunchHeightResistanceAndImpactMultiplier_AndIsSubmittedWithTheKnockback()

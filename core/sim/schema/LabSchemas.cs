@@ -46,7 +46,7 @@ namespace Core.Sim
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "lab.scenario.<组合>_<模式>，如 lab.scenario.2d_targeted"),
                 new FieldSchema("space", FieldKind.Enum, required: true, enumValues: SpaceValues,
-                    description: "空间模型：plane=平面俯视世界（无竖直运动轴，高度只是表现参数）；side_2d=横版二维（侧视 + 重力轴：重力下的跳跃/击飞/落地，命中形状带高度窗口，深度轴被控制空间锁死）；volume=体积空间（高度维：重力、命中形状高度窗口、含高度差的三维距离，深度轴自由）。后两者要求世界装配竖直轴（手感设计/06 第 10 节勘误 9）"),
+                    description: "空间模型：plane=平面俯视世界（无竖直运动轴，高度只是表现参数）；side_2d=横版二维（侧视 + 重力轴：重力下的跳跃/击飞/落地，命中形状带高度窗口，深度轴被控制空间锁死）；volume=体积空间（高度维：重力、命中形状高度窗口、含高度差的三维距离，深度轴自由）。后两者要求世界装配竖直轴（手感设计/06 第 1.2 节）"),
                 new FieldSchema("form", FieldKind.Enum, required: true, enumValues: FormValues,
                     description: "外形：sprite=精灵；model=模型。只影响呈现，无头宿主读取但不据此改变判定"),
                 new FieldSchema("camera_mode", FieldKind.Enum, required: true, enumValues: CameraModeValues,

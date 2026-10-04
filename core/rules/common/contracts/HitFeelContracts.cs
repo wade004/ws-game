@@ -307,7 +307,7 @@ namespace Core.Rules.Common
     }
 
     /// <summary>
-    /// 击飞提交口（手感设计/03 第 4 节、06 第 10 节勘误 9）：受击裁决在 <c>knockback</c>/<c>knockdown</c> 反应上按攻击方
+    /// 击飞提交口（手感设计/03 第 4 节、06 第 1.2 节）：受击裁决在 <c>knockback</c>/<c>knockdown</c> 反应上按攻击方
     /// <c>launch_height</c>（标定后世界单位，已含目标击退抗性与冲击等级倍率）算出顶点高度，由竖直运动服务把目标抛起
     /// （<c>Core.Carriers.Unit.VerticalMotionHost</c> 实现本接口）。没有竖直轴的世界（平面）里没有实现方——受击裁决的 <c>Launch</c> 为空，
     /// 击飞静默不发生（与击退口缺省为空同一惯例），行为与引入本接口之前逐位一致。

@@ -68,7 +68,7 @@ namespace Core.Rules.Targeting
         public double? GridSnapCellSize { get; set; }
 
         /// <summary>
-        /// 命中形状的高度判定（体积空间 / 横版二维能力包，手感设计/06 第 10 节勘误 9）：为 <c>true</c> 时，链声明了
+        /// 命中形状的高度判定（体积空间 / 横版二维能力包，手感设计/06 第 1.2 节）：为 <c>true</c> 时，链声明了
         /// <see cref="TargetChainDef.ShapeHeight"/>（<c>shape.height</c>）则候选必须同时满足"脚下高度与施法者脚下高度之差的绝对值
         /// 不超过该高度"才保留（形状按竖直方向拉成一个柱体，空间查询本身仍是平面的，过滤发生在来源收集之后）；未声明高度的链竖直方向不设限。
         /// 默认 <c>false</c>：高度被忽略，行为与引入本字段之前逐位一致（平面世界）。

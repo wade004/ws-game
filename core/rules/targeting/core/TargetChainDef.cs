@@ -67,7 +67,7 @@ namespace Core.Rules.Targeting
         /// <summary>
         /// 形状的竖直范围（<c>shape.height</c>，世界单位，必须为正）：命中判定的高度窗口半宽——候选脚下高度与锚点（施法者）脚下高度
         /// 之差的绝对值不超过它才算在形状内。<b>只在 <see cref="TargetingOptions.VerticalHit"/> 开启时生效</b>（体积空间 / 横版二维能力包，
-        /// 手感设计/06 第 10 节勘误 9）；平面世界里恒被忽略，既有链与既有行为逐位不变。链未声明时为 <c>null</c>，竖直方向不设限（无限高的柱体）。
+        /// 手感设计/06 第 1.2 节）；平面世界里恒被忽略，既有链与既有行为逐位不变。链未声明时为 <c>null</c>，竖直方向不设限（无限高的柱体）。
         /// </summary>
         public double? ShapeHeight { get; }
 

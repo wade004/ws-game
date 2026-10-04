@@ -739,7 +739,7 @@ blocking 为 `Stop`）"分支。用例 `ADR0125_MovementIntentEnumArgsTests`（�
 - 复现与不变量：`tests/MotionArbiterTests.UnitVolume.cs`（M2-C：边界停止、"从不重叠"、冲刺高速不隧穿、穿过、滑开、追击、击退、死亡不阻挡）`tests/MotionArbiterTests.UnitVolumeLimits.cs`（M3-A：推开速率与上限、权重为 0 不被推、不穿墙、绕行与窄道停下不摆动、推人转移量与抗性、顺序无关的打乱不变量、种类声明、折线扫掠）`tests/MotionArbiterTests.UnitVolumePhase3.cs`（M4-W2：预判与否不影响结果的不变量与收敛遍数、加减速剖面接触时刻、幽灵落点（体积外、夹在两个单位之间、墙边）与别人避让幽灵终点、切向速度与路径进度保留、同 tick 推人与顺序无关、网格与暴力逐位一致及 n = 100/200/400 计时）与 `tests/MotionArbiterTests.UnitVolumeExact.cs`（M4-B：跟随者同速轨迹与独自行走逐位一致、更快的跟随者贴最终位置且不拖慢领头者、折线对走动单位只拦第二段不拦弦、位移事件携带最终位置且按 id 排序、追击与冲锋读起点快照、含追击/折线/击退/冲锋的人群打乱顺序位置与事件流逐位一致）；实验室脚本 `feel_unit_block`、`feel_unit_separate`（`lab/README.md` 判断记录 34、36）。
 - **需要在有引擎的环境里跑**：运动层核心逻辑改了，按 AGENTS.md 跑引擎侧 `MovementStopAndBlockingPlayModeTests` 一组。
 
-## 判断记录（竖直轴：重力下的跳跃/击飞/落地，2026-10-02，M3-E1，[手感设计/06](../../../architecture/手感设计/06_手感实验室与验收.md) 第 10 节勘误 9）
+## 判断记录（竖直轴：重力下的跳跃/击飞/落地，2026-10-02，M3-E1，[手感设计/06](../../../architecture/手感设计/06_手感实验室与验收.md) 第 1.2 节）
 
 1. **只是加法、缺省关闭**：`MovementOptions.Vertical`（`VerticalAxisOptions`：`Gravity` 缺省 30 世界单位/秒²、`JumpHeight` 缺省 1.5、`AllowAirJump` 缺省假）为空时不装配，行为与引入之前逐位一致；非空时装配 `VerticalMotionHost`（实现 `IVerticalMotion` 与 `Core.Rules.Common.ILaunchSink`）并在 `MovementAndNavigation` 阶段紧随 `MovementTickHandler` 挂 `VerticalMotionTickHandler`；`CarriersAssembly.VerticalMotion` 暴露服务。
 2. **只积分被抛起的单位**：没被 `Launch`/`LaunchToApex`/`Jump` 的单位 `Unit.HeightOffset` 保持原值不动——飘浮怪、悬空靶是"静态高度"，不受重力；落地后高度回到地面高度（缺省地面恒为 0；声明了地形能力时是落点的地面高度，见"竖直轴能力包补完"一节）。

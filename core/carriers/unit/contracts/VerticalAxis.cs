@@ -4,7 +4,7 @@ using Core.Foundation.Common;
 namespace Core.Carriers.Unit
 {
     /// <summary>
-    /// 竖直轴（体积空间 / 横版二维能力包）的口味配置（手感设计/06 第 10 节勘误 9、<c>core/carriers/unit/README.md</c> 判断记录）。
+    /// 竖直轴（体积空间 / 横版二维能力包）的口味配置（手感设计/06 第 1.2 节、<c>core/carriers/unit/README.md</c> 判断记录）。
     /// 挂在 <see cref="MovementOptions.Vertical"/> 上：<b>为 <c>null</c>（缺省）时世界没有竖直运动轴</b>，
     /// <see cref="Unit.HeightOffset"/> 只是表现参数（05 第 3.3 节），行为与引入本类型之前逐位一致。
     /// <para>
