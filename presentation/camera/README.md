@@ -103,6 +103,13 @@ camera/
    - 取舍：不复用 `Shake` 的随机抖动实现——`Shake` 没有方向、强度单位也不同（世界距离），硬套会让"沿命中方向推一下"变成随机晃；冲击是独立的第二路偏移。
    - 复现/不变量：`UnityCameraTests.Impulse_Directional_PeakOffsetIsMagnitudeTimesScreenHeight_ThenDecaysToZero`（峰值 = 幅度 × 画面高度、线性衰减单调不增、过期回零）、`..._ZeroDirection_UsesIsotropicOffsetWithinPeak_AndInvalidArgumentsAreIgnored`、`..._DoesNotDisturbFollowBase_AfterItEnds`；端到端见 `HitFrameSyncEndToEndTests.FeelEngine_Hit_TriggersEngineCameraImpulse_MagnitudeFromProfile`（命中 → 引擎相机的冲量幅度 = `min(基础增益 × 变体增益, 震屏上限)`）。
 
+10. **相机侧合成上限、玩家强度、缩放脉冲与阻尼唯一权威（2026-10-04，手感落地 M5-S5，[ADR-0148](../../architecture/adr/0148-镜头与音画反馈的合成上限玩家强度脚步材质与动画表现标记.md)）**：
+   - **`shake_cap` 是相机侧合成上限**：`CameraHost` 对仍在衰减的冲击与震屏求合成幅度 = ‖Σ方向冲击‖ + Σ无方向冲击 + 震屏幅度（线性衰减，在各冲击的到期断点检查，解析求解、不逐帧采样）；新冲击会使合成超过上限时缩小到刚好用满上限，无余量则丢弃（`CapClampedCount` 计数）；退化为 `Shake` 的冲击受同一上限约束；上限 0 = 不限。取舍：流水线（`feedback_binder` 判断记录 27）保留批内取最大合并，两层各管一件事，不把上限推回流水线（流水线看不到跨批仍在衰减的量）。
+   - **玩家强度**：`IFeelIntensity`（`FeelIntensityKind.Shake/Impulse/Flash/Rumble`，设置键 `feel.intensity.*`，0..1、缺省 1）由 `FeelIntensityHost` 读设置文件；`CameraHost.Intensity` 注入后震屏系数乘到所有 `ICamera.Shake`（含规则驱动的 `shake_camera` 与退化通道），冲击系数乘到冲击与缩放脉冲；未注入时与此前逐位一致。
+   - **缩放脉冲**：`ICameraZoomPunch` 可选能力（`SupportsZoomPunch` 探测，不支持记一条诊断后忽略）；缩放脉冲不是位移，不计入合成上限。`UnityCamera` 实现：多次脉冲按比例相加、合计收窄上限 0.5，`EffectiveZoom = 基准缩放 × (1 − 合计)`，镜头冲击的画面比例仍按基准缩放换算（`VisibleHalfHeight` 不含脉冲）。
+   - **阻尼唯一权威**：`CameraFeelFollower` 不再把 `follow_lag_ms` 换算成 `ICamera.Follow` 的第二级平滑；分轴阻尼为 0 的轴取 `follow_lag_ms` 作为阻尼，轴阻尼优先。旧测试 `FollowLag_ConvertsToFollowSmoothingTimeConstantInSeconds` 依赖双级滞后，已换成"不叠第二级平滑"与"无阻尼时 follow_lag 即阻尼、轴阻尼优先"两条。
+   - 复现/不变量：`tests/CameraCompositeCapAndIntensityTests.cs`（同向 6 次 0.02 冲击合成 = 上限 0.03；反向抵消两次原样放行；衰减后余量回来；退化通道单次 0.05 被缩到上限 × 参考高度；强度系数 0.5/0.25 缩放幅度、0 关闭）、`tests/FeelIntensityHostTests.cs`、`tests/CameraFeelTests.cs`（阻尼两条）；Unity `AvFeedbackPlayModeTests` 的缩放脉冲三例（峰值 = 基准 ×(1 − 幅度)、过半线性、叠加合计上限 50%）。
+
 ## 契约缺口
 
 - （已由 ADR-0016 解决）`ShakePreset.Frequency` 此前无对应的 `ICamera` 参数可传递（见判断记录 3

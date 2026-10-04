@@ -165,9 +165,14 @@ namespace Presentation.FeedbackBinder.Core
 
         public Action<IReadOnlyList<Id>>? OnReleasePresentation { get; set; }
 
+        /// <summary>手柄震动的落地回调（装配根接 <c>IRumble</c> 能力并乘玩家震动强度）；null 时忽略。属性式注入（ABI 只加法）。</summary>
+        public Action<double, double>? OnRumble { get; set; }
+
+        public void Rumble(double strength, double durationMs) => OnRumble?.Invoke(strength, durationMs);
+
         public void ImpactCamera(ImpactCameraCue cue)
         {
-            if (cue.Magnitude > 0)
+            if (cue.Magnitude > 0 || cue.ZoomPunch > 0)
             {
                 OnImpactCamera?.Invoke(cue);
             }

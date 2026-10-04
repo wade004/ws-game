@@ -2458,7 +2458,7 @@ namespace Adapter.Unity.Presentation
         /// 负索引）。<paramref name="events"/> 为空或 null 时返回 null（<see cref="UnityFrameAnimPlayer.RegisterClipFromEffect"/>
         /// 的 <c>keyframes</c> 参数本就是可选的，传 null 与"没有任何关键帧"语义一致，不需要额外分配一个
         /// 空字典）。</summary>
-        private static IReadOnlyDictionary<string, int>? ComputeKeyframes(
+        internal static IReadOnlyDictionary<string, int>? ComputeKeyframes(
             IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec>? events, int frameCount)
         {
             if (events == null || events.Count == 0 || frameCount <= 0)
@@ -2466,12 +2466,17 @@ namespace Adapter.Unity.Presentation
                 return null;
             }
 
+            // ADR-0148：同一剪辑里同名事件（走路剪辑的两次 footstep）此前互相覆盖、只剩最后一次；现在第一次沿用裸名，
+            // 之后的以 "名#序号" 登记（AnimMarkerNames.RepeatKey），播放器触发时去掉序号后缀，每个声明的事件各触发一次。
             var result = new Dictionary<string, int>(StringComparer.Ordinal);
+            var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
             for (var i = 0; i < events.Count; i++)
             {
                 var frameIndex = (int)Math.Round(events[i].TimePct * (frameCount - 1), MidpointRounding.AwayFromZero);
                 frameIndex = Math.Max(0, Math.Min(frameCount - 1, frameIndex));
-                result[events[i].Name] = frameIndex;
+                occurrences.TryGetValue(events[i].Name, out var seen);
+                occurrences[events[i].Name] = seen + 1;
+                result[global::Presentation.Render.AnimMarkerNames.RepeatKey(events[i].Name, seen)] = frameIndex;
             }
             return result;
         }

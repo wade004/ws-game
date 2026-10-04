@@ -188,6 +188,8 @@ public void SyncAll(double alpha)
     复现/不变量：`tests/StrideEmitterTests.cs` 的"远处重生不产生虚假位移"、"余量清零"、"不影响其它实体"、
     "Dispose 退订两条订阅"。无公开签名变化。
 
+13. **ADR-0148：`StrideEmitter.Suppress`（2026-10-04，手感落地 M5-S5）**：新增可选属性 `Func<Id, bool>? Suppress`，对返回真的单位不再发 `unit.stride_completed`（累计位移与上次位置照常维护，取消抑制后不产生虚假位移）。装配根在"单位所用动画集声明了 `footstep` 标记且脚步层档位大于 0"时返回真，使脚步声只有标记一个来源（`feedback_binder` 判断记录 27）；未设置时与此前逐位一致。测试：`tests/StrideEmitterSuppressTests.cs`（无谓词时照旧；被抑制单位不发事件但累计继续；谓词恒假与无谓词逐位一致）。
+
 ## 契约缺口
 
 - 见 `presentation/common/README.md`"契约缺口"一节（`Entity.Kind` 词汇表未统一、

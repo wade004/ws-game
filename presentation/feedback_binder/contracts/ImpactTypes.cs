@@ -165,11 +165,35 @@ namespace Presentation.FeedbackBinder.Contracts
 
         public string? CameraUserIntensitySetting { get; }
 
+        /// <summary>拖尾开关（<c>trail_enabled</c>）：为真时动画 <c>trail_start/trail_end</c> 标记驱动 <see cref="TrailRef"/> 拖尾特效（ADR-0148）。</summary>
+        public bool TrailEnabled { get; }
+
+        /// <summary>残影开关（<c>afterimage_enabled</c>）：为真时 <c>trail_start/trail_end</c> 标记同时开关该单位的残影。</summary>
+        public bool AfterimageEnabled { get; }
+
+        /// <summary>拖尾特效定义（<c>trail_ref</c>，<c>vfx.def</c> 行 id）；null 表示没有。</summary>
+        public Id? TrailRef { get; }
+
         public ImpactFeel(
             Id? profileRef, double vfxScale, IReadOnlyList<int> layerTiers, string material, int maxConcurrent,
             double cameraImpulseGain, double cameraImpulseMinIntervalMs, double cameraShakeCap,
             string cameraDistanceAttenuation, string? cameraUserIntensitySetting)
+            : this(
+                profileRef, vfxScale, layerTiers, material, maxConcurrent, cameraImpulseGain, cameraImpulseMinIntervalMs, cameraShakeCap,
+                cameraDistanceAttenuation, cameraUserIntensitySetting, false, false, null)
         {
+        }
+
+        /// <summary>带拖尾/残影字段的构造重载（ADR-0148；旧构造转调本重载，三项取关闭）。</summary>
+        public ImpactFeel(
+            Id? profileRef, double vfxScale, IReadOnlyList<int> layerTiers, string material, int maxConcurrent,
+            double cameraImpulseGain, double cameraImpulseMinIntervalMs, double cameraShakeCap,
+            string cameraDistanceAttenuation, string? cameraUserIntensitySetting,
+            bool trailEnabled, bool afterimageEnabled, Id? trailRef)
+        {
+            TrailEnabled = trailEnabled;
+            AfterimageEnabled = afterimageEnabled;
+            TrailRef = trailRef;
             if (layerTiers == null) throw new ArgumentNullException(nameof(layerTiers));
             if (material == null) throw new ArgumentNullException(nameof(material));
             if (cameraDistanceAttenuation == null) throw new ArgumentNullException(nameof(cameraDistanceAttenuation));
@@ -194,7 +218,7 @@ namespace Presentation.FeedbackBinder.Contracts
 
         /// <summary>无手感来源时的中性值：无反馈包、特效倍率 1、全部层档 0、增益 0。</summary>
         public static ImpactFeel Neutral { get; } =
-            new ImpactFeel(null, 1.0, new int[SfxFeelLayers.Names.Length], SfxLayerIndex.GenericMaterial, int.MaxValue, 0, 0, 0, "linear", null);
+            new ImpactFeel(null, 1.0, new int[SfxFeelLayers.Names.Length], SfxLayerIndex.GenericMaterial, int.MaxValue, 0, 0, 0, Presentation.Camera.DistanceAttenuation.None, null);
     }
 
     /// <summary>反馈包流水线读手感的窄口（实现见 <c>Presentation.FeedbackBinder.Core.PresentingImpactFeelSource</c>）。</summary>
@@ -295,6 +319,9 @@ namespace Presentation.FeedbackBinder.Contracts
 
         public Id? FlashProfile { get; set; }
 
+        /// <summary>闪白同步方式（变体 <c>flash.sync</c>）：<see cref="ImpactFlashSync.ImpactMarker"/> 时由落地方把闪白推迟到受击方剪辑的 <c>impact</c> 标记。</summary>
+        public ImpactFlashSync FlashSync { get; set; }
+
         public Id? VfxId { get; set; }
 
         public FeedbackAttachSpec VfxAttach { get; set; }
@@ -348,9 +375,20 @@ namespace Presentation.FeedbackBinder.Contracts
         /// <summary>参与合并的命中数。</summary>
         public int HitCount { get; }
 
+        /// <summary>同批缩放脉冲幅度（比例，取各命中最大；0 = 无）。幅度经镜头冲击同一限频，衰减时长同 <see cref="DecayMs"/>。</summary>
+        public double ZoomPunch { get; }
+
         public ImpactCameraCue(
             Vec2 direction, double magnitude, double uncappedMagnitude, double decayMs, int durationTicks, Id? shakeProfileId, int hitCount)
+            : this(direction, magnitude, uncappedMagnitude, decayMs, durationTicks, shakeProfileId, hitCount, 0.0)
         {
+        }
+
+        public ImpactCameraCue(
+            Vec2 direction, double magnitude, double uncappedMagnitude, double decayMs, int durationTicks, Id? shakeProfileId, int hitCount,
+            double zoomPunch)
+        {
+            ZoomPunch = zoomPunch;
             Direction = direction;
             Magnitude = magnitude;
             UncappedMagnitude = uncappedMagnitude;
@@ -358,6 +396,20 @@ namespace Presentation.FeedbackBinder.Contracts
             DurationTicks = durationTicks;
             ShakeProfileId = shakeProfileId;
             HitCount = hitCount;
+        }
+    }
+
+    /// <summary>同一 tick 合并后的手柄震动提示（变体 <c>rumble</c>，ADR-0148）：强度取各命中最大并夹在 [0, 1]，时长取该最强命中的声明。</summary>
+    public sealed class ImpactRumbleCue
+    {
+        public double Strength { get; }
+
+        public double DurationMs { get; }
+
+        public ImpactRumbleCue(double strength, double durationMs)
+        {
+            Strength = strength;
+            DurationMs = durationMs;
         }
     }
 
@@ -393,9 +445,20 @@ namespace Presentation.FeedbackBinder.Contracts
 
         public IReadOnlyList<ImpactHitstopOp> Hitstops { get; }
 
+        /// <summary>本批手柄震动（同批取最强一条）；null = 无。</summary>
+        public ImpactRumbleCue? Rumble { get; }
+
         public ImpactBatch(
             IReadOnlyList<ImpactPlan> plans, ImpactCameraCue? camera, bool cameraDroppedByInterval, IReadOnlyList<ImpactHitstopOp> hitstops)
+            : this(plans, camera, cameraDroppedByInterval, hitstops, null)
         {
+        }
+
+        public ImpactBatch(
+            IReadOnlyList<ImpactPlan> plans, ImpactCameraCue? camera, bool cameraDroppedByInterval, IReadOnlyList<ImpactHitstopOp> hitstops,
+            ImpactRumbleCue? rumble)
+        {
+            Rumble = rumble;
             Plans = plans ?? throw new ArgumentNullException(nameof(plans));
             Camera = camera;
             CameraDroppedByInterval = cameraDroppedByInterval;

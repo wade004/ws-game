@@ -43,7 +43,7 @@ namespace Presentation.Render
     /// 这是已知简化，等价于"View 尚未同步过第一次姿态之前不渲染放置变化"。
     /// </para>
     /// </summary>
-    public sealed class ModelCharacterRig : ICharacterRig, IHitFrameEmitter, IProceduralAnim, IModelHandleProvider, IPresentationFreezable, IDisposable
+    public sealed class ModelCharacterRig : ICharacterRig, IHitFrameEmitter, IAnimMarkerEmitter, IProceduralAnim, IModelHandleProvider, IPresentationFreezable, IDisposable
     {
         /// <summary>命中帧事件 id（09 第 4.3 节 <c>anim_keyframe_driven</c> 策略 model 型一侧：经
         /// <see cref="IRenderer3D.OnAnimEvent"/> 触发）。<c>display.anim_set.clips[*].events</c>（04
@@ -112,6 +112,10 @@ namespace Presentation.Render
 
         public event Action<Id>? HitFrameReached;
 
+        /// <summary>动画标记到达（<see cref="IAnimMarkerEmitter"/>，ADR-0148）：渲染器的每个 <c>anim_event.*</c> 事件都转发（含 <c>hit_frame</c>），
+        /// 标记名已标准化（<see cref="AnimMarkerNames.FromModelEventId"/>），与 <see cref="RenderOptions.HitFrameSync"/> 策略无关。</summary>
+        public event Action<Id, string>? AnimMarker;
+
         public Id EntityId { get; }
 
         public AnimState CurrentAnimState { get; private set; } = AnimState.Idle;
@@ -138,17 +142,20 @@ namespace Presentation.Render
 
             _hitFrameSyncStrategy = (options ?? new RenderOptions()).HitFrameSync;
 
-            if (_hitFrameSyncStrategy == HitFrameSyncStrategy.AnimKeyframeDriven)
-            {
-                _animEventSubscription = _renderer.OnAnimEvent(_handle, OnRendererAnimEvent);
-            }
+            _animEventSubscription = _renderer.OnAnimEvent(_handle, OnRendererAnimEvent);
         }
 
         private void OnRendererAnimEvent(ModelHandle handle, Id eventId)
         {
-            if (eventId == HitFrameEventId)
+            if (_hitFrameSyncStrategy == HitFrameSyncStrategy.AnimKeyframeDriven && eventId == HitFrameEventId)
             {
                 HitFrameReached?.Invoke(EntityId);
+            }
+
+            var marker = AnimMarkerNames.FromModelEventId(eventId.Value);
+            if (marker != null)
+            {
+                AnimMarker?.Invoke(EntityId, marker);
             }
         }
 

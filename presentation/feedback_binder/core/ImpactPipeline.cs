@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.Feel;
 using Core.Rules.Common;
+using Presentation.Camera;
 using Presentation.FeedbackBinder.Contracts;
 using Presentation.VfxSfx.Contracts;
 using Presentation.VfxSfx.Core;
@@ -73,6 +74,7 @@ namespace Presentation.FeedbackBinder.Core
             public double DecayMs;
             public Id? ShakeProfile;
             public bool HasCamera;
+            public double ZoomPunch;
         }
 
         private sealed class RawHitstop
@@ -204,16 +206,19 @@ namespace Presentation.FeedbackBinder.Core
             {
                 plan.FlashProfile = variant.Flash.ProfileId;
                 plan.FlashEntity = variant.Flash.Target == FeedbackAttachTarget.Source ? hit.SourceId : hit.TargetId;
+                plan.FlashSync = variant.Flash.Sync;
             }
 
             if (variant.Camera != null)
             {
                 var intensity = variant.Intensity;
                 var baseGain = attackerFeel?.CameraImpulseGain ?? 0.0;
-                cand.Magnitude = baseGain * variant.Camera.ImpulseGain
-                    * intensity.RatioFactor(hit.AmountRatio) * intensity.OutcomeFactor(hit.IsCrit, hit.IsKill)
-                    * DistanceFactor(hit, attackerFeel);
+                var distance = DistanceFactor(hit, attackerFeel);
+                var scaled = intensity.RatioFactor(hit.AmountRatio) * intensity.OutcomeFactor(hit.IsCrit, hit.IsKill) * distance;
+                cand.Magnitude = baseGain * variant.Camera.ImpulseGain * scaled;
                 if (!(cand.Magnitude > 0)) cand.Magnitude = 0;
+                cand.ZoomPunch = variant.Camera.ZoomPunch * scaled;
+                if (!(cand.ZoomPunch > 0)) cand.ZoomPunch = 0;
                 cand.Direction = Normalize(hit.WorldDirection);
                 cand.DecayMs = variant.Camera.DecayMs;
                 cand.ShakeProfile = variant.Camera.ShakeProfile;
@@ -239,16 +244,32 @@ namespace Presentation.FeedbackBinder.Core
             var owner = _options.CameraOwnerResolver?.Invoke();
             var ownerFeel = owner.HasValue ? _options.FeelSource?.Get(owner.Value) : null;
             var curveRef = (ownerFeel ?? attackerFeel)?.CameraDistanceAttenuation;
-            if (string.IsNullOrEmpty(curveRef) || curveRef == "linear")
+            if (string.IsNullOrEmpty(curveRef) || curveRef == DistanceAttenuation.None)
             {
                 return 1.0;
             }
-
-            var curve = _options.CurveResolver?.Invoke(curveRef!);
-            if (curve == null)
+            if (curveRef == DistanceAttenuation.LegacyLinear)
             {
-                ReportOnce("curve:" + curveRef, $"镜头距离衰减曲线 \"{curveRef}\" 解析不到（未注入 CurveResolver 或曲线不存在），按不衰减处理");
+                // 旧数据把"不衰减"写成 linear（ADR-0148：该取值改名 none）。行为保持不衰减，只提示迁移，不静默改手感。
+                ReportOnce("attenuation:legacy_linear",
+                    "镜头距离衰减取值 \"linear\" 是旧写法，实际不衰减；请改写为 \"none\"（不衰减）或 \"linear:<跨度身高倍数>\"（真线性衰减），旧写法的行为暂保持不变");
                 return 1.0;
+            }
+
+            PiecewiseCurve? curve = null;
+            var linearSpan = 0.0;
+            if (DistanceAttenuation.TryParseLinearSpan(curveRef!, out linearSpan))
+            {
+                // 真线性衰减在下面按距离直接算
+            }
+            else
+            {
+                curve = _options.CurveResolver?.Invoke(curveRef!);
+                if (curve == null)
+                {
+                    ReportOnce("curve:" + curveRef, $"镜头距离衰减曲线 \"{curveRef}\" 解析不到（未注入 CurveResolver 或曲线不存在），按不衰减处理");
+                    return 1.0;
+                }
             }
 
             if (!owner.HasValue || _options.PositionResolver == null)
@@ -264,7 +285,7 @@ namespace Presentation.FeedbackBinder.Core
 
             var referenceHeight = _options.ReferenceHeightSource != null ? _options.ReferenceHeightSource() : _options.ReferenceHeight;
             var bodyHeights = Vec2.Distance(ownerPos.Value, hitPos.Value) / (referenceHeight > 0 ? referenceHeight : 1.0);
-            var factor = curve.Evaluate(bodyHeights);
+            var factor = curve != null ? curve.Evaluate(bodyHeights) : DistanceAttenuation.LinearFactor(bodyHeights, linearSpan);
             return factor > 0 ? factor : 0.0;
         }
 
@@ -465,6 +486,7 @@ namespace Presentation.FeedbackBinder.Core
             {
                 plan.FlashProfile = variant.Flash.ProfileId;
                 plan.FlashEntity = actorId;
+                plan.FlashSync = variant.Flash.Sync;
             }
             _group.Add(new Candidate { Plan = plan, AttackerFeel = feel });
         }
@@ -540,6 +562,7 @@ namespace Presentation.FeedbackBinder.Core
             }
 
             var camera = BuildCamera(group, out var dropped);
+            var rumble = BuildRumble(plans);
 
             var ops = new List<ImpactHitstopOp>(rawHitstops.Count);
             _generation++;
@@ -568,7 +591,43 @@ namespace Presentation.FeedbackBinder.Core
                 }
             }
 
-            return new ImpactBatch(plans, camera, dropped, ops);
+            return new ImpactBatch(plans, camera, dropped, ops, rumble);
+        }
+
+        /// <summary>
+        /// 手柄震动（ADR-0148）：只对镜头拥有者（玩家）自己参与的命中（攻击方或受击方是他）计；取强度最大的一条，强度同样乘
+        /// <c>intensity</c> 的幅度/暴击/击杀系数，夹在 [0, 1]。没有注入 <see cref="ImpactOptions.CameraOwnerResolver"/> 或解析不出拥有者时，所有命中都计。
+        /// 玩家强度（<c>feel.intensity.rumble</c>）与设备能力在出口统一处理，这里不读。
+        /// </summary>
+        private ImpactRumbleCue? BuildRumble(List<ImpactPlan> plans)
+        {
+            var owner = _options.CameraOwnerResolver?.Invoke();
+            ImpactRumbleCue? best = null;
+            foreach (var plan in plans)
+            {
+                var spec = plan.Variant.Rumble;
+                if (spec == null)
+                {
+                    continue;
+                }
+                if (owner.HasValue && !plan.SourceId.Equals(owner.Value) && !(plan.TargetId.HasValue && plan.TargetId.Value.Equals(owner.Value)))
+                {
+                    continue;
+                }
+
+                var hit = plan.Hit;
+                var intensity = plan.Variant.Intensity;
+                var strength = spec.Strength
+                    * intensity.RatioFactor(hit?.AmountRatio ?? 0.0)
+                    * intensity.OutcomeFactor(hit?.IsCrit ?? false, hit?.IsKill ?? false);
+                if (strength > 1.0) strength = 1.0;
+                if (!(strength > 0)) continue;
+                if (best == null || strength > best.Strength)
+                {
+                    best = new ImpactRumbleCue(strength, spec.DurationMs);
+                }
+            }
+            return best;
         }
 
         private static ImpactFreezeLayers LayersFor(RawHitstop op, List<ImpactPlan> plans, List<RecentHit> recent)
@@ -716,6 +775,7 @@ namespace Presentation.FeedbackBinder.Core
             var minInterval = paramsFeel?.CameraImpulseMinIntervalMs ?? 0.0;
 
             double max = 0;
+            double zoom = 0;
             Candidate? top = null;
             double sx = 0, sy = 0;
             foreach (var c in cameraCands)
@@ -728,6 +788,8 @@ namespace Presentation.FeedbackBinder.Core
                     max = m;
                     top = c;
                 }
+                var z = c.ZoomPunch * userScale;
+                if (z > zoom) zoom = z;
             }
 
             Id? shake = null;
@@ -744,7 +806,7 @@ namespace Presentation.FeedbackBinder.Core
             }
 
             var merged = Math.Min(max, cap);
-            if (!(merged > 0) && !shake.HasValue)
+            if (!(merged > 0) && !shake.HasValue && !(zoom > 0))
             {
                 return null;
             }
@@ -760,7 +822,7 @@ namespace Presentation.FeedbackBinder.Core
             var direction = Normalize(new Vec2(sx, sy));
             var decay = top!.DecayMs;
             var ticks = FeelCalibration.MillisecondsToTicks(decay, _options.StepSeconds);
-            return new ImpactCameraCue(direction, merged > 0 ? merged : 0.0, max, decay, ticks, shake, cameraCands.Count);
+            return new ImpactCameraCue(direction, merged > 0 ? merged : 0.0, max, decay, ticks, shake, cameraCands.Count, zoom);
         }
 
         private void ReportOnce(string key, string message)

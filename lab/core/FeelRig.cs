@@ -63,7 +63,7 @@ namespace Lab
             var options = new ImpactOptions
             {
                 FeelSource = new PresentingImpactFeelSource(feel.Resolver),
-                ProfileResolver = id => id.Equals(LabImpactProfile.ProfileId) ? profile : null,
+                ProfileResolver = id => id.Equals(profile.Id) ? profile : null,
                 SfxLayers = new SfxLayerIndex(LabImpactProfile.LoadSfxRows(world.Registry)),
                 CameraOwnerResolver = () => _playerId,
                 PositionResolver = id => world.World.GetEntity(id)?.Position,
@@ -75,7 +75,7 @@ namespace Lab
             {
                 new FeedbackRule(
                     new Id("feedback.lab_impact"), RulesEventKeys.CombatHitConfirmed, null,
-                    new FeedbackAction[] { new PlayImpactAction(LabImpactProfile.ProfileId) }),
+                    new FeedbackAction[] { new PlayImpactAction(profile.Id) }),
             };
             _binder = new FeedbackBinderCore(
                 world.Bus, world.Gameplay.ExprHostFactory, rules, recordingSink,
@@ -286,7 +286,19 @@ namespace Lab
             public void ImpactCamera(ImpactCameraCue cue)
             {
                 Add("camera", cue.ShakeProfileId?.Value ?? string.Empty, cue.Magnitude, cue.DecayMs, cue.HitCount);
+                if (cue.ZoomPunch > 0)
+                {
+                    // ADR-0148：缩放脉冲只在变体声明了 zoom_punch 时出批；既有脚本的反馈包没有，表现时间线逐条不变。
+                    Add("zoom_punch", FeelMetricUtil.Num(cue.ZoomPunch), cue.ZoomPunch, cue.DecayMs);
+                }
                 _tee?.ImpactCamera(cue);
+            }
+
+            public void Rumble(double strength, double durationMs)
+            {
+                // ADR-0148：手柄震动只在变体声明了 rumble 时出批；既有脚本的反馈包没有。
+                Add("rumble", FeelMetricUtil.Num(strength) + "@" + FeelMetricUtil.Num(durationMs), strength, durationMs);
+                _tee?.Rumble(strength, durationMs);
             }
 
             public void FreezePresentation(IReadOnlyList<Id> unitIds, int ticks, ImpactFreezeLayers layers)
@@ -324,6 +336,12 @@ namespace Lab
         public static readonly Id ProfileId = new Id("feedback.impact_profile.lab_default");
 
         /// <summary>
+        /// 镜头与音画反馈脚本的变体档案行（ADR-0148，随 <c>lab/fixtures/data/av_feedback</c>）：数据根里有它就用它，否则用缺省行
+        /// （既有数据集里没有它，既有脚本的行为与数据集哈希逐位不变）。
+        /// </summary>
+        public static readonly Id AvProfileId = new Id("feedback.impact_profile.lab_av");
+
+        /// <summary>
         /// 顿帧期间冻结的表现层：骨骼/序列帧恒冻，粒子也冻（引擎宿主据此验证"顿帧期间被冻结单位名下的粒子停推进"）。
         /// 判断记录：该声明只经反馈 sink 的 <c>FreezePresentation</c> 的 layers 参数传出，记录型假 sink 不记它，
         /// 因此无头宿主的表现时间线与指纹不受影响；它由实验室在读入数据档案后统一覆写到每个变体上
@@ -333,7 +351,7 @@ namespace Lab
 
         public static ImpactProfile Load(IDataRegistry registry)
         {
-            var record = registry.Get("feedback.impact_profile", ProfileId);
+            var record = registry.Get("feedback.impact_profile", AvProfileId) ?? registry.Get("feedback.impact_profile", ProfileId);
             if (record == null)
             {
                 throw new LabFormatException(
@@ -345,7 +363,7 @@ namespace Lab
             foreach (var v in loaded.Variants)
             {
                 variants.Add(new ImpactVariant(
-                    v.ImpactClass, v.Outcome, v.Flash, v.Vfx, v.Sfx, v.Camera, v.FloatingTextStyle, v.Trail, LabFreezeLayers, v.Intensity));
+                    v.ImpactClass, v.Outcome, v.Flash, v.Vfx, v.Sfx, v.Camera, v.FloatingTextStyle, v.Trail, LabFreezeLayers, v.Intensity, v.Rumble));
             }
 
             return new ImpactProfile(loaded.Id, variants);
@@ -384,6 +402,9 @@ namespace Lab
     public static class LabFeedbackCatalog
     {
         public static Id ProfileId => LabImpactProfile.ProfileId;
+
+        /// <summary>该数据集实际生效的档案行 id（有 <c>lab_av</c> 行用它，否则同 <see cref="ProfileId"/>）。</summary>
+        public static Id EffectiveProfileId(IDataRegistry registry) => LabImpactProfile.Load(registry).Id;
 
         public static ImpactProfile BuildProfile(IDataRegistry registry) => LabImpactProfile.Load(registry);
 

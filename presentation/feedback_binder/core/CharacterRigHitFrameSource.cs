@@ -19,23 +19,31 @@ namespace Presentation.FeedbackBinder.Core
     /// 触发"的具体原因。
     /// </para>
     /// </summary>
-    public sealed class CharacterRigHitFrameSource : IHitFrameSource
+    public sealed class CharacterRigHitFrameSource : IHitFrameSource, IAnimMarkerSource
     {
         private sealed class Entry
         {
             public readonly IHitFrameEmitter? Emitter;
             public readonly Action<Id> Handler;
+            public readonly IAnimMarkerEmitter? MarkerEmitter;
+            public readonly Action<Id, string> MarkerHandler;
 
-            public Entry(IHitFrameEmitter? emitter, Action<Id> handler)
+            public Entry(IHitFrameEmitter? emitter, Action<Id> handler, IAnimMarkerEmitter? markerEmitter, Action<Id, string> markerHandler)
             {
                 Emitter = emitter;
                 Handler = handler;
+                MarkerEmitter = markerEmitter;
+                MarkerHandler = markerHandler;
             }
         }
 
         private readonly Dictionary<Id, Entry> _entries = new Dictionary<Id, Entry>();
 
         public event Action<Id>? HitFrameReached;
+
+        /// <summary>登记过的 rig 的动画标记到达（<see cref="IAnimMarkerSource"/>，ADR-0148）：<c>footstep</c>、<c>trail_start/trail_end</c>、
+        /// <c>fx:&lt;id&gt;</c>、<c>impact</c> 等，由 <c>AnimMarkerDirector</c> 消费。</summary>
+        public event Action<Id, string>? AnimMarkerReached;
 
         public void RegisterRig(Id entityId, ICharacterRig rig)
         {
@@ -45,12 +53,19 @@ namespace Presentation.FeedbackBinder.Core
 
             void Handler(Id raisedFor) => HitFrameReached?.Invoke(raisedFor);
 
+            void MarkerHandler(Id raisedFor, string marker) => AnimMarkerReached?.Invoke(raisedFor, marker);
+
             var emitter = rig as IHitFrameEmitter;
             if (emitter != null)
             {
                 emitter.HitFrameReached += Handler;
             }
-            _entries[entityId] = new Entry(emitter, Handler);
+            var markerEmitter = rig as IAnimMarkerEmitter;
+            if (markerEmitter != null)
+            {
+                markerEmitter.AnimMarker += MarkerHandler;
+            }
+            _entries[entityId] = new Entry(emitter, Handler, markerEmitter, MarkerHandler);
         }
 
         public void UnregisterRig(Id entityId)
@@ -60,6 +75,10 @@ namespace Presentation.FeedbackBinder.Core
                 if (entry.Emitter != null)
                 {
                     entry.Emitter.HitFrameReached -= entry.Handler;
+                }
+                if (entry.MarkerEmitter != null)
+                {
+                    entry.MarkerEmitter.AnimMarker -= entry.MarkerHandler;
                 }
                 _entries.Remove(entityId);
             }

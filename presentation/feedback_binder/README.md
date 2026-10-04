@@ -318,6 +318,13 @@
 
 26. **顿帧的层声明取最近出批命中的 `freeze_layers`（2026-10-02，手感落地 M3-C，缺陷修复）**：`feel.hitstop_started` 由判定型宿主在 tick 末落地并以排队事件发出，到达 `ImpactPipeline` 时命中自己的打击计划通常已在**前一次出批**里下发过；原 `LayersFor` 只在同批计划里找相关命中，生产链路里恒找不到，`freeze_layers.particles/trail` 一直是缺省假（判断记录 25 的单测把命中与顿帧塞进同一批，没暴露）。修法：流水线保留最近 3 次出批的命中（`_recentHits`，按出批代数淘汰，更老的丢弃——不无限保留，免得把很久以前的反馈包套到无关的顿帧上），`LayersFor` 在"最近出批命中 + 本批计划"里按原相关性规则（同攻击实例，或命中的攻击方/被击方在顿帧名单里）取并集。行为收紧：此前声明了 `freeze_layers` 的反馈包在生产里不起作用，现在起作用；没声明的反馈包（含框架全部缺省数据）行为不变。复现/不变量：`tests/ImpactPipelineTests.cs`（`HitstopArrivingInLaterBatch_UsesFreezeLayersOfTheEarlierFlushedHit`、`HitstopFarAfterTheHit_DoesNotInheritStaleFreezeLayers`）与 `presentation/assembly/tests/FeelRigFreezeWiringTests.cs` 的经生产装配用例。
 
+27. **镜头与音画反馈：缺省规则、距离衰减、动画表现标记与可选出口（2026-10-04，手感落地 M5-S5，[ADR-0148](../../architecture/adr/0148-镜头与音画反馈的合成上限玩家强度脚步材质与动画表现标记.md)）**：
+   - **缺省规则**：装配根在游戏没有任何含 `PlayImpact` 的规则时补 `combat.hit_confirmed → PlayImpact(from_feel)`（`feedback.binding.framework_default_impact`）；游戏规则优先、不叠加；`DefaultImpactRule=false` 关闭。
+   - **距离衰减**（`ImpactPipeline` 算冲击幅度时）：`camera_distance_attenuation` 取 `none`（缺省）/`linear:<跨度>`（系数 = `1 − 距离/跨度` 夹 [0,1]，距离按受击点到镜头所有者的身高倍数）/曲线 id；裸 `linear` 行为保持不衰减，运行期提示一次迁移（ADR-0039）；系数同乘到冲击幅度与缩放脉冲。
+   - **标记链路**：rig（`IAnimMarkerEmitter`）→ `CharacterRigHitFrameSource`（同时是 `IAnimMarkerSource`，与命中帧同步策略无关）→ `AnimMarkerDirector`。同名重复标记在关键帧索引里以"名#序号"登记、触发时去后缀（`AnimMarkerNames.RepeatKey/StripRepeat`）；模型事件 `anim_event.fx.<id>` 标准化为 `fx:<id>`。`footstep` 取手感字段 `sfx_footstep_tier`（角色主导，0 = 关）与材质经 `SfxLayerIndex` 选行；`trail_start/trail_end` 需 `trail_enabled` 且 `trail_ref` 齐备才播特效（锚点挂接取 `anchor.hand_main`，世界挂接取开始时刻位置），`afterimage_enabled` 同步开关残影；`fx:<id>` 在单位位置播；`impact` 经 `IAnimMarkerGate` 放行推迟的闪白（`flash.sync = impact_marker`，超时没有标记照常闪）。
+   - **流水线侧不变**：批内取最大合并与最小间隔限频保持；`UserIntensity` 在读到保留前缀 `feel.intensity.` 的名字时视为 1（出口统一乘，不重复乘）。变体新增 `camera.zoom_punch` 与 `rumble`（`IFeedbackSink` 新增缺省空实现的 `Rumble` 与带缩放脉冲的重载，ABI 只加法），`CompositeFeedbackSink` 转发。
+   - 复现/不变量：`tests/ImpactAudioVisualTests.cs`（含距离衰减三种写法与旧写法提示）、`tests/AnimMarkerDirectorTests.cs`（脚步档位/材质回落/档位 0、拖尾开关与残影、`fx:`、`impact` 门放行与超时）、`tests/CharacterRigHitFrameSourceTests.cs` 两例标记聚合；`presentation/assembly/tests/DefaultImpactRuleWiringTests.cs`。
+
 ## 不负责什么
 
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys`/`ISimSnapshot` 等）——见上"并行

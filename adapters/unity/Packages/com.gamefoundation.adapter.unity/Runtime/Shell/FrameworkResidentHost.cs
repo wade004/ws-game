@@ -619,6 +619,8 @@ namespace Adapter.Unity.Shell
                 // CompositeFeedbackSink.Freeze/FreezeAction.DurationMs 的毫秒语义对齐。
                 OnFreeze = durationMs => Freeze?.Freeze(durationMs / 1000.0),
                 OnFlash = (entityId, profileId) => Flash?.Show(entityId, profileId),
+                // ADR-0148：反馈包变体的 rumble 经手柄震动输出落地（没有手柄时静默忽略）；强度再乘玩家强度 feel.intensity.rumble。
+                Rumble = _host.Rumble,
                 CharacterStatConfig = new[]
                 {
                     (new Id("stat.strength"), new Id("l10n.stat.strength.name")),
@@ -669,7 +671,11 @@ namespace Adapter.Unity.Shell
 
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
             Freeze = new FreezeFrameReceiver();
-            Flash = new FlashReceiver(presentation.ViewBinder);
+            Flash = new FlashReceiver(presentation.ViewBinder)
+            {
+                // ADR-0148：玩家闪白强度（feel.intensity.flash）在接收器出口生效。
+                IntensityScale = () => presentation.FeelIntensity.Get(global::Presentation.Camera.FeelIntensityKind.Flash),
+            };
             // W3b 新增（拍板 3/8，复活演出）：ViewBinder 已随 PresentationAssembly 构造完成，可以
             // 立即订阅 unit.respawned（同 Flash/Freeze 两个接收器构造期即订阅的既有惯例）。
             Respawn = new RespawnFeedbackReceiver(_bus, presentation.ViewBinder);

@@ -152,3 +152,7 @@ engine_adapter/
 ## 可选能力接口 `ICameraOrientation`（M4-W4，2026-10-03）
 
 `core/foundation/engine_adapter/contracts/ICameraOrientation.cs`：相机朝向查询，只有 `double YawRadians`（相机在世界平面上的偏航，逆时针为正，0 = 屏幕上方是世界 +Y；右轴 (cos, sin)、上轴 (−sin, cos)）。独立成可选接口（探测写法 `camera is ICameraOrientation`），不给必选的 `ICamera` 加成员，旧相机实现与第三方实现不受影响；用途是输入映射的相机相对控制空间（`core/foundation/input_map/README.md` M4-W4 一节）。`StubCamera`（`YawDegrees` 换算）与 `UnityCamera` 实现它。
+
+## 可选能力接口 `ICameraZoomPunch` 与 `IRumble`（手感落地 M5-S5，2026-10-04，[ADR-0148](../../../architecture/adr/0148-镜头与音画反馈的合成上限玩家强度脚步材质与动画表现标记.md)）
+
+两个新的可选能力，探测写法与 `ICameraImpulse` 相同（`camera is ICameraZoomPunch z && z.SupportsCameraZoomPunch`、`IRumble.SupportsRumble`），不给必选接口加成员，旧实现与第三方实现不受影响。`ICameraZoomPunch.ZoomPunch(magnitude, decayMs)`：可视范围瞬间收窄 `magnitude`（比例）再线性回落，多次叠加合计收窄不超过 0.5；`IRumble.Rumble(strength, durationMs)`：0..1 强度，后到的取强度较大者、时长取剩余较长者。`UnityCamera` 实现缩放脉冲（恒声明支持）；`UnityRumble` 经 Input System 手柄马达输出（低频全强度、高频 0.6 倍），可注入马达输出以便无设备测试，`UnityEngineHost` 逐帧推进并在退出时归零。

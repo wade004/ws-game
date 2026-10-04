@@ -47,6 +47,13 @@ namespace Presentation.FeedbackBinder.Core
                 tiers.Add(field.Length == 0 ? 0 : (int)Math.Round(view.GetNumber(field)));
             }
 
+            Id? trailRef = null;
+            var trailValue = view.GetAbsolute(FeelFieldNames.TrailRef);
+            if (trailValue.Kind != FeelValueKind.None && Id.TryParse(trailValue.AsText(), out var parsedTrail))
+            {
+                trailRef = parsedTrail;
+            }
+
             string? setting = null;
             var settingValue = view.GetAbsolute(FeelFieldNames.CameraUserIntensitySetting);
             if (settingValue.Kind != FeelValueKind.None)
@@ -64,7 +71,10 @@ namespace Presentation.FeedbackBinder.Core
                 view.GetNumber(FeelFieldNames.CameraImpulseMinIntervalMs),
                 view.GetRaw(FeelFieldNames.CameraShakeCap).AsNumber(),
                 view.GetText(FeelFieldNames.CameraDistanceAttenuation),
-                setting);
+                setting,
+                view.GetBool(FeelFieldNames.TrailEnabled),
+                view.GetBool(FeelFieldNames.AfterimageEnabled),
+                trailRef);
         }
     }
 }

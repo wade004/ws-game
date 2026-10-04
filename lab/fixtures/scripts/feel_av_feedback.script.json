@@ -1,0 +1,50 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_av_feedback",
+    "scriptVersion": 1,
+    "description": "镜头与音画反馈（ADR-0148，手感设计/07）：预设钉死为 av_feedback（镜头距离衰减 linear:6），反馈包换成带缩放脉冲与手柄震动的实验室变体行；玩家在原点、木桩在 2 个单位处，按一次攻击，量镜头冲击幅度按距离线性衰减、缩放脉冲与手柄震动随同一次命中出批。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.av_feedback",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 90,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_slash"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/av_feedback"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ]
+}

@@ -14,10 +14,10 @@ namespace Presentation.Camera
     /// <item><description>前瞻偏移按 <c>LookAheadLagMs</c> 一阶滞后追期望偏移（方向反转时偏移穿过零平滑过渡，不甩动）。</description></item>
     /// <item><description>期望关注点 = 目标 + 前瞻偏移。</description></item>
     /// <item><description>死区（世界距离的宽、高，以当前关注点为中心的矩形）：期望点落在矩形内，关注点这一轴不动；落在外则目标轴上的期望值取"期望点沿该轴被拽回到矩形边上"的位置。</description></item>
-    /// <item><description>分轴阻尼：<c>focus.x += (期望x - focus.x) × a(DampingXMs)</c>，y 轴同理（<c>DampingXMs</c>/<c>DampingYMs</c> 为 0 即该轴不阻尼）。</description></item>
+    /// <item><description>分轴阻尼：<c>focus.x += (期望x - focus.x) × a(EffectiveDampingXMs)</c>，y 轴同理。阻尼是跟随滞后的唯一权威：分轴阻尼大于 0 取它，否则取（已弃用的）<c>FollowLagMs</c>，两者都为 0 即该轴不阻尼。</description></item>
     /// </list>
-    /// 首帧（或 <see cref="Reset"/> 之后）直接把关注点放到目标上，不产生从原点滑入的瞬态。<c>FollowLagMs</c> 不在本类内处理：它换算为
-    /// <c>ICamera.Follow</c> 的平滑参数（见 <see cref="SmoothingFor"/>），因为那是适配层既有的跟随平滑通道。
+    /// 首帧（或 <see cref="Reset"/> 之后）直接把关注点放到目标上，不产生从原点滑入的瞬态。<c>ICamera.Follow</c> 的平滑参数不再随 <c>FollowLagMs</c> 变化
+    /// （见 <see cref="SmoothingFor"/>），避免两级滞后串联。
     /// </summary>
     public sealed class CameraFeelFollower
     {
@@ -47,11 +47,11 @@ namespace Presentation.Camera
         }
 
         /// <summary>
-        /// <c>FollowLagMs &gt; 0</c> 时换算为 <c>ICamera.Follow</c> 平滑参数（时间常数，秒）；为 0 时沿用调用方给的缺省
-        /// （<see cref="CameraProfile.FollowLerp"/>）——缺省档案下行为与改动前一致。
+        /// <c>ICamera.Follow</c> 的平滑参数：恒取调用方给的缺省（<see cref="CameraProfile.FollowLerp"/>）。ADR-0148 起 <c>follow_lag_ms</c>
+        /// 不再换算成这一级平滑——阻尼是跟随滞后的唯一权威（见 <see cref="CameraFeelProfile.EffectiveDampingXMs"/>），此前两级串联、总滞后约为两者之和。
+        /// 方法保留以兼容既有调用。
         /// </summary>
-        public static double SmoothingFor(CameraFeelProfile feel, double fallback) =>
-            feel.FollowLagMs > 0 ? feel.FollowLagMs / 1000.0 : fallback;
+        public static double SmoothingFor(CameraFeelProfile feel, double fallback) => fallback;
 
         /// <summary>推进一帧，返回本帧应交给 <c>ICamera.Follow</c> 的关注点。<paramref name="dt"/> 非正时不推进状态，返回当前关注点。</summary>
         public Vec2 Step(Vec2 target, double dt, CameraFeelProfile feel)
@@ -97,8 +97,8 @@ namespace Presentation.Camera
             var goalY = DeadZoneGoal(_focus.Y, desiredY, feel.DeadZoneHeight * 0.5);
 
             _focus = new Vec2(
-                _focus.X + (goalX - _focus.X) * Alpha(dt, feel.DampingXMs),
-                _focus.Y + (goalY - _focus.Y) * Alpha(dt, feel.DampingYMs));
+                _focus.X + (goalX - _focus.X) * Alpha(dt, feel.EffectiveDampingXMs),
+                _focus.Y + (goalY - _focus.Y) * Alpha(dt, feel.EffectiveDampingYMs));
             return _focus;
         }
 

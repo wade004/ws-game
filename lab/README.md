@@ -226,6 +226,8 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 7. **验收结论**：全部观察项均值不低于 3 分（及格线）、没有 `阻塞`、`需调参` 项都已用覆盖集 A/B 验证并回写数据后，才算**本次手测通过**；结论与表格一起存进游戏自己的仓库，不进框架仓库。手测通过不等于可以把档案行升为 `validated`：升级要求评分摘要的移动、转向、命中重量、连招衔接四维**每一维都不低于 4** 并写成游戏数据里的一条 `feel.validation` 记录（手感设计/06 第 6 节），两个分数线不要混用。
 8. **框架仓库自己的线上验收项（不是游戏团队的手测，登记在这里是因为它与手测一样只能在真实环境确认）**：GitHub Release 工作流的比对与条目查找修复，只能在 GitHub 托管运行器上由真实的标签推送触发；开发会话不触发远端工作流。做法：下一次发布推送标签后，打开该次 Release 运行，两个步骤都为绿即通过；红则按其日志与 `toolchain/README.md` 的"CI 依赖 GitHub Release"一节对照处理。
 
+9. **镜头与音画反馈脚本 `feel_av_feedback`（2026-10-04，手感落地 M5-S5，[ADR-0148](../architecture/adr/0148-镜头与音画反馈的合成上限玩家强度脚步材质与动画表现标记.md)）**：新增独立数据根 `lab/fixtures/data/av_feedback`（`feedback.impact_profile.lab_av`：lab_default 的拷贝，hit/kill 变体加 `camera.zoom_punch` 0.04 与 `rumble{strength 0.5, duration_ms 90}`；预设 `feel.preset.av_feedback` 继承 `arpg_responsive` 只改 `camera_distance_attenuation = "linear:6"`；标定 `feel.calibration.lab_av_feedback`），原有脚本、数据与既有格子的基线不变（`FeelRig` 把未知表现种类记入 `other_ops`，旧基线不受影响）。实测（`2d_action` 格）：假人在 2 个身高处，距离衰减系数 = `1 − 2/6` = 0.6667，缩放脉冲 0.04 → 0.026666667（逐位固定在基线里），震动 `0.5@90` 在第 5、14 刻各一次；对照同脚本换成旧预设（裸 `linear`）时不衰减、缩放脉冲回到 0.04。测试：`lab/tests/FeelAvFeedbackTests.cs`（衰减后的冲击幅度与缩放脉冲同乘一个系数、旧写法不衰减；震动条目格式；旧脚本记录里没有 `zoom_punch`/`rumble`）。
+
 ## 范围与现状（设计决定）
 
 - 标准脚本集：06 第 3.1 节的短按、小幅轴、反转、斜向、贴墙、绕柱、边走边打、打完即停、群体命中、换装循环（十个旧脚本）加 S7b 的十九个、S12 的一个、M2-C 的一个（`feel_unit_block`）、M3-A 的一个（`feel_unit_separate`）与 M3-E2 的一个（`feel_stake_poise`）手感脚本（共二十三个），再加 M3-E1 的六个空间语义脚本（`space.*`，见判断记录 35）；"被精英打断"拆成了霸体窗口内（`feel_elite_armor`）、窗口后按反应上限封顶（`feel_elite_flinch`）与普通靶被打断（`feel_interrupt`）三种，因为精英的 `reaction_cap = flinch` 本身不会被打断。

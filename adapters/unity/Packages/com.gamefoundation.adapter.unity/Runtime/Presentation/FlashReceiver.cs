@@ -32,6 +32,12 @@ namespace Adapter.Unity.Presentation
             _viewBinder = viewBinder ?? throw new ArgumentNullException(nameof(viewBinder));
         }
 
+        /// <summary>
+        /// 玩家闪白强度来源（ADR-0148，<c>feel.intensity.flash</c>，0..1，缺省 null = 不缩放）：装配根提供
+        /// <c>presentation.FeelIntensity</c> 的闪白系数；系数 0 即关闭闪白（光敏类无障碍），不计入 <see cref="TriggerCount"/>。
+        /// </summary>
+        public Func<double>? IntensityScale { get; set; }
+
         /// <summary>迄今为止成功触发过闪白效果的次数（未绑定 View 或非 sprite 型 View 时不计数）。</summary>
         public int TriggerCount { get; private set; }
 
@@ -46,7 +52,13 @@ namespace Adapter.Unity.Presentation
                 return;
             }
 
-            spriteView.SetFlash(DefaultIntensity);
+            var scale = IntensityScale != null ? IntensityScale() : 1.0;
+            if (!(scale > 0))
+            {
+                return;
+            }
+
+            spriteView.SetFlash(DefaultIntensity * scale);
             _active.Add(new ActiveFlash { View = spriteView, Remaining = DefaultDurationSeconds });
             TriggerCount++;
         }

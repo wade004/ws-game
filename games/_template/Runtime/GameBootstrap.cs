@@ -545,7 +545,11 @@ namespace Game.Template
 
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
             Freeze = new FreezeFrameReceiver();
-            Flash = new FlashReceiver(presentation.ViewBinder);
+            Flash = new FlashReceiver(presentation.ViewBinder)
+            {
+                // ADR-0148：玩家闪白强度（feel.intensity.flash）在接收器出口生效。
+                IntensityScale = () => presentation.FeelIntensity.Get(global::Presentation.Camera.FeelIntensityKind.Flash),
+            };
 
             gameplay.RegisterPersistables(presentation.SaveSystem, _player);
 
@@ -594,6 +598,8 @@ namespace Game.Template
             OnFloatingText = (entityId, styleId, text) => FloatingText?.Show(entityId, styleId, text),
             OnFreeze = durationMs => Freeze?.Freeze(durationMs / 1000.0),
             OnFlash = (entityId, profileId) => Flash?.Show(entityId, profileId),
+            // ADR-0148：反馈包变体的 rumble 经手柄震动输出落地（没有手柄时静默忽略）；强度再乘玩家强度 feel.intensity.rumble。
+            Rumble = _host.Rumble,
             ActionBarSlotCountFallback = _options.ActiveSkillSlotCount,
             HudPowerTypes = new[] { Core.Rules.Common.WellKnownPowers.Health },
             EquipmentSlotIds = _options.BuildEquipmentSlotIds(),
