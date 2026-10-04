@@ -626,6 +626,29 @@ namespace Core.Rules.Skill
                     yDescription: "该等级对应的效果基础值，供 school_damage/heal/periodic_damage/periodic_heal 的 base_curve_ref 引用"),
             }).WithOwnership(SchemaLayer.Rules, "skill");
 
+        /// <summary><c>skill.motion_curve</c>：导入期从动画剪辑烘焙出的位移曲线（ADR-0147，手感设计/02 第 4 节）。
+        /// 动作位移声明 <c>motion.curve: custom:&lt;id&gt;</c> 引用本表；运行期由运动层按固定步求值，逻辑层不读剪辑、不读骨骼。
+        /// 曲线把"位移进度 [0,1]"映到"累计位移占比 [0,1]"（单调不减），形态同 <c>MotionMath.EvalCurve</c> 的 <c>custom:</c> 分支。</summary>
+        public static TableSchema MotionCurve { get; } = new TableSchema(
+            name: "skill.motion_curve",
+            primaryKey: "id",
+            currentSchemaVersion: 1,
+            fields: new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "skill.motion_curve.<name>"),
+                CurveSchema.BreakpointsField("points", CurveAxis.Value, required: true,
+                    description: "断点表 [{x: 时间进度 0..1, y: 累计位移占比 0..1}]，按 x 线性插值（04 第 3.6 节曲线形态）；导入期由 bake-motion 写入",
+                    xDescription: "motion_start..motion_end 之间的时间进度",
+                    yDescription: "该时间进度对应的累计位移占比",
+                    xRange: FieldRange.Range(min: 0, max: 1),
+                    yRange: FieldRange.Range(min: 0, max: 1)),
+                new FieldSchema("source_clip", FieldKind.String, required: false,
+                    description: "烘焙来源剪辑的资源引用（仅溯源，运行期不读）"),
+                new FieldSchema("source_distance", FieldKind.Number, required: false,
+                    description: "烘焙来源剪辑的原始总位移（世界单位，仅溯源；动作的实际位移距离以 motion.distance 为准）")
+                    .WithRange(FieldRange.Range(min: 0)),
+            }).WithOwnership(SchemaLayer.Rules, "skill");
+
         /// <summary><c>skill.budget_rule</c>：技能预算规则表的最小骨架（分阶段落地计划 T-N3-3；
         /// [ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 2"技能预算规则
         /// 表与警告级校验"、决策 10"一拍常数只是记账单位……施放时间当量 = max(动作时长, 一拍
@@ -813,15 +836,16 @@ namespace Core.Rules.Skill
         public static readonly string[] TimelineCostAtValues = { "commit", "active", "first_hit" };
         public static readonly string[] TimelineCooldownAtValues = { "commit", "active", "finish" };
         public static readonly string[] TimelineActionClassValues = { "move", "attack", "skill", "dodge", "interact", "item", "menu" };
-        public static readonly string[] MotionDriverValues = { "code", "root_motion" };
+        public static readonly string[] MotionDriverValues = { "code" };
         public static readonly string[] MotionKindValues = { "lunge", "dash", "step_back", "charge" };
         public static readonly string[] MotionDirectionValues = { "facing", "input_snapshot", "toward_target" };
         public static readonly string[] MotionBlockingValues = { "stop", "slide" };
 
         private static readonly FieldSchema[] TimelineMotionFields =
         {
-            new FieldSchema("driver", FieldKind.Enum, required: false, enumValues: MotionDriverValues,
-                description: "code|root_motion，缺省 code；root_motion 需适配层能力 supportsRootMotion（手感设计/02 第 4 节）"),
+            new FieldSchema("driver", FieldKind.String, required: false,
+                description: "已废弃：缺省且唯一取值 code，可不写。写 root_motion 在加载期报错并给迁移说明（ADR-0147，手感设计/02 第 4 节；" +
+                    "带位移的动画改用导入期烘焙的 skill.motion_curve + motion.curve = custom:<id>）"),
             new FieldSchema("kind", FieldKind.Enum, required: true, enumValues: MotionKindValues,
                 description: "lunge|dash|step_back|charge"),
             new FieldSchema("distance", FieldKind.Number, required: true,

@@ -50,6 +50,20 @@ namespace Presentation.Render
         /// <summary>手感落地 M2-A：见 <see cref="IFrameAnimPlayer.SetPaused"/>。暂停期间 <see cref="Update"/> 不推进，其余状态（当前剪辑、已走过的时间）原样保留。</summary>
         public void SetPaused(bool paused) => _paused = paused;
 
+        /// <summary>ADR-0147：见 <see cref="IFrameAnimPlayer.SetSpeed"/>。只改后续推进的速率，不重置已走过的时间；没有在播剪辑时下一次 <see cref="Play"/> 仍以其参数为准。</summary>
+        public void SetSpeed(double speed)
+        {
+            if (speed <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(speed), "speed 必须为正数");
+            }
+
+            _speed = speed;
+        }
+
+        /// <summary>当前播放速率倍率（诊断与测试用）。</summary>
+        public double Speed => _speed;
+
         public int CurrentFrame => _lastFrame < 0 ? 0 : _lastFrame;
 
         public Id? CurrentClipId => _current?.ClipId;

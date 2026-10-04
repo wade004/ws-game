@@ -387,7 +387,7 @@ python toolchain/format_data.py --schema-order --data-root data/_framework  # �
 python toolchain/import_assets.py <子命令> ...
 ```
 
-七个子命令（各自 `--help` 查看完整参数）：
+八个子命令（各自 `--help` 查看完整参数）：
 
 - `sprite`：精灵集源目录 -> 规范化精灵资源 + `display.map` 行。
   输入约定：`<src>/<direction_slot>/<layer>.png`（纸娃娃多层）或 `<src>/<direction_slot>.png`
@@ -513,6 +513,19 @@ python toolchain/import_assets.py <子命令> ...
   已在 `.gitignore`，只留本地）的 `equip_completeness.json`/`.txt`；返回码 `0` 零错误（`--strict-warnings` 时还要零警告）
   / `1`。门禁步骤 `equip_pack_check`（占位装备集须零错误零警告）与 `validate_equip_data`。占位装备集与占位皮肤包
   的生成器见 [`std_equip_set/README.md`](std_equip_set/README.md)。
+  **`check` 的姿势与剪辑检查（手感落地 M5-S4，ADR-0147，`toolchain/asset_import/clip_checks.py`，与核心侧规则同口径）**：
+  `display.anim_set` 域新增 `anim_set_clip_markers_missing`（攻击类缺 `active_start/active_end/hit`、走/跑/冲刺缺 `footstep`、
+  闪避类缺 `invuln_start/invuln_end`，错误；**只对按清单发布的姿势集**：声明 `pose_standard: true` 或框架级 `display.anim_set.std_*`，
+  既有自由姿势集不受影响）、`anim_set_clip_duration_mismatch`（声明的 `duration_ms` 与 `sprite_anim/<名>/frames.json` 量出的总时长不一致，错误；
+  没声明时以量出值为准，骨骼剪辑没有磁盘资源可量，只检查声明值）；另有一道与技能时间线的交叉检查（`timeline_clip_missing`、
+  `timeline_clip_mismatch`、`timeline_clip_deviation`）：技能到剪辑的对应来自武器表现数据（`display.weapon_style.cast_anim_override`
+  与普攻映射，见手感设计/04 第 8 节），`source: clip` 的技能任一偏差超过 0.5 毫秒抄写取整误差为错误、取不到对应剪辑为错误，
+  `source: data` 偏差超过标定表 `marker_tolerance_ms`（取不到按 50）为警告、取不到静默跳过。
+- `bake-motion`：动画剪辑的根位移采样 -> `skill.motion_curve` 行（手感设计/02 第 4 节，取代已删除的根运动驱动）。输入一个 JSON
+  `{"clip": "anim.<剪辑资源引用>", "samples": [{"t_ms": 0, "distance": 0.0}, ...]}`（`distance` 是该时刻起算的累计前进距离，可由引擎侧
+  导出脚本从根骨轨迹求得，不要求等间隔采样），时间归一到 [0,1]、距离按总位移归一到 [0,1] 并取累计最大值（曲线只增不减），断点数超过
+  `--max-points`（缺省 32）时等间隔重采样（端点保留）；行里另记 `source_clip`/`source_distance` 仅供溯源。技能时间线的动作位移用
+  `curve: custom:<行 id>` 引用，`distance` 取总位移（身高倍数）。`--id` 必填，`--dataset`（缺省 `_sample`）、`--data-root`、`--dry-run` 同其它子命令。
 
   **`--json`（消费方反馈第 62 条）**：stdout 只输出一个 JSON 文档（UTF-8、中文不转义），其余日志
   （逐条问题的人类可读文本、末尾汇总行）改走 stderr；不加 `--json` 时文本输出（含走 stdout 而非

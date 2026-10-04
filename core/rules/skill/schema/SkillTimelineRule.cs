@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
+using Core.Rules.Common;
 
 namespace Core.Rules.Skill
 {
@@ -263,6 +264,28 @@ namespace Core.Rules.Skill
                 }
 
                 var motion = (JsonObject)motionVal!;
+                if (motion.TryGetValue("driver", out var drv) && drv is JsonString drvs && drvs.Value != "code")
+                {
+                    // ADR-0147：根运动驱动已删除，旧数据加载期报明确错误并给迁移说明（ADR-0039 破坏性变更流程）。
+                    issues.Add(Err("timeline_motion_driver_removed",
+                        drvs.Value == "root_motion"
+                            ? "timeline.motion.driver: " + ActionMotion.RootMotionMigrationNote
+                            : "timeline.motion.driver 唯一合法取值是 code（缺省），不认识 \"" + drvs.Value + "\"", "timeline.motion.driver"));
+                }
+
+                if (motion.TryGetValue("curve", out var crv) && crv is JsonString crvs
+                    && crvs.Value.StartsWith("custom:", StringComparison.Ordinal))
+                {
+                    // ADR-0147：位移曲线引用 custom:<id> 必须指向导入期烘焙出的 skill.motion_curve 行，运行期不静默改线性。
+                    var curveId = crvs.Value.Substring("custom:".Length);
+                    if (!view.Tables.Contains("skill.motion_curve") || view.Get("skill.motion_curve", curveId) == null)
+                    {
+                        issues.Add(Err("timeline_motion_curve_missing",
+                            "timeline.motion.curve 引用的位移曲线 \"" + curveId + "\" 不存在于 skill.motion_curve（先用工具链 bake-motion 烘焙）",
+                            "timeline.motion.curve"));
+                    }
+                }
+
                 var motionKind = motion.TryGetValue("kind", out var mk) && mk is JsonString mks ? mks.Value : string.Empty;
                 if (motionKind == "charge")
                 {

@@ -38,6 +38,18 @@ namespace Core.Rules.Common
         /// </summary>
         public bool IsAttack { get; }
 
+        /// <summary>
+        /// 前摇相的动画播放速率（ADR-0147）：作者前摇毫秒 ÷ 重映射后实际毫秒。动作被速率重映射（加速、体型/武器分相倍率、时长下限）时，
+        /// 表现层按它缩放该相剪辑的播放速率，动画不与判定时间线脱节。缺省 1（未重映射、或 6/7 参数构造）。
+        /// </summary>
+        public double StartupRate { get; }
+
+        /// <summary>判定相的动画播放速率（语义同 <see cref="StartupRate"/>）。</summary>
+        public double ActiveRate { get; }
+
+        /// <summary>后摇相的动画播放速率（语义同 <see cref="StartupRate"/>）。</summary>
+        public double RecoveryRate { get; }
+
         public ActionStartedEvent(Id actorId, Id skillId, Id castInstanceId, int comboIndex, int durationTicks, double chargeRatio)
             : this(actorId, skillId, castInstanceId, comboIndex, durationTicks, chargeRatio, true)
         {
@@ -45,7 +57,18 @@ namespace Core.Rules.Common
 
         public ActionStartedEvent(
             Id actorId, Id skillId, Id castInstanceId, int comboIndex, int durationTicks, double chargeRatio, bool isAttack)
+            : this(actorId, skillId, castInstanceId, comboIndex, durationTicks, chargeRatio, isAttack, 1.0, 1.0, 1.0)
         {
+        }
+
+        /// <summary>ADR-0147 新增重载：追加三相的动画播放速率。</summary>
+        public ActionStartedEvent(
+            Id actorId, Id skillId, Id castInstanceId, int comboIndex, int durationTicks, double chargeRatio, bool isAttack,
+            double startupRate, double activeRate, double recoveryRate)
+        {
+            StartupRate = startupRate;
+            ActiveRate = activeRate;
+            RecoveryRate = recoveryRate;
             ActorId = actorId;
             SkillId = skillId;
             CastInstanceId = castInstanceId;

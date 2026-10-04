@@ -72,7 +72,8 @@ namespace Core.Carriers.Assembly
         /// <summary>本地玩家的移动轴动作名（如 <c>input.action.move</c>）：<c>PresentationAssembly</c> 把本地输入映射接给缓冲时用来采集按下瞬间的方向快照；缺省 null 即不采集。</summary>
         public string? LocalMoveActionName { get; set; }
 
-        /// <summary>剪辑根运动来源（运动层 <see cref="MotionServices.RootMotion"/>）；缺省 null。</summary>
+        /// <summary>已删除（ADR-0147）：赋值被忽略（根运动由导入期烘焙的位移曲线取代）。</summary>
+        [System.Obsolete("根运动已删除（ADR-0147）；赋值被忽略")]
         public IRootMotionSource? RootMotion { get; set; }
 
         /// <summary>自定义曲线解析（<see cref="MotionServices.Curves"/>）；缺省 null。</summary>
@@ -355,8 +356,7 @@ namespace Core.Carriers.Assembly
             {
                 Feel = resolver,
                 Actions = rules.Skill.ActionStateQuery,
-                RootMotion = options.RootMotion,
-                Curves = options.Curves,
+                Curves = options.Curves ?? new DataMotionCurveSource(registry),
                 TargetAssist = options.TargetAssist,
                 ModeRules = options.ModeRules ?? MotionModeRuleSet.FromProfiles(feel.Profiles),
             };

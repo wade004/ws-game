@@ -132,6 +132,27 @@ namespace Presentation.Render
             }
         }
 
+        /// <summary>
+        /// 受击姿势请求的空中判定（ADR-0147，手感设计/03 第 4.5 节）：<paramref name="sub"/> 为空、<c>light</c>、<c>heavy</c>、<c>knockback</c>
+        /// 且此刻在空中（上升/下降）时返回空中受击请求（<c>hit.air</c> → <c>hit.launch</c> → <c>hit</c>，"空中受击改请求 <c>hit.air</c>"）；
+        /// <c>knockdown</c>/<c>getup</c>/<c>block</c> 是躺姿与格挡抖动，不随空中改键。其余情形返回 false，调用方走 <see cref="ToRequest(string, bool, string)"/>。
+        /// </summary>
+        public bool TryGetAirHitRequest(bool inCombat, string? sub, out AirPoseRequest request)
+        {
+            request = default;
+            if (!IsAirborne) return false;
+            if (sub != null && sub != PoseKeys.HitSubLight && sub != PoseKeys.HitSubHeavy && sub != PoseKeys.HitSubKnockback) return false;
+            request = AirPoseRequest.HitAir(inCombat ? PoseKeys.StanceCombat : null, Family, Variant);
+            return true;
+        }
+
+        /// <summary>带状态子键的请求（ADR-0147）：规则同 <see cref="ToRequest(string, bool)"/>，另在状态段后加子键（如 <c>hit.heavy</c>）。</summary>
+        public PoseRequest ToRequest(string stateKey, bool inCombat, string? sub)
+        {
+            if (sub == null) return ToRequest(stateKey, inCombat);
+            return new PoseRequest(stateKey, null, inCombat ? PoseKeys.StanceCombat : null, Family, Variant, sub);
+        }
+
         /// <summary>无任何额外维度。</summary>
         public static PoseContext Empty => default;
 

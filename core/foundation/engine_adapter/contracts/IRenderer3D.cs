@@ -56,6 +56,15 @@ namespace Core.Foundation.EngineAdapter
 
         void SetAnimSpeed(ModelHandle handle, double speed);
 
+        /// <summary>
+        /// 身体前倾（度，前倾为正、后仰为负；0 = 不倾斜）：绕模型局部横轴（左右轴）旋转可见内容、不动落点与朝向，
+        /// 用于移动加减速的身体倾斜（手感设计/02 第 7 节 <c>lean_deg_per_accel</c>，纯呈现）。默认实现什么都不做（不支持倾斜的实现，
+        /// 角色保持直立，与此前一致）；追加的默认成员，旧实现不需要改动。
+        /// </summary>
+        void SetLean(ModelHandle handle, double degrees)
+        {
+        }
+
         SubscriptionHandle OnAnimEvent(ModelHandle handle, AnimEventCallback callback);
 
         /// <summary>槽位换装；meshId 为 null 表示卸下该部位网格。</summary>

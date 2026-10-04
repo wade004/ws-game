@@ -192,6 +192,8 @@ namespace Core.Rules.Assembly
             // T-N3-2（ADR-0031 决策 1）：school_damage/heal/periodic_damage/periodic_heal 的
             // base_curve_ref 可选引用本表，见 SkillSchemas.BaseCurve 类型注释"契约疑点"。
             registry.RegisterSchema(SkillSchemas.BaseCurve);
+            // ADR-0147：导入期烘焙的位移曲线（动作位移 motion.curve = custom:<id> 的来源），框架默认数据根不带任何行。
+            registry.RegisterSchema(SkillSchemas.MotionCurve);
             // T-N3-3（ADR-0031 决策 2/10）：weapon_damage_pct 运行期读 beat_seconds 需要本表已注册
             // 才能查到记录，见 SkillSchemas.BudgetRule 类型注释（最小骨架，T-N3-9 补完整字段）。
             registry.RegisterSchema(SkillSchemas.BudgetRule);
@@ -222,6 +224,8 @@ namespace Core.Rules.Assembly
 
             // 手感落地（ADR-0115）：skill.def.timeline 块的跨字段语义校验；未声明 timeline 的行整体跳过。
             registry.RegisterValidationRule(new SkillTimelineRule());
+            // ADR-0147：时间线与剪辑标记一致性（技能 -> 武器表现 -> 姿势集剪辑；剪辑没声明 duration_ms 的不参与，source: clip 取不到剪辑为错误）。
+            registry.RegisterValidationRule(new SkillClipConsistencyRule());
 
             // T-N3-5（04 第 5 节"无时间成本"、ADR-0031 决策 10）：见 SkillValidationRules.cs
             // SkillNoTimeCostWarningRule 判断记录。

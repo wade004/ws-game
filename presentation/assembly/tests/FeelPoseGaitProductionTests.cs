@@ -276,6 +276,79 @@ namespace Tests.Presentation.Assembly
             }
         }
 
+        /// <summary>
+        /// M5-S4（ADR-0147）复现用例：玩家按住移动，生产装配的移动呈现参数逐 tick 与规则公式一致——播放速率 = <c>stride_scale</c> × 速度比 ÷ 该步态的参考速度比
+        /// （夹取、取整），松开停稳后复位为 1；开启 <c>lean_deg_per_accel</c> 后加速段前倾为正、减速段后仰为负，稳态趋近 0。
+        /// </summary>
+        [Fact]
+        public void Locomotion_StrideRateAndLean_FollowTheRulesFormulas_AndResetWhenStopped()
+        {
+            var loco = _presentation.Locomotion!;
+            _world.Gameplay.Feel!.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.LeanDegPerAccel, FeelOp.Set, FeelValue.Of(3.0)));
+            _world.Gameplay.Feel.Resolver.InvalidateAll("test");
+            var view = _world.Gameplay.Feel.Resolver.ResolvePresenting(PlayerId);
+            var thresholds = GaitThresholds.FromView(view);
+            var scale = view.GetRaw(FeelFieldNames.StrideScale).AsNumber();
+
+            var maxLean = double.MinValue;
+            var minLean = double.MaxValue;
+            for (var i = 0; i < 120; i++)
+            {
+                Tick(new Vec2(1, 0), MoveMode.Run);
+                var ratio = Player.MovementState.Motion.SpeedRatio;
+                var gait = Gait();
+                var expected = LocomotionPresentationMath.StrideRate(
+                    ratio, LocomotionPresentationMath.ReferenceRatio(gait, thresholds.WalkMaxRatio, thresholds.SprintMinRatio), scale);
+                Assert.Equal(expected, loco.GetStrideRate(PlayerId), 9);
+                maxLean = Math.Max(maxLean, loco.GetLeanDeg(PlayerId));
+            }
+
+            Assert.True(maxLean > 0, "加速段应前倾");
+            Assert.InRange(loco.GetLeanDeg(PlayerId), -LocomotionPresentationMath.LeanQuantum, 1.0); // 稳态：加速度 0，前倾回落
+
+            for (var i = 0; i < 180; i++)
+            {
+                Tick(null, MoveMode.Run);
+                minLean = Math.Min(minLean, loco.GetLeanDeg(PlayerId));
+            }
+
+            Assert.True(minLean < 0, "减速段应后仰");
+            Assert.Equal(0, Player.MovementState.Motion.SpeedRatio);
+            Assert.Equal(1.0, loco.GetStrideRate(PlayerId));
+            Assert.Equal(0.0, loco.GetLeanDeg(PlayerId));
+        }
+
+        /// <summary>
+        /// ADR-0147：起步/急停混合时长取自呈现型字段 <c>start_blend_ms</c>/<c>stop_blend_ms</c>（毫秒 → 秒）：Idle→Move 取起步值、Move→Idle 取急停值，
+        /// 其它切换不给提示；改写字段后重算立即反映。期望值由同一份视图的字段值算出。
+        /// </summary>
+        [Fact]
+        public void LocomotionBlends_FollowTheStartAndStopBlendFields()
+        {
+            var blends = new LocomotionBlends(_world.Gameplay.Feel!.Resolver);
+            var overrides = _world.Gameplay.Feel.Feel.DebugOverrides!;
+            overrides.SetGlobal(new FeelWrite(FeelFieldNames.StartBlendMs, FeelOp.Set, FeelValue.Of(120.0)));
+            overrides.SetGlobal(new FeelWrite(FeelFieldNames.StopBlendMs, FeelOp.Set, FeelValue.Of(40.0)));
+            _world.Gameplay.Feel.Resolver.InvalidateAll("test");
+            var view = _world.Gameplay.Feel.Resolver.ResolvePresenting(PlayerId);
+
+            Assert.True(blends.TryGetBlendSeconds(PlayerId, AnimState.Idle, AnimState.Move, out var start));
+            Assert.Equal(view.GetRaw(FeelFieldNames.StartBlendMs).AsNumber() / 1000.0, start, 9);
+            Assert.True(blends.TryGetBlendSeconds(PlayerId, AnimState.Move, AnimState.Idle, out var stop));
+            Assert.Equal(view.GetRaw(FeelFieldNames.StopBlendMs).AsNumber() / 1000.0, stop, 9);
+            Assert.Equal(0.12, start, 9);
+            Assert.Equal(0.04, stop, 9);
+
+            Assert.False(blends.TryGetBlendSeconds(PlayerId, AnimState.Idle, AnimState.Attack, out _));
+            Assert.False(blends.TryGetBlendSeconds(PlayerId, AnimState.Attack, AnimState.Idle, out _));
+            Assert.False(blends.TryGetBlendSeconds(PlayerId, AnimState.Move, AnimState.Move, out _));
+
+            overrides.SetGlobal(new FeelWrite(FeelFieldNames.StartBlendMs, FeelOp.Set, FeelValue.Of(0.0)));
+            _world.Gameplay.Feel.Resolver.InvalidateAll("test");
+            Assert.True(blends.TryGetBlendSeconds(PlayerId, AnimState.Idle, AnimState.Move, out var hardCut));
+            Assert.Equal(0.0, hardCut); // 0 = 硬切
+        }
+
         private static void Gait(HeadlessWorld world, PresentationAssembly presentation) =>
             Assert.Equal(PoseContext.Empty, presentation.Pose!.GetContext(PlayerId));
 

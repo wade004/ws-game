@@ -163,7 +163,11 @@ namespace Core.Foundation.DisplayInfo
                             new FieldSchema("blend_ms", FieldKind.Number, required: false,
                                 description: "切入本剪辑的交叉淡入时长（毫秒，0..2000）；缺省 = 调用方默认（0.15 秒），0 = 硬切；只对 model 型骨骼剪辑生效；子集覆盖同名键时未声明则沿用被覆盖键的值")
                                 .WithRange(FieldRange.Range(min: 0, max: 2000)),
-                        }, description: "{resource_ref: Id, events?: [{name, time_pct}], blend_ms?: Number}，见 AnimSetDef.ParseClip"))),
+                            // ADR-0147（加法字段）：剪辑总时长，事件的 time_pct 乘它得毫秒；导入工具从资源量出后写入，供作者态一致性校验用。
+                            new FieldSchema("duration_ms", FieldKind.Number, required: false,
+                                description: "剪辑总时长（毫秒，> 0）；事件的 time_pct 乘它才是毫秒，供作者态校验（剪辑标记与 skill.def.timeline 一致，01 第 3.2 节）；缺省 = 未声明，该剪辑不参与一致性校验；运行期不读")
+                                .WithRange(FieldRange.Range(min: 0.001, max: 600000)),
+                        }, description: "{resource_ref: Id, events?: [{name, time_pct}], blend_ms?: Number, duration_ms?: Number}，见 AnimSetDef.ParseClip"))),
                 // 手感落地 M4-D（加法字段）：每对键的切入混合时长，优先级高于逐键 blend_ms；from/to 是本行（合并继承链后）clips 里的剪辑键。
                 new FieldSchema("blends", FieldKind.Array, required: false,
                     item: new FieldSchema("<blend>", FieldKind.Object, required: true, fields: new[]

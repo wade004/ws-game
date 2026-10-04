@@ -182,6 +182,39 @@ namespace Tests.Rules.Skill
             Assert.NotEqual(Ticks(160 * 0.5) + Ticks(80 * 0.5), duration);
         }
 
+        [Fact]
+        public void ActionStarted_CarriesPerPhaseAnimationRates_AuthoredMsOverRemappedMs()
+        {
+            // 复现：加速 100%（每相缩短一半）。不变量：每相速率 = 作者毫秒 ÷（重映射后 tick 数 × 步长），由规则算出而非写死；
+            // 未重映射（无急速）时三相速率恒为 1，且保证 判定时间线 × 速率 = 作者时长（动画不脱节）。
+            var h = Create(
+                new[] { Slash("skill.sample_slash") },
+                b =>
+                {
+                    b.Options.GcdEnabled = false;
+                    b.Options.HasteAffectsActionTime = true;
+                    b.Options.HasteStat = HasteStat;
+                });
+            h.World.Stats.SetBase(Actor, HasteStat, 100);
+            var factor = 0.5;
+            var s = Ticks(S * factor);
+            var a = Ticks(A * factor);
+            var r = Ticks(R * factor);
+            h.CastInTick("skill.sample_slash");
+            var started = Assert.Single(h.Of<ActionStartedEvent>()).Event;
+            var stepMs = Step * 1000.0;
+            Assert.Equal(S / (s * stepMs), started.StartupRate, 9);
+            Assert.Equal(A / (a * stepMs), started.ActiveRate, 9);
+            Assert.Equal(R / (r * stepMs), started.RecoveryRate, 9);
+            Assert.All(new[] { started.StartupRate, started.ActiveRate, started.RecoveryRate }, rate => Assert.True(rate > 1.0));
+
+            var plain = Create(new[] { Slash("skill.sample_slash") }, b => b.Options.GcdEnabled = false);
+            plain.CastInTick("skill.sample_slash");
+            var unmapped = Assert.Single(plain.Of<ActionStartedEvent>()).Event;
+            // 未重映射：速率 = 作者毫秒 ÷ 取整后的毫秒，只可能因 tick 取整偏离 1，偏离不超过半个 tick 占该相的比例。
+            Assert.InRange(unmapped.StartupRate, S / (S + stepMs / 2), S / (S - stepMs / 2));
+        }
+
         // ------------------------------------------------------------------ 3. 取消窗口
 
         private static IEnumerable<JsonObject> CancelSkills() => new[]

@@ -598,7 +598,7 @@ blocking 为 `Stop`）"分支。用例 `ADR0125_MovementIntentEnumArgsTests`（�
    朝向速率为 0 时 `StepFacing` 直接返回目标朝向。用例 `DefaultProfile_PositionFacingAndMode_AreBitIdenticalToLegacyMovement`
    逐 tick 比较位置/朝向/模式的二进制位（方向、路径、追击、撞墙四类混合场景）。
 2. **仲裁用"各来源入口处的放行判断"实现优先级**，每 tick 恰一个来源产生位移：`dead > frozen > forced > staggered > rooted >
-   action|root_motion > regular`。forced（受控位移）不受 rooted/staggered 影响（优先级更高，被控制的目标仍会被击退），所以运动层启用时
+   action > regular`（ADR-0147 删除了 `root_motion` 来源）。forced（受控位移）不受 rooted/staggered 影响（优先级更高，被控制的目标仍会被击退），所以运动层启用时
    `AdvanceDisplacement`/`BeginDisplacement` 不再因 `IsLocked` 结束或拒绝位移；frozen 期间位移任务与速度原样保留，解冻后继续。
 3. **运动学写回**：每 tick 末把速度、期望方向、模式、底层模式、来源、基础移速写入 `MovementState.Motion`（`MotionKinematics`）。
    `frozen` 是叠加态：`Mode` 为 Frozen、`BaseMode` 保留底层模式，速度保留。重建 `MovementState` 的既有代码路径会丢掉 `Motion`，
@@ -619,10 +619,12 @@ blocking 为 `Stop`）"分支。用例 `ADR0125_MovementIntentEnumArgsTests`（�
 8. **路径跟随与追击**：`apply_to_path_following` 为真时位移预算由速度积分器给出（`arrival_decel` 为真时到终点前按 `sqrt(2·a·L)` 限速，
    `a` 为基础移速/`decel` 秒数，到达时速度归零不再滑行越过终点）；为假时仍是既有的 `属性速度 × dt`。到达减速的限速按线性制动率估算，
    与制动曲线形状无关（只需要不越过终点）。追击的朝向走转向速率（`MotionFacing`）。
-9. **动作位移（`action`/`root_motion` 来源）**：`MotionActionPass` 在 move 意图之前结算，胜出的 tick 压制该单位输入位移。读取
+9. **动作位移（`action` 来源）**：`MotionActionPass` 在 move 意图之前结算，胜出的 tick 压制该单位输入位移。读取
    `IActionStateQuery.Current(unit).Motion`（`ActionMotionState`）：窗口内逐 tick 位移 = `DistanceWorld × (f(p1) − f(p0))`，各 tick 之和恰为总距离；
-   `charge` 额外按到目标身前 `StopDistanceWorld` 与累计已走距离（按 `CastInstanceId` 记）夹取；`blocking: slide` 沿用滑墙切向裁决。`root_motion` 驱动与
-   代码驱动互斥，`IRootMotionSource.SupportsRootMotion` 为假时抛 `InvalidOperationException`，不降级。**契约新增**：`ActionState.Motion`
+   `charge` 额外按到目标身前 `StopDistanceWorld` 与累计已走距离（按 `CastInstanceId` 记）夹取；`blocking: slide` 沿用滑墙切向裁决。**根运动已删除（ADR-0147）**：位移权威只在逻辑层，动作位移由逻辑按距离与曲线逐固定步算出；
+   原 `root_motion` 驱动遇到时直接抛 `InvalidOperationException`（带迁移说明 `ActionMotion.RootMotionMigrationNote`），加载期由 `skill.def` 的时间线规则提前报错（`timeline_motion_driver_removed`）；
+   `ActionMotion.RootMotion` 枚举成员、`IRootMotionSource`、`MotionServices.RootMotion` 为 ABI 只增不删保留 `[Obsolete]`，赋值被忽略。带位移的动画走导入期烘焙：
+   `skill.motion_curve` 行（`bake-motion`）+ `motion.curve: custom:<id>`，运动层经 `DataMotionCurveSource`（`CarriersFeelOptions.Curves` 缺省）按固定步求值，引用解析不到时抛错、不静默改线性。**冲刺**：`MoveMode.Sprint`（枚举值追加在末尾），目标速度 = 属性速度 × `MotionProfile.SprintSpeedRatio`（`sprint_speed_ratio`，没写按 1，与跑步等速）。**契约新增**：`ActionState.Motion`
    与 `ActionMotion*` 类型落在 `core/rules/common/contracts/ActionMotion.cs`（`ActionState` 新增 6 参构造，5 参构造转发，ABI 只加不改），由动作时间线（S3a）填充。
 10. **击退（forced 模式）**：`MovementHost.BeginKnockback(KnockbackRequest)` 提交带 `knockback`/`curve=ease_out`/`duration` 的 `move_displace`；
     曲线位移从当前位置按 `起点 + 向量 × 曲线(已过时间/总时长)` 逐 tick 取点并经导航裁决截断（起点取处理那一刻的位置，避免意图提交到处理之间位置回跳）。
@@ -642,7 +644,7 @@ blocking 为 `Stop`）"分支。用例 `ADR0125_MovementIntentEnumArgsTests`（�
 
 测试：`core/carriers/unit/tests/MotionArbiterTests.cs`（51 例：缺省逐位等价；`accel_ms` 达速 tick 数与速度曲线；减速与停止距离；反向策略；
 转向速率；rooted/staggered/frozen/dead/forced 仲裁与优先级链；击退曲线、叠加与恢复策略；滑墙开关位移差；路径跟随与到达减速；动作位移、charge、
-root_motion；规则表与档案读取；目标辅助、步态与击退距离的纯函数）。
+曲线烘焙引用；冲刺速度；规则表与档案读取；目标辅助、步态与击退距离的纯函数）。
 
 ## 判断记录（运动层遗留两项，2026-10-02，手感落地 S2b）
 

@@ -97,7 +97,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from . import directions, pose_checklist
+from . import clip_checks, directions, pose_checklist
 from .common import (
     DIRECTION_SLOT_ID_PREFIX,
     AssetImportError,
@@ -201,6 +201,7 @@ CHECK_ANIM_SET_POSE_REQUIRED_MISSING = "anim_set_pose_required_missing"
 CHECK_ANIM_SET_POSE_RECOMMENDED_MISSING = "anim_set_pose_recommended_missing"
 
 CHECK_NAMES: tuple[str, ...] = (
+    *clip_checks.CHECK_NAMES,  # ADR-0147：剪辑标记齐全、剪辑总时长、时间线与剪辑标记一致
     CHECK_SPRITE_SET_ID_MISSING,
     CHECK_SPRITE_SET_ID_FORMAT_INVALID,
     CHECK_SPRITE_SET_DIR_MISSING,
@@ -805,6 +806,14 @@ def _check_anim_set_pose(row: dict, rows_by_id: dict[str, dict], problems: list[
         ))
 
 
+def _extend_with_findings(findings: list[clip_checks.Finding], problems: list[CheckIssue]) -> None:
+    for f in findings:
+        problems.append(CheckIssue(
+            severity=SEVERITY_ERROR if f.severity == "error" else SEVERITY_WARNING, table=f.table, record_key=f.record_key,
+            check=f.check, field_path=f.field_path, message=f.message,
+        ))
+
+
 def _check_anim_set_row(
     row: dict,
     assets_root: Path,
@@ -813,8 +822,12 @@ def _check_anim_set_row(
     rows_by_id: Optional[dict[str, dict]] = None,
 ) -> None:
     row_id = row.get("id", "?")
+    by_id = rows_by_id if rows_by_id is not None else {row_id: row}
     # 手感设计/04：姿势集检查（继承合法 + 标准姿势清单）。rows_by_id 缺省时只含本行自己（单行调用方不受影响）。
-    _check_anim_set_pose(row, rows_by_id if rows_by_id is not None else {row_id: row}, problems)
+    _check_anim_set_pose(row, by_id, problems)
+    # ADR-0147（04 第 8 节）：剪辑标记齐全（只对按清单发布的姿势集）、声明的剪辑总时长与资源一致。
+    _extend_with_findings(clip_checks.check_clip_markers(row, by_id), problems)
+    _extend_with_findings(clip_checks.check_clip_duration(row, assets_root, dataset), problems)
     clips = row.get("clips", {})
     for clip_name, clip in clips.items():
         resource_ref = clip.get("resource_ref") if isinstance(clip, dict) else None
@@ -892,6 +905,42 @@ def _check_equip_visual_row(row: dict, assets_root: Path, dataset: str, problems
     )
 
 
+def _load_table_rows(roots: list[Path], table: str) -> list[dict]:
+    """在若干数据根下找 ``<根>/<域目录>/<table>.json``（域目录取表名第一段，找不到再扫一层子目录），合并其行；同 id 后者覆盖前者。"""
+    merged: dict[str, dict] = {}
+    unkeyed: list[dict] = []
+    for root in roots:
+        candidates = [root / table.split(".", 1)[0] / f"{table}.json"]
+        candidates += sorted(root.glob(f"*/{table}.json")) if root.is_dir() else []
+        path = next((c for c in candidates if c.is_file()), None)
+        if path is None:
+            continue
+        for row in _load_rows(path):
+            if isinstance(row, dict) and row.get("id"):
+                merged[row["id"]] = row
+            elif isinstance(row, dict):
+                unkeyed.append(row)
+    return list(merged.values()) + unkeyed
+
+
+def _check_skill_clip_consistency(data_root: Path, dataset: str, assets_root: Path, problems: list[CheckIssue]) -> None:
+    """ADR-0147（手感设计/01 第 3.2 节）：``skill.def.timeline`` 与对应剪辑标记一致（``source: clip`` 偏差为错误、``source: data``
+    超容差为警告）。技能经武器表现数据对应到剪辑，数据根取框架级 + 本数据集（同装备域的取法）。"""
+    roots = [r for r in dict.fromkeys([data_root / "_framework", data_root / "_feel", data_root / dataset]) if r.is_dir()]
+    skills = _load_table_rows(roots, "skill.def")
+    if not any(isinstance(sk.get("timeline"), dict) for sk in skills):
+        return
+    source = clip_checks.build_skill_clip_source(
+        anim_sets=_load_table_rows(roots, "display.anim_set"),
+        weapon_styles=_load_table_rows(roots, "display.weapon_style"),
+        display_maps=_load_table_rows(roots, "display.map"),
+        items=_load_table_rows(roots, "item.template"),
+        feel_weapons=_load_table_rows(roots, "feel.weapon"),
+    )
+    tolerance = clip_checks.resolve_tolerance_ms(_load_table_rows(roots, "feel.calibration"))
+    _extend_with_findings(clip_checks.check_skill_consistency(skills, source, assets_root, dataset, tolerance), problems)
+
+
 def run(args: argparse.Namespace) -> int:
     repo_root = find_repo_root()
     assets_root = resolve_root(args.assets_root, repo_root, "assets")
@@ -946,6 +995,8 @@ def run(args: argparse.Namespace) -> int:
         equip_visual_rows = _load_rows(data_root / args.dataset / "display" / "display.equip_visual.json")
         for row in equip_visual_rows:
             _check_equip_visual_row(row, assets_root, args.dataset, problems)
+
+        _check_skill_clip_consistency(data_root, args.dataset, assets_root, problems)
 
     equip_item_count = 0
     if "equip" in only:

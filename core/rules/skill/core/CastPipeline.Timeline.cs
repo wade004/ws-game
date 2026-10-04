@@ -588,7 +588,8 @@ namespace Core.Rules.Skill
             }
 
             _bus.Enqueue(new ActionStartedEvent(
-                casterId, skillId, castInstanceId, comboIndex, schedule.TotalTicks, chargeRatio, IsAttackAction(def, tl)));
+                casterId, skillId, castInstanceId, comboIndex, schedule.TotalTicks, chargeRatio, IsAttackAction(def, tl),
+                schedule.StartupRate, schedule.ActiveRate, schedule.RecoveryRate));
             if (assist.HasValue)
             {
                 _bus.Enqueue(new ActionTargetAssistedEvent(

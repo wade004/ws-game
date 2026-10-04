@@ -2,13 +2,20 @@ using Core.Foundation.Common;
 
 namespace Core.Rules.Common
 {
-    /// <summary>动作位移的驱动方式（手感设计/02 第 4 节 <c>ActionMotion.driver</c>，二选一，不叠加）。</summary>
+    /// <summary>
+    /// 动作位移的驱动方式（手感设计/02 第 4 节）。ADR-0147 起只剩代码驱动：位移由逻辑层按距离与曲线逐固定步算出（确定性，不依赖表现帧率）；
+    /// 美术带位移的动画走导入期烘焙（根位移曲线抄写为 <c>skill.motion_curve</c> 行，动作位移引用 <c>custom:&lt;curve_id&gt;</c>）。
+    /// </summary>
     public enum ActionMotionDriver
     {
         /// <summary>代码驱动：逻辑层按距离与曲线逐 tick 算出位移。</summary>
         Code,
 
-        /// <summary>剪辑根运动驱动：适配层回读剪辑根位移，累加为候选位移；适配层不支持时报错，不静默改为代码驱动。</summary>
+        /// <summary>
+        /// 已删除（ADR-0147）：枚举成员只为保持程序集接口兼容而保留（ABI 只增不删）。数据里写 <c>driver: root_motion</c> 在加载期报错并给出迁移说明
+        /// （<c>SkillTimelineRule</c>），运动层遇到该值直接抛异常，不再有根运动路径。
+        /// </summary>
+        [System.Obsolete("root_motion 驱动已删除（ADR-0147）：改用导入期烘焙的位移曲线（skill.motion_curve + motion.curve = custom:<id>）")]
         RootMotion,
     }
 
@@ -53,6 +60,14 @@ namespace Core.Rules.Common
     /// </summary>
     public readonly struct ActionMotion
     {
+        /// <summary>
+        /// 旧数据里 <c>driver: root_motion</c> 的迁移说明（ADR-0147）：加载期校验、解析与运动层共用同一段文字。
+        /// </summary>
+        public const string RootMotionMigrationNote =
+            "root_motion 由表现帧累加剪辑根位移，模拟结果依赖表现帧率与引擎动画求值，无法确定性重放，已删除。迁移：用导入工具把剪辑根位移曲线烘焙为 " +
+            "skill.motion_curve 行（import_assets bake-motion），把 motion.curve 改为 custom:<curve_id>、motion.distance 改为烘焙报告给出的位移（身高倍数），" +
+            "并删除 motion.driver 字段";
+
         public ActionMotionDriver Driver { get; }
 
         public ActionMotionKind Kind { get; }

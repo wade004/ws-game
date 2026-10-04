@@ -60,7 +60,8 @@ namespace Adapter.Unity.Presentation
         public void Destroy() => IsAlive = false;
     }
 
-    public sealed partial class UnityViewFactory : IViewFactory, IPoseContextReceiver
+    public sealed partial class UnityViewFactory : IViewFactory, IPoseContextReceiver,
+        ILocomotionPresentationReceiver, ILocomotionBlendsReceiver, IHitReactionQueryReceiver
     {
         /// <summary>动画状态机驱动到剪辑的六个状态名，见 <see cref="AnimClipResolver.StateKey"/>；
         /// 逐一登记默认剪辑（真实 <c>display.anim_set</c> 或单帧退化），使
@@ -161,6 +162,51 @@ namespace Adapter.Unity.Presentation
             }
 
             _poseContext = source;
+        }
+
+        // ADR-0147：移动呈现参数来源、起步/急停混合来源、受击反应查询；与 _poseContext 同一约束——必须在全局单例解析器构造之前交付。
+        private ILocomotionPresentationSource? _locomotion;
+        private ILocomotionBlendSource? _locomotionBlends;
+        private IHitReactionQuery? _hitReactions;
+        private ClipPlaybackRates? _playbackRates;
+
+        /// <summary><see cref="ILocomotionPresentationReceiver"/>：交付移动呈现参数来源（移动剪辑速率、身体前倾）。动画解析器构造之后再交付不同来源显式抛出。</summary>
+        public void SetLocomotionPresentation(ILocomotionPresentationSource source)
+        {
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            if (ReferenceEquals(_locomotion, source)) return;
+            if (_animClipResolver != null)
+            {
+                throw new InvalidOperationException(
+                    "UnityViewFactory 的动画解析器已经构造，无法再改绑移动呈现参数来源；请在创建任何视图之前（装配根构造 PresentationAssembly 时）交付。");
+            }
+            _locomotion = source;
+        }
+
+        /// <summary><see cref="ILocomotionBlendsReceiver"/>：交付起步/急停混合时长来源（仅 model 型生效）。</summary>
+        public void SetLocomotionBlends(ILocomotionBlendSource blends)
+        {
+            if (blends == null) throw new ArgumentNullException(nameof(blends));
+            if (ReferenceEquals(_locomotionBlends, blends)) return;
+            if (_animClipResolver != null)
+            {
+                throw new InvalidOperationException(
+                    "UnityViewFactory 的动画解析器已经构造，无法再改绑起步/急停混合来源；请在创建任何视图之前（装配根构造 PresentationAssembly 时）交付。");
+            }
+            _locomotionBlends = blends;
+        }
+
+        /// <summary><see cref="IHitReactionQueryReceiver"/>：交付受击反应查询；动画状态机据此进入反应驱动模式（见 <see cref="AnimStateMachine"/>）。</summary>
+        public void SetHitReactionQuery(IHitReactionQuery reactions)
+        {
+            if (reactions == null) throw new ArgumentNullException(nameof(reactions));
+            if (ReferenceEquals(_hitReactions, reactions)) return;
+            if (_animStateMachine != null)
+            {
+                throw new InvalidOperationException(
+                    "UnityViewFactory 的动画状态机已经构造，无法再改绑受击反应查询；请在创建任何视图之前（装配根构造 PresentationAssembly 时）交付。");
+            }
+            _hitReactions = reactions;
         }
 
         /// <summary>ADR-0111：默认剪辑（六个基础状态 + 声明了的战斗姿态变体）的逐层探测在途计数——
@@ -567,6 +613,7 @@ namespace Adapter.Unity.Presentation
         {
             _animStateMachine?.Forget(evt.EntityId);
             _animClipResolver?.Forget(evt.EntityId);
+            _playbackRates?.Forget(evt.EntityId);
             ForgetStateProbes(evt.EntityId);
 
             // ADR-0112：方向准备/预热记账（取消后续档位、清空准备状态、摘掉视图上的闸门与推进委托）——必须
@@ -607,6 +654,7 @@ namespace Adapter.Unity.Presentation
         {
             _animStateMachine?.Forget(evt.UnitId);
             _animClipResolver?.Forget(evt.UnitId);
+            _playbackRates?.Forget(evt.UnitId);
 
             // ADR-0111：Forget 同时清掉了战斗姿态——视图原地复用，重新登记跟踪并按探针确定复活那一刻的
             // 初始姿态（复活时已在战中的单位不会再收到 combat.entered）。复活 = 显示复位：视图此刻停在死亡
@@ -2507,7 +2555,9 @@ namespace Adapter.Unity.Presentation
             }
 
             // ADR-0111：探针以闭包传入、每次调用读取 CombatProbe 当前值（未赋值时恒为非战斗）。
-            _animStateMachine = new AnimStateMachine(_bus!, entityId => CombatProbe?.Invoke(entityId) ?? false);
+            _animStateMachine = new AnimStateMachine(_bus!, entityId => CombatProbe?.Invoke(entityId) ?? false, _hitReactions);
+            // ADR-0147：播放速率来源（动作分相重映射 + 移动剪辑步幅匹配）；没有分相重映射、没有移动呈现来源时速率恒为 1（与此前一致）。
+            _playbackRates = new ClipPlaybackRates(_bus!, _animStateMachine, _locomotion);
             // ADR-0130 追加决定（空中姿势）：姿势上下文带空中阶段时，状态机据此进出 Jump（没有 AirPoseFeeder 喂阶段时无任何影响）。
             if (_poseContext != null)
             {
@@ -2541,7 +2591,40 @@ namespace Adapter.Unity.Presentation
                 weaponStyleSource: _weaponStyleSource,
                 weaponStyles: ResolveWeaponStyleCatalog(),
                 isClipReady: IsStateClipReady,
-                poseContext: _poseContext);
+                poseContext: _poseContext,
+                playbackRates: _playbackRates,
+                setClipSpeed: (entityId, speed) =>
+                {
+                    // ADR-0147：播放中改速率（动作相位切换、移动速度变化）。sprite 型走序列帧播放器，model 型走骨骼剪辑速率。
+                    if (_animPlayersByEntity.TryGetValue(entityId, out var player))
+                    {
+                        player.SetSpeed(speed);
+                    }
+                    else if (_modelViewsByEntity.TryGetValue(entityId, out var modelView) && modelView.Rig is ModelCharacterRig modelRig)
+                    {
+                        modelRig.SetClipSpeed(speed);
+                    }
+                },
+                blends: _locomotionBlends,
+                hintBlend: (entityId, seconds) =>
+                {
+                    // ADR-0147：起步/急停混合时长（一次性）；sprite 型没有交叉淡入，不接线。
+                    if (_modelViewsByEntity.TryGetValue(entityId, out var modelView) && modelView.Rig is ModelCharacterRig modelRig)
+                    {
+                        modelRig.SetNextBlendSeconds(seconds);
+                    }
+                });
+            // ADR-0147：身体前倾（lean_deg_per_accel）：移动呈现参数变化时转发到该实体的 model 型 rig（sprite 型不支持，保持直立）。
+            if (_locomotion != null)
+            {
+                _locomotion.Changed += entityId =>
+                {
+                    if (_modelViewsByEntity.TryGetValue(entityId, out var modelView) && modelView.Rig is ModelCharacterRig modelRig)
+                    {
+                        modelRig.SetLean(_locomotion.GetLeanDeg(entityId));
+                    }
+                };
+            }
         }
 
         /// <summary>W6-B 新增：懒解析一次 <c>display.weapon_style</c> 全表（见 <see cref="AnimClipResolver"/>
@@ -2658,6 +2741,7 @@ namespace Adapter.Unity.Presentation
             {
                 _animStateMachine?.Forget(id);
                 _animClipResolver?.Forget(id);
+                _playbackRates?.Forget(id);
                 ForgetStateProbes(id);
             }
 

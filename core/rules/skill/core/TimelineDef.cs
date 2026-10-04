@@ -462,7 +462,12 @@ namespace Core.Rules.Skill
 
         private static ActionMotion ParseMotion(JsonObject m)
         {
-            var driver = Str(m, "driver") == "root_motion" ? ActionMotionDriver.RootMotion : ActionMotionDriver.Code;
+            if (Str(m, "driver") == "root_motion")
+            {
+                throw new InvalidOperationException("timeline.motion.driver: " + ActionMotion.RootMotionMigrationNote);
+            }
+
+            var driver = ActionMotionDriver.Code;
             var kind = Str(m, "kind") switch
             {
                 "dash" => ActionMotionKind.Dash,

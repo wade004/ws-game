@@ -334,6 +334,11 @@ namespace Presentation.Assembly
         /// </summary>
         public PoseSelector? Pose { get; }
 
+        /// <summary>
+        /// 移动呈现参数（ADR-0147）：手感启用时有，由步态喂入器输出（移动剪辑播放速率与身体前倾角）；手感未启用为 null。
+        /// </summary>
+        public LocomotionPresentation? Locomotion { get; }
+
         private readonly EquipmentPoseBridge? _poseBridge;
         private readonly PoseGaitFeeder? _gaitFeeder;
         private readonly AirPoseFeeder? _airFeeder;
@@ -416,7 +421,13 @@ namespace Presentation.Assembly
                 Pose = new PoseSelector();
                 _poseBridge = new EquipmentPoseBridge(bus, Pose);
                 // 手感落地 M2-B：步态由运动状态的速度比派生并喂给选择器（此前无人调用 Observe，移动姿势恒按 walk 解析）。
-                _gaitFeeder = new PoseGaitFeeder(bus, world, Pose, feelResolver);
+                // ADR-0147：同一次观测还输出移动呈现参数（stride_scale 匹配播放速率、lean_deg_per_accel 身体前倾），交给实现了
+                // ILocomotionPresentationReceiver 的视图工厂；固定步长取手感系统的（显式注入的解析器是 FeelResolver 时取它自己的）。
+                var locomotionStep = (feelResolver as FeelResolver)?.StepSeconds ?? gameplay.Feel?.Feel.StepSeconds ?? 0.0;
+                Locomotion = new LocomotionPresentation();
+                _gaitFeeder = new PoseGaitFeeder(bus, world, Pose, feelResolver, Locomotion, locomotionStep);
+                (viewFactory as ILocomotionPresentationReceiver)?.SetLocomotionPresentation(Locomotion);
+                (viewFactory as ILocomotionBlendsReceiver)?.SetLocomotionBlends(new LocomotionBlends(feelResolver));
                 // ADR-0130 追加决定（空中姿势）：世界装配了竖直运动服务时，空中阶段（rise/fall/land）由竖直速度派生并喂给选择器。
                 var verticalMotion = gameplay.Carriers.VerticalMotion;
                 if (verticalMotion != null)
@@ -428,6 +439,14 @@ namespace Presentation.Assembly
                         : new AirPoseFeeder(bus, verticalMotion, Pose);
                 }
                 (viewFactory as IPoseContextReceiver)?.SetPoseContextSource(Pose);
+            }
+
+            // ADR-0147：世界装配了手感受击裁决（且不是离散模式）时，把只读的受击反应查询交给视图工厂，动画状态机据此进入
+            // 反应驱动模式（受击姿势由裁决事件驱动、霸体/反应为 none 不播受击动画）；没有装配时不交付，受击仍由伤害落地驱动。
+            var hitReactions = gameplay.Feel?.Rules.HitFeel.Host;
+            if (hitReactions != null && hitReactions.Active)
+            {
+                (viewFactory as IHitReactionQueryReceiver)?.SetHitReactionQuery(hitReactions);
             }
 
             // 缺口 12：SettingsStore 提前到最前面构造（原在第 4 步 ui 小节内），本装配根第 2 步

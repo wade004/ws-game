@@ -1626,3 +1626,7 @@ GameBootstrap.cs` 同样两根合并（`data/_framework` + 游戏自己的 `data
 3. **图标加载路径**：`UnityResourceLoader.ResolvePath` 对 `icon` 类别的图片资源转发 `AssetRefConventions.IconFile`；`toolchain/resource_layout_map.json` 新增 `icons` 映射（同步到 `StreamingAssets/GameFoundation/icons`）。
 4. **GPU 帧耗时探针**（`Runtime/LabHost/GpuFrameProbe.cs`，仅实验室引擎宿主）：渲染到离屏纹理并等回读完成；`-nographics` 下不可用。
 5. **复现/不变量（PlayMode）**：`UnityCameraTests`（缺省逐位恒等、偏航朝向与真实相机轴一致、俯仰压扁 cos(俯仰)、透视半高、冲击峰值按 `VisibleHalfHeight`）、`AnimationLayerTests`（两个播放器的时间源与缺省 `Time.deltaTime`）、`UnityResourceLoaderTests`（图标路径与加载）、`EngineLabHostMechanismTests`（原生相机相对输入对每个偏航与俯仰、GPU 状态度量、命中对齐根因）。
+
+## 姿势与动画契约落地的引擎侧接线（M5-S4，ADR-0147）
+
+`UnityViewFactory` 实现 `ILocomotionPresentationReceiver`、`ILocomotionBlendsReceiver`、`IHitReactionQueryReceiver`（由 `PresentationAssembly` 交付，没交付时全部缺省行为逐位不变）：动画状态机带受击反应查询进入反应驱动模式，`ClipPlaybackRates` 汇总剪辑播放速率，`AnimClipResolver` 在状态、受击子键或速率变化时（`OnRateChanged`）重算：受击子键经姿势回落链解析、速率经 `UnityFrameAnimPlayer.SetSpeed`（序列帧）与 `ModelCharacterRig.SetClipSpeed`（骨骼剪辑）交给播放器，启停混合时长经 `SetNextBlendSeconds` 提示（只骨骼剪辑），前倾经 `UnityRenderer3D.SetLean`（角色外形根节点的俯仰，只骨骼模型外形；序列帧外形保持直立）。`ModelCharacterRig` 与 `SpriteCharacterRig` 实现 `IClipMarkerEmitter`，剪辑标记原样对外发布。PlayMode 用例：`AnimClipResolverTests`（受击子键切换剪辑、速率换算与复位）、`AnimationLayerTests`（序列帧播放器速率）。

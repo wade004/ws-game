@@ -4,7 +4,7 @@ using Core.Foundation.Common;
 namespace Core.Carriers.Unit
 {
     /// <summary>当前移动模式（见 05 第 6.2 节 <c>MovementState.moveMode</c>
-    /// <c>idle｜walk｜run｜forced</c>）。</summary>
+    /// <c>idle｜walk｜run｜forced</c>（<see cref="Sprint"/> 为 ADR-0147 追加））。</summary>
     public enum MoveMode
     {
         Idle,
@@ -13,6 +13,14 @@ namespace Core.Carriers.Unit
 
         /// <summary>被击退/传送等非自主位移强制置入的模式（见 05 第 6.2 节 <c>forced</c>）。</summary>
         Forced,
+
+        /// <summary>
+        /// 冲刺（手感设计/02 第 2、7 节，ADR-0147）：与 <see cref="Run"/> 同为自主移动，目标速度 = 单位移动速度属性 ×
+        /// <c>sprint_speed_ratio</c>（档案没写该字段时倍率为 1，与 <see cref="Run"/> 等速）。由移动请求的 <c>mode</c> 触发
+        /// （<see cref="MoveRequest"/>；游戏把"按住冲刺键"映射成该模式）；运动层之外（没有运动档案）与 <see cref="Run"/> 逐位一致。
+        /// 枚举值追加在末尾，既有成员的数值不变。
+        /// </summary>
+        Sprint,
     }
 
     /// <summary>

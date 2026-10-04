@@ -1,0 +1,17 @@
+{
+  "table": "feel.preset",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.preset.pose_motion",
+      "description": "实验室姿势与动画预设（M5-S4）：响应型动作预设（arpg_responsive）加冲刺速度比 1.6（相对基础移速）与前摇倍率 0.5（前摇缩短到一半，动画播放速率因此翻倍）。只被脚本 feel_pose_motion 经 extraDataRoots 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.arpg_responsive",
+      "values": {
+        "sprint_speed_ratio": 1.6,
+        "phase_scale.startup": 0.5
+      }
+    }
+  ]
+}

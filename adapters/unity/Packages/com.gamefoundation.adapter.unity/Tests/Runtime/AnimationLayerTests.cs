@@ -103,6 +103,33 @@ namespace Adapter.Unity.Tests.Runtime
             Object.DestroyImmediate(go);
         }
 
+        /// <summary>ADR-0147：播放中改速率（<see cref="UnityFrameAnimPlayer.SetSpeed"/>）只改后续推进的速率，不回到第 0 帧、不重放；
+        /// 期望帧号由"帧率 x 速率 x 时间"算出（用手动时间源，不依赖真实帧间隔）。</summary>
+        [Test]
+        public void FrameAnimPlayer_SetSpeed_ChangesTheAdvanceRateWithoutRestarting()
+        {
+            var go = new GameObject("Player");
+            var player = go.AddComponent<UnityFrameAnimPlayer>();
+            var time = new ManualFrameTimeSource();
+            player.TimeSource = time;
+            var frames = new Sprite[40];
+            for (var i = 0; i < frames.Length; i++) frames[i] = MakeSprite(Color.red);
+            const double frameRate = 20.0;
+            player.RegisterClip(new Id("anim.rate_clip"), frames, frameRate);
+            player.Play(new Id("anim.rate_clip"), loop: false, speed: 1.0);
+
+            const double dt = 0.05; // 一步 = 一帧（1 倍速）
+            time.SetDelta(dt);
+            for (var i = 0; i < 4; i++) player.Step();
+            Assert.AreEqual((int)(4 * dt * frameRate), player.CurrentFrame);
+
+            player.SetSpeed(2.0);
+            for (var i = 0; i < 4; i++) player.Step();
+            Assert.AreEqual((int)(4 * dt * frameRate) + (int)(4 * dt * frameRate * 2.0), player.CurrentFrame, "改速率后每步推进两帧，且不回到第 0 帧");
+
+            Object.DestroyImmediate(go);
+        }
+
         [UnityTest]
         public IEnumerator FrameAnimPlayer_HitFrameKeyframe_FiresOnAnimEventOnce()
         {

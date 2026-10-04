@@ -33,7 +33,7 @@ namespace Core.Foundation.EventBus
         /// <summary>action.projectile_launched — 字段：actorId, castInstanceId, segment。手感设计/03 第 2.5 节（2026-10-02 勘误）：时间线动作（release 标记或只有 hit 标记的投射物技能）发射了一发投射物；segment 为多段技能的段序号（单段为 0）。castInstanceId 与 action.started 同值。</summary>
         public static readonly Id ActionProjectileLaunched = new Id("action.projectile_launched");
 
-        /// <summary>action.started — 字段：actorId, skillId, castInstanceId, comboIndex, durationTicks, chargeRatio, isAttack。手感设计/01 第 3.7 节（ADR-0115）：时间线动作开始推进，与 skill.cast_start 同批发出；durationTicks 为三相之和（已含速率重映射），chargeRatio 为蓄力比例 0~1（非蓄力动作为 0）；2026-10-02 勘误补充 isAttack（动作是否带攻击：含伤害类/投射物效果，或声明了 hit/release 标记；反馈侧据此决定是否开挥空窗口，闪避等不带攻击的动作没有挥空）。</summary>
+        /// <summary>action.started — 字段：actorId, skillId, castInstanceId, comboIndex, durationTicks, chargeRatio, isAttack, startupRate, activeRate, recoveryRate。手感设计/01 第 3.7 节（ADR-0115）：时间线动作开始推进，与 skill.cast_start 同批发出；durationTicks 为三相之和（已含速率重映射），chargeRatio 为蓄力比例 0~1（非蓄力动作为 0）；2026-10-02 勘误补充 isAttack（动作是否带攻击：含伤害类/投射物效果，或声明了 hit/release 标记；反馈侧据此决定是否开挥空窗口，闪避等不带攻击的动作没有挥空）；ADR-0147 追加 startupRate/activeRate/recoveryRate（三相的动画播放速率：作者毫秒 ÷ 重映射后实际毫秒，未重映射为 1，表现层按它缩放该相剪辑播放，动画不与判定时间线脱节）。</summary>
         public static readonly Id ActionStarted = new Id("action.started");
 
         /// <summary>action.target_assisted — 字段：actorId, castInstanceId, targetId, facingDelta, distanceAdjust。手感设计/02 第 5 节：目标辅助（软锁定）生效；facingDelta 为朝向修正（度，带符号），distanceAdjust 为位移距离修正（close_distance 模式，face_only 为 0）；没有候选目标时不发。</summary>

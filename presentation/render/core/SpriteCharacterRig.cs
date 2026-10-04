@@ -68,7 +68,7 @@ namespace Presentation.Render
     /// 只读属性暴露供调用方/测试读取，是比新增构造重载更小的改动面。
     /// </para>
     /// </summary>
-    public sealed class SpriteCharacterRig : ICharacterRig, IHitFrameEmitter, IProceduralAnim, IPresentationFreezable
+    public sealed class SpriteCharacterRig : ICharacterRig, IHitFrameEmitter, IClipMarkerEmitter, IProceduralAnim, IPresentationFreezable
     {
         private readonly IRenderer2D _renderer;
         private readonly SpriteHandle _handle;
@@ -102,6 +102,9 @@ namespace Presentation.Render
         /// 时立即派发，见该模块）。<see cref="HitFrameSyncStrategy.LogicDriven"/> 策略下（默认）或未
         /// 注入 <see cref="IFrameAnimPlayer"/> 时恒不触发。</summary>
         public event Action<Id>? HitFrameReached;
+
+        /// <summary>ADR-0147：剪辑标记到达（见 <see cref="IClipMarkerEmitter"/>）；序列帧型的全部关键帧标记原样转发，不受命中帧同步策略影响。</summary>
+        public event Action<Id, string>? ClipMarkerReached;
 
         public Id EntityId { get; private set; }
 
@@ -172,16 +175,16 @@ namespace Presentation.Render
                 _frameAnimPlayer.SetPaused(true);
             }
 
-            if (_hitFrameSyncStrategy == HitFrameSyncStrategy.AnimKeyframeDriven)
+            // ADR-0147：剪辑标记对外发布与命中帧策略无关；命中帧只在 AnimKeyframeDriven 策略下转成 HitFrameReached。
+            _frameAnimPlayer.OnAnimEvent(marker =>
             {
-                _frameAnimPlayer.OnAnimEvent(marker =>
+                if (marker == FrameAnimClip.HitFrameMarker && _hitFrameSyncStrategy == HitFrameSyncStrategy.AnimKeyframeDriven)
                 {
-                    if (marker == FrameAnimClip.HitFrameMarker)
-                    {
-                        HitFrameReached?.Invoke(EntityId);
-                    }
-                });
-            }
+                    HitFrameReached?.Invoke(EntityId);
+                }
+
+                ClipMarkerReached?.Invoke(EntityId, marker);
+            });
         }
 
         public void SetAnimState(AnimState state) => CurrentAnimState = state;

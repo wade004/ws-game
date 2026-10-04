@@ -155,6 +155,68 @@ namespace Tests.PresentationRender
             Assert.Equal(cold, hot);
         }
 
+        // ------------------------------------------------------------------
+        // ADR-0147：起步/急停混合提示、播放中改速率、身体前倾
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void PlayClip_NextBlendHint_BeatsPerKeyDeclaration_ButNotPairDeclaration_AndIsConsumedOnce()
+        {
+            var (renderer, handle, rig) = NewRig();
+            var set = BlendSet(out var idle, out var attack, out var hit, out var run);
+            rig.AnimBlendSource = set;
+            rig.PlayClip(idle, loop: true, speed: 1.0);
+
+            // 目标剪辑 attack 有逐键声明（0 毫秒）：提示 0.3 秒压过逐键声明。
+            rig.SetNextBlendSeconds(0.3);
+            rig.PlayClip(attack, loop: false, speed: 1.0);
+            Assert.Equal(0.3, renderer.CurrentAnims[handle.Value].BlendSeconds);
+
+            // 提示只生效一次：同一目标再播回到逐键声明。
+            rig.PlayClip(idle, loop: true, speed: 1.0);
+            rig.PlayClip(attack, loop: false, speed: 1.0);
+            Assert.Equal(0.0, renderer.CurrentAnims[handle.Value].BlendSeconds);
+
+            // 作者对 attack -> idle 这一对键显式声明：压过提示。
+            rig.SetNextBlendSeconds(0.05);
+            rig.PlayClip(idle, loop: true, speed: 1.0);
+            Assert.Equal(set.Blends[0].BlendMs / 1000.0, renderer.CurrentAnims[handle.Value].BlendSeconds);
+
+            // 没有混合来源时提示直接生效；负数夹到 0（硬切）。
+            var (renderer2, handle2, rig2) = NewRig();
+            rig2.SetNextBlendSeconds(-1.0);
+            rig2.PlayClip(run, loop: true, speed: 1.0);
+            Assert.Equal(0.0, renderer2.CurrentAnims[handle2.Value].BlendSeconds);
+        }
+
+        [Fact]
+        public void SetClipSpeed_ForwardsToRenderer_AndFreezeKeepsZeroUntilUnfrozen()
+        {
+            var (renderer, handle, rig) = NewRig();
+            rig.PlayClip(new Id("anim.a"), loop: true, speed: 1.0);
+
+            rig.SetClipSpeed(1.4);
+            Assert.Equal(1.4, renderer.AnimSpeeds[handle.Value]);
+
+            rig.FreezePresentation(freezeTrail: false);
+            rig.SetClipSpeed(0.8);
+            Assert.Equal(0.0, renderer.AnimSpeeds[handle.Value]);   // 冻结期间保持 0
+            rig.UnfreezePresentation();
+            Assert.Equal(0.8, renderer.AnimSpeeds[handle.Value]);   // 解冻恢复最近请求的速率
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => rig.SetClipSpeed(0.0));
+        }
+
+        [Fact]
+        public void SetLean_ForwardsToRenderer()
+        {
+            var (renderer, handle, rig) = NewRig();
+            rig.SetLean(7.5);
+            Assert.Equal(7.5, renderer.Leans[handle.Value]);
+            rig.SetLean(0.0);
+            Assert.Equal(0.0, renderer.Leans[handle.Value]);
+        }
+
         [Fact]
         public void TryGetModelHandle_ReturnsConstructorHandle()
         {
@@ -463,6 +525,25 @@ namespace Tests.PresentationRender
             renderer.FireAnimEventForTest(handle, new Id("anim_event.footstep"));
 
             Assert.False(raised);
+        }
+
+        [Fact]
+        public void ClipMarkers_ArePublishedOutward_WithTheirNames_UnderEitherHitFrameStrategy_ButNotTheFinishedEvent()
+        {
+            foreach (var strategy in new[] { HitFrameSyncStrategy.LogicDriven, HitFrameSyncStrategy.AnimKeyframeDriven })
+            {
+                var (renderer, handle, rig) = NewRig(new RenderOptions { HitFrameSync = strategy });
+                var seen = new List<(Id Entity, string Name)>();
+                rig.ClipMarkerReached += (id, name) => seen.Add((id, name));
+
+                renderer.FireAnimEventForTest(handle, new Id("anim_event.footstep"));
+                renderer.FireAnimEventForTest(handle, ModelCharacterRig.HitFrameEventId);
+                renderer.FireAnimEventForTest(handle, ModelCharacterRig.AnimFinishedEventId);
+
+                // 期望由规则算出：标记名 = 事件 id 去 anim_event. 前缀；完成回调事件是装配内部用的，不算标记。
+                Assert.Equal(new[] { "footstep", "hit_frame" }, seen.ConvertAll(x => x.Name));
+                Assert.All(seen, x => Assert.Equal(rig.EntityId, x.Entity));
+            }
         }
 
         [Fact]

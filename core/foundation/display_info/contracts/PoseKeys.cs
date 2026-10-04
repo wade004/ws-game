@@ -31,6 +31,16 @@ namespace Core.Foundation.DisplayInfo
         public const string GaitRun = "run";
         public const string GaitSprint = "sprint";
 
+        /// <summary>受击状态的反应后缀（手感设计/03 第 4.5 节、04 第 3 节）。</summary>
+        public const string HitState = "hit";
+
+        public const string HitSubLight = "light";
+        public const string HitSubHeavy = "heavy";
+        public const string HitSubKnockback = "knockback";
+        public const string HitSubKnockdown = "knockdown";
+        public const string HitSubGetup = "getup";
+        public const string HitSubBlock = "block";
+
         public const string StancePeace = "peace";
         public const string StanceCombat = "combat";
 
@@ -155,7 +165,20 @@ namespace Core.Foundation.DisplayInfo
         /// <summary>游戏层变体（<c>wounded/carrying/mounted …</c>）；null 或空表示不指定。</summary>
         public string? Variant { get; }
 
+        /// <summary>
+        /// 状态子键（ADR-0147）：紧跟状态段的后缀，如受击的反应后缀 <c>hit.light/heavy/knockback/knockdown/getup/block</c>
+        /// （手感设计/03 第 4.5 节反应→姿势键映射；04 第 3 节"<c>hit</c> 状态按裁决结果加后缀"）。只对非 <c>move</c> 状态生效
+        /// （<c>move</c> 的第二段是步态）；null 或空表示不指定。完整键 <c>&lt;state&gt;[.&lt;sub&gt;][.&lt;stance&gt;][.&lt;family&gt;][.&lt;variant&gt;]</c>。
+        /// </summary>
+        public string? Sub { get; }
+
         public PoseRequest(string state, string? gait = null, string? stance = null, string? family = null, string? variant = null)
+            : this(state, gait, stance, family, variant, null)
+        {
+        }
+
+        /// <summary>ADR-0147 新增重载：追加状态子键（<see cref="Sub"/>）。</summary>
+        public PoseRequest(string state, string? gait, string? stance, string? family, string? variant, string? sub)
         {
             if (string.IsNullOrEmpty(state)) throw new ArgumentException("状态不能为空", nameof(state));
             State = state;
@@ -163,6 +186,7 @@ namespace Core.Foundation.DisplayInfo
             Stance = string.IsNullOrEmpty(stance) ? null : stance;
             Family = string.IsNullOrEmpty(family) ? null : family;
             Variant = string.IsNullOrEmpty(variant) ? null : variant;
+            Sub = string.IsNullOrEmpty(sub) ? null : sub;
         }
 
         /// <summary>仅状态、不带任何维度的请求（解析结果恒为基础键）。</summary>
@@ -171,8 +195,9 @@ namespace Core.Foundation.DisplayInfo
         /// <summary>请求里实际生效的维度段（按固定顺序）：[state, gait?, stance?, family?, variant?]。</summary>
         public IReadOnlyList<string> Tokens()
         {
-            var list = new List<string>(5) { State };
+            var list = new List<string>(6) { State };
             if (Gait != null && State == PoseKeys.GaitState) list.Add(Gait);
+            else if (Sub != null && State != PoseKeys.GaitState) list.Add(Sub);
             if (Stance != null && Stance != PoseKeys.StancePeace) list.Add(Stance);
             if (Family != null) list.Add(Family);
             if (Variant != null) list.Add(Variant);
@@ -199,7 +224,27 @@ namespace Core.Foundation.DisplayInfo
         /// </summary>
         public IReadOnlyList<string> Chain()
         {
-            var tokens = Tokens();
+            // ADR-0147：带状态子键的请求——先走完带子键的全部候选（去变体/武器族/姿态），再以"不带子键"的请求走一遍
+            // （子键保真优先于姿态/武器族保真：重受击的反应信息比站姿细分更重要），最后才是基础键。没有子键时与此前逐位一致。
+            if (Sub != null && State != PoseKeys.GaitState)
+            {
+                var withSub = ChainOf(Tokens());
+                var without = new PoseRequest(State, Gait, Stance, Family, Variant).Chain();
+                var merged = new List<string>(withSub.Count + without.Count);
+                // withSub 的末项是基础键，留给 without 链收尾（基础键恒在最后）；其余候选去重后按顺序并入。
+                for (var i = 0; i < withSub.Count - 1; i++) merged.Add(withSub[i]);
+                for (var i = 0; i < without.Count; i++)
+                {
+                    if (!merged.Contains(without[i])) merged.Add(without[i]);
+                }
+                return merged;
+            }
+
+            return ChainOf(Tokens());
+        }
+
+        private IReadOnlyList<string> ChainOf(IReadOnlyList<string> tokens)
+        {
             var chain = new List<string>(tokens.Count + 4);
             var sprintIndex = tokens.Count > 1 && State == PoseKeys.GaitState && tokens[1] == PoseKeys.GaitSprint ? 1 : -1;
 
@@ -221,7 +266,7 @@ namespace Core.Foundation.DisplayInfo
 
         public bool Equals(PoseRequest other) =>
             State == other.State && Gait == other.Gait && Stance == other.Stance
-            && Family == other.Family && Variant == other.Variant;
+            && Family == other.Family && Variant == other.Variant && Sub == other.Sub;
 
         public override bool Equals(object? obj) => obj is PoseRequest other && Equals(other);
 
@@ -234,6 +279,7 @@ namespace Core.Foundation.DisplayInfo
                 h = (h * 397) ^ (Stance == null ? 0 : StringComparer.Ordinal.GetHashCode(Stance));
                 h = (h * 397) ^ (Family == null ? 0 : StringComparer.Ordinal.GetHashCode(Family));
                 h = (h * 397) ^ (Variant == null ? 0 : StringComparer.Ordinal.GetHashCode(Variant));
+                h = (h * 397) ^ (Sub == null ? 0 : StringComparer.Ordinal.GetHashCode(Sub));
                 return h;
             }
         }

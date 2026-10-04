@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using Core.Carriers.Common;
 using Core.Foundation.Common;
+using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
+using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 
 namespace Presentation.Render
@@ -71,6 +73,21 @@ namespace Presentation.Render
     /// </list>
     /// </para>
     /// <para>
+    /// 判断记录（受击反应驱动，ADR-0147，手感设计/03 第 4.5 节）：构造时带 <see cref="IHitReactionQuery"/> 的重载进入<b>反应驱动模式</b>
+    /// （世界装配了手感受击裁决时由装配根传入；缺省不传，行为与此前逐位一致）。该模式下受击不再由 <c>combat.damage_dealt</c> 触发——
+    /// 伤害落地不等于有受击反应（霸体、回避、反应为 none 不播任何受击动画）——改由裁决事件驱动：<c>combat.reaction_applied</c>
+    /// （<c>flinch</c> / <c>stagger_light</c> → <c>hit.light</c>，<c>stagger</c> → <c>hit.heavy</c>，<c>knockback</c> 与 <c>knockdown</c> 硬直段 → <c>hit.knockback</c>）、
+    /// <c>unit.knocked_down</c>（→ <c>hit.knockdown</c>）、<c>unit.getup_started</c>（→ <c>hit.getup</c>）、
+    /// <c>combat.hit_confirmed</c> 的 <c>Block</c>（→ <c>hit.block</c>）。当前子键经 <see cref="GetHitPoseSub"/> 给解析方，状态仍是 <see cref="AnimState.Hit"/>
+    /// （状态枚举不增不减，子键只是同一状态的姿势键后缀，缺键沿回落链退到 <c>hit</c>）。有硬直的反应进入"保持"：<see cref="NotifyTransientStateFinished"/>
+    /// 对 Hit 的完成回调在硬直未结束时被忽略（剪辑播完停在末帧），每个 <c>sim.tick_finished</c> 查 <see cref="IHitReactionQuery"/>
+    /// （硬直中或尚未起算的顿帧期，<c>RemainingStaggerTicks</c> &gt; 0），硬直（含倒地、起身、空中硬直直到落地）结束的那个 tick 回落到运动态——
+    /// 与逻辑层的硬直时钟同源（顿帧期间自然不走），不在表现层自己数 tick。判定规则：①<c>flinch</c> 不打断动作——处于
+    /// Attack/Cast 时忽略（逻辑层语义"不打断"），处于硬直保持中也忽略（不把倒地姿势换成轻抖动）；②有硬直的反应只在它刷新了硬直记录时生效
+    /// （<c>RemainingStaggerTicks</c> 不大于事件的 <c>durationTicks</c>，较弱的反应打在更长的硬直上不换姿势）；③格挡抖动同样不进入动作与保持，
+    /// 且被格挡命中随后的 <c>flinch</c> 反应不再重播一次轻抖动。
+    /// </para>
+    /// <para>
     /// 判断记录（优先级/打断规则，09 原文只说"由 09 判断优先级"但未给出具体表，本类型按下表拍板并
     /// 记录）：数值越大优先级越高；<see cref="AnimState.Idle"/>/<see cref="AnimState.Move"/>（合称
     /// "运动态"，互斥、总是可以互相覆盖）优先级 0，<see cref="AnimState.Jump"/> 优先级 1，
@@ -105,6 +122,10 @@ namespace Presentation.Render
             public AnimState Current = AnimState.Idle;
             public AnimState Locomotion = AnimState.Idle;
             public bool InCombat;
+
+            // ADR-0147：反应驱动模式下当前受击姿势的子键（null = 基础 hit）与硬直保持标志。
+            public string? HitSub;
+            public bool Hold;
         }
 
         private readonly Dictionary<Id, Entry> _entities = new Dictionary<Id, Entry>();
@@ -164,10 +185,26 @@ namespace Presentation.Render
         public event Action<Id, bool>? CombatStanceChanged;
 
         private readonly Func<Id, bool>? _combatProbe;
+        private readonly IHitReactionQuery? _reactions;
+        private readonly HashSet<Id> _holding = new HashSet<Id>();
+        private readonly List<Id> _scratch = new List<Id>();
 
         public AnimStateMachine(IEventBus bus) : this(bus, null)
         {
         }
+
+        /// <summary>
+        /// ADR-0147：是否处于受击反应驱动模式（构造时带了 <see cref="IHitReactionQuery"/>）。是则 Hit 由裁决事件驱动、
+        /// 带反应子键（<see cref="GetHitPoseSub"/>）；否则由 <c>combat.damage_dealt</c> 驱动（此前行为）。
+        /// </summary>
+        public bool IsReactionDriven => _reactions != null;
+
+        /// <summary>
+        /// ADR-0147：当前受击姿势的子键（<c>light/heavy/knockback/knockdown/getup/block</c>，见 <see cref="PoseKeys"/>）；
+        /// 不在 Hit 状态、非反应驱动模式或无子键时为 null（解析基础键 <c>hit</c>）。
+        /// </summary>
+        public string? GetHitPoseSub(Id entityId) =>
+            _entities.TryGetValue(entityId, out var entry) && entry.Current == AnimState.Hit ? entry.HitSub : null;
 
         /// <summary>
         /// ADR-0111：带"战斗中探针"的构造重载。<paramref name="combatProbe"/> 是只读查询（"该单位此刻是否
@@ -178,10 +215,19 @@ namespace Presentation.Render
         /// <see cref="AnimStateMachine(IEventBus)"/> 的既有行为）。探针抛出的异常不吞，原样传播（运行时
         /// 路径不静默降级）。
         /// </summary>
-        public AnimStateMachine(IEventBus bus, Func<Id, bool>? combatProbe)
+        public AnimStateMachine(IEventBus bus, Func<Id, bool>? combatProbe) : this(bus, combatProbe, null)
+        {
+        }
+
+        /// <summary>
+        /// ADR-0147：带受击反应查询的构造重载（<paramref name="reactions"/> 非空即进入反应驱动模式，见类型注释）；为 null 与
+        /// <see cref="AnimStateMachine(IEventBus, Func{Id, bool}?)"/> 逐位一致。
+        /// </summary>
+        public AnimStateMachine(IEventBus bus, Func<Id, bool>? combatProbe, IHitReactionQuery? reactions)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             _combatProbe = combatProbe;
+            _reactions = reactions;
 
             _subscriptions.Add(bus.Subscribe<UnitStateChangedEvent>(CarriersEventKeys.UnitStateChanged, OnUnitStateChanged));
             _subscriptions.Add(bus.Subscribe<SkillCastStartEvent>(RulesEventKeys.SkillCastStart, OnSkillCastStart));
@@ -189,7 +235,19 @@ namespace Presentation.Render
             _subscriptions.Add(bus.Subscribe<SkillCastSuccessEvent>(RulesEventKeys.SkillCastSuccess, evt => OnSkillCastEnd(evt.CasterId)));
             _subscriptions.Add(bus.Subscribe<SkillCastFailedEvent>(RulesEventKeys.SkillCastFailed, evt => OnSkillCastEnd(evt.CasterId)));
             _subscriptions.Add(bus.Subscribe<SkillCastInterruptedEvent>(RulesEventKeys.SkillCastInterrupted, evt => OnSkillCastEnd(evt.CasterId)));
-            _subscriptions.Add(bus.Subscribe<CombatDamageDealtEvent>(RulesEventKeys.CombatDamageDealt, OnCombatDamageDealt));
+            if (_reactions == null)
+            {
+                _subscriptions.Add(bus.Subscribe<CombatDamageDealtEvent>(RulesEventKeys.CombatDamageDealt, OnCombatDamageDealt));
+            }
+            else
+            {
+                // ADR-0147：反应驱动模式——受击由裁决事件驱动（见类型注释），伤害落地本身不再触发 Hit。
+                _subscriptions.Add(bus.Subscribe<CombatReactionAppliedEvent>(RulesEventKeys.CombatReactionApplied, OnReactionApplied));
+                _subscriptions.Add(bus.Subscribe<UnitKnockedDownEvent>(RulesEventKeys.UnitKnockedDown, evt => OnReactionPhase(evt.UnitId, PoseKeys.HitSubKnockdown)));
+                _subscriptions.Add(bus.Subscribe<UnitGetupStartedEvent>(RulesEventKeys.UnitGetupStarted, evt => OnReactionPhase(evt.UnitId, PoseKeys.HitSubGetup)));
+                _subscriptions.Add(bus.Subscribe<CombatHitConfirmedEvent>(RulesEventKeys.CombatHitConfirmed, OnHitConfirmedForBlock));
+                _subscriptions.Add(bus.Subscribe<SimTickFinishedEvent>(SimEventKeys.TickFinished, _ => ReleaseFinishedHolds()));
+            }
             _subscriptions.Add(bus.Subscribe<UnitDiedEvent>(RulesEventKeys.UnitDied, evt => TryEnter(evt.UnitId, AnimState.Death)));
             // ADR-0111：combat.entered/combat.left 逐单位携带 unitId（CombatHost 对每个单位各发一次，
             // 见 CombatEnteredEvent/CombatLeftEvent），读档不补发（CombatHost.RestoreCombatState 注释）
@@ -263,6 +321,12 @@ namespace Presentation.Render
 
             if (_entities.TryGetValue(entityId, out var entry) && entry.Current == finishedState)
             {
+                // ADR-0147：硬直保持中，受击剪辑播完不回落（停在末帧），回落由硬直结束驱动。
+                if (finishedState == AnimState.Hit && entry.Hold && IsStaggerActive(entityId))
+                {
+                    return;
+                }
+
                 RevertToLocomotion(entityId, entry);
             }
         }
@@ -270,7 +334,11 @@ namespace Presentation.Render
         /// <summary>释放对该实体的跟踪（例如 View 销毁/实体离开场景时由调用方清理，避免字典无限增长）。
         /// 同时清除战斗姿态（ADR-0111）。不触发 <see cref="StateChanged"/>/<see cref="CombatStanceChanged"/>
         /// ——纯粹的簿记清理，不是一次状态切换。</summary>
-        public void Forget(Id entityId) => _entities.Remove(entityId);
+        public void Forget(Id entityId)
+        {
+            _entities.Remove(entityId);
+            _holding.Remove(entityId);
+        }
 
         public void Dispose()
         {
@@ -338,6 +406,7 @@ namespace Presentation.Render
                 case "Idle": locomotion = AnimState.Idle; break;
                 case "Walk":
                 case "Run":
+                case "Sprint": // ADR-0147：冲刺模式，与 Run 同属移动态（步态剪辑由姿势解析按速度档位选）
                 case "Forced": locomotion = AnimState.Move; break;
                 default: return; // 非移动模式取值（如 AI 行为状态机复用同一事件 key），不属本状态机管辖。
             }
@@ -398,6 +467,144 @@ namespace Presentation.Render
 
         private void OnCombatDamageDealt(CombatDamageDealtEvent evt) => TryEnter(evt.TargetId, AnimState.Hit);
 
+        // ------------------------------------------------------------------ ADR-0147：受击反应驱动
+
+        private bool IsStaggerActive(Id entityId) =>
+            _reactions != null && (_reactions.IsStaggered(entityId) || _reactions.RemainingStaggerTicks(entityId) > 0);
+
+        private void OnReactionApplied(CombatReactionAppliedEvent evt)
+        {
+            if (evt.Reaction == HitReaction.None || evt.Reaction == HitReaction.Death)
+            {
+                return; // none 不播任何受击动画；死亡由 unit.died 驱动。
+            }
+
+            var entry = GetOrCreate(evt.TargetId);
+            if (entry.Current == AnimState.Death)
+            {
+                return;
+            }
+
+            if (evt.DurationTicks <= 0)
+            {
+                // flinch：单次受击动画，不进硬直、不打断动作；硬直保持中不换成轻抖动；刚显示过格挡抖动的命中不再重播一次。
+                if (entry.Current == AnimState.Attack || entry.Current == AnimState.Cast || entry.Hold)
+                {
+                    return;
+                }
+
+                if (entry.Current == AnimState.Hit && entry.HitSub == PoseKeys.HitSubBlock)
+                {
+                    return;
+                }
+
+                EnterHit(evt.TargetId, entry, PoseKeys.HitSubLight, hold: false);
+                return;
+            }
+
+            // 有硬直的反应：只在它刷新了硬直记录时生效（较弱的反应打在更长的硬直上不换姿势）。
+            if (_reactions!.RemainingStaggerTicks(evt.TargetId) > evt.DurationTicks)
+            {
+                return;
+            }
+
+            string sub;
+            switch (evt.Reaction)
+            {
+                case HitReaction.StaggerLight: sub = PoseKeys.HitSubLight; break;
+                case HitReaction.Stagger: sub = PoseKeys.HitSubHeavy; break;
+                case HitReaction.Knockdown when evt.StunTicks <= 0 && evt.DownedTicks > 0: sub = PoseKeys.HitSubKnockdown; break;
+                default: sub = PoseKeys.HitSubKnockback; break;
+            }
+
+            EnterHit(evt.TargetId, entry, sub, hold: true);
+        }
+
+        private void OnReactionPhase(Id unitId, string sub)
+        {
+            var entry = GetOrCreate(unitId);
+            if (entry.Current == AnimState.Death || !IsStaggerActive(unitId))
+            {
+                return;
+            }
+
+            if (entry.Current == AnimState.Hit && entry.HitSub == sub)
+            {
+                return; // 同一阶段姿势已经在播（例如硬直段为 0 的倒地已按分段直接进入躺姿）。
+            }
+
+            EnterHit(unitId, entry, sub, hold: true);
+        }
+
+        private void OnHitConfirmedForBlock(CombatHitConfirmedEvent evt)
+        {
+            if (evt.HitResult != HitResult.Block)
+            {
+                return;
+            }
+
+            var entry = GetOrCreate(evt.TargetId);
+            if (entry.Current == AnimState.Death || entry.Hold || entry.Current == AnimState.Attack || entry.Current == AnimState.Cast)
+            {
+                return; // 格挡抖动不进硬直，也不打断动作（带格挡窗口的动作自己播格挡剪辑）。
+            }
+
+            EnterHit(evt.TargetId, entry, PoseKeys.HitSubBlock, hold: false);
+        }
+
+        private void EnterHit(Id entityId, Entry entry, string sub, bool hold)
+        {
+            var wasHit = entry.Current == AnimState.Hit;
+            entry.HitSub = sub; // 先设子键：StateChanged/StateRetriggered 的订阅方在回调里读 GetHitPoseSub。
+            if (hold)
+            {
+                entry.Hold = true;
+                _holding.Add(entityId);
+            }
+            else if (wasHit)
+            {
+                entry.Hold = false;
+                _holding.Remove(entityId);
+            }
+
+            TryEnter(entityId, AnimState.Hit);
+            if (entry.Current != AnimState.Hit)
+            {
+                entry.HitSub = null; // 没进成（例如被终态挡住）：不留残余子键。
+                entry.Hold = false;
+                _holding.Remove(entityId);
+            }
+        }
+
+        private void ReleaseFinishedHolds()
+        {
+            if (_holding.Count == 0)
+            {
+                return;
+            }
+
+            _scratch.Clear();
+            _scratch.AddRange(_holding);
+            for (var i = 0; i < _scratch.Count; i++)
+            {
+                var id = _scratch[i];
+                if (IsStaggerActive(id))
+                {
+                    continue;
+                }
+
+                _holding.Remove(id);
+                if (_entities.TryGetValue(id, out var entry))
+                {
+                    entry.Hold = false;
+                    if (entry.Current == AnimState.Hit)
+                    {
+                        RevertToLocomotion(id, entry);
+                    }
+                }
+            }
+        }
+
         private void TryEnter(Id entityId, AnimState state, Id? triggerSkillId = null)
         {
             var entry = GetOrCreate(entityId);
@@ -445,6 +652,13 @@ namespace Presentation.Render
 
             var previous = entry.Current;
             entry.Current = next;
+            if (previous == AnimState.Hit)
+            {
+                entry.HitSub = null;
+                entry.Hold = false;
+                _holding.Remove(entityId);
+            }
+
             StateChanged?.Invoke(entityId, previous, next);
             StateChangedWithSkill?.Invoke(entityId, previous, next, triggerSkillId);
         }
