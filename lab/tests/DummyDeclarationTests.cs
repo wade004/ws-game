@@ -13,7 +13,7 @@ using Xunit;
 namespace Tests.Lab
 {
     /// <summary>
-    /// 靶子数据的两项声明（手感设计 06 第 2 节、第 10 节勘误 4）：
+    /// 靶子数据的两项声明（手感设计 06 第 2 节、第 2 节）：
     /// <list type="bullet">
     /// <item>可破坏障碍：靶子条目声明 <c>block_half_extent</c>（<c>kind = breakable</c> 缺省 0.5）即动态阻挡，任何场景都生效——
     /// 出场时追加占位矩形、被打死后经导航接口批量替换去掉；不声明的靶子不挡路（缺省不变）。</item>

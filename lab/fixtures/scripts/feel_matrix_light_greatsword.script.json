@@ -1,0 +1,137 @@
+{
+  "formatVersion": 5,
+  "meta": {
+    "scriptId": "feel_matrix_light_greatsword",
+    "scriptVersion": 1,
+    "description": "体型 × 武器矩阵（M5-S7，ADR-0151，生成器 LabMatrix）：玩家职业经 feel_archetype_ref 取体型 feel.archetype.light，第 0 tick 叠加武器 feel.weapon.greatsword；同形状输入：第 5 tick 挥击命中木桩、第 60 tick 起向上走 30 tick 后停、第 120 tick 空挥、第 150 tick 闪避。差异只来自体型与武器数据。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 240,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_slash",
+      "lab_a.dodge": "skill.lab_a_dodge"
+    },
+    "playerClass": "arch.class.matrix_light",
+    "extraMetrics": [
+      "latency",
+      "attackx",
+      "hitx",
+      "crowd"
+    ],
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_feel_templates",
+      "data/_lab_action",
+      "lab/fixtures/data/matrix"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "feel.weapon.greatsword",
+      "kind": "loadout"
+    },
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 60,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "tick": 90,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "tick": 120,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 121,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 150,
+      "action": "input.action.lab_a_dodge",
+      "kind": "press"
+    },
+    {
+      "tick": 151,
+      "action": "input.action.lab_a_dodge",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "matrix.no_residual_hits",
+      "metric": "attackx.residual_hits",
+      "op": "eq",
+      "value": 0,
+      "note": "取消之后不应再有命中确认落地"
+    },
+    {
+      "id": "matrix.visible_excess_nonneg",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "latency.visible_excess_ms_min",
+      "op": "ge",
+      "value": 0,
+      "note": "首次可见时刻不早于逻辑必经时间"
+    },
+    {
+      "id": "matrix.visible_excess_lt_frame",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "latency.visible_excess_ms_max",
+      "op": "lt",
+      "versus": {
+        "metric": "latency.frame_ms"
+      },
+      "note": "帧量化多出的一截小于一个表现帧步长（随帧率上限变化，不写死数）"
+    }
+  ]
+}

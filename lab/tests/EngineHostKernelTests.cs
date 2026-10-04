@@ -708,6 +708,35 @@ namespace Tests.Lab
         }
 
         [Fact]
+        public void EngineMetricGroup_InputToFirstVisibleResponse_PairsPressesWithPlayerClipTransitions()
+        {
+            // 复现（M5-S7）：输入类别取自手感记录；按下 tick 起点之后玩家 rig 的第一次剪辑切换算"首次可见响应"，毫秒按模拟时刻差折算；
+            // 不变量：没有对应切换的按下计入 missing，不进毫秒清单；非玩家的切换与非攻击类输入不参与。
+            var recording = EmptyRecording();
+            var step = recording.StepSeconds;
+            recording.Feel = new FeelRecording { Assembled = true };
+            recording.Feel.InputClasses["input.action.atk"] = "attack";
+            recording.Feel.InputClasses["input.action.move"] = "move";
+            recording.InjectedInputs.Add(new ScriptEvent(10, "input.action.atk", ScriptEventKind.Press));
+            recording.InjectedInputs.Add(new ScriptEvent(12, "input.action.move", ScriptEventKind.Press));
+            recording.InjectedInputs.Add(new ScriptEvent(80, "input.action.atk", ScriptEventKind.Press));
+            var engine = new EngineRecording { Plane = "2d", RigKind = "sprite" };
+            engine.ClipTransitions.Add("dummy:clip.hit");
+            engine.ClipTransitionSeconds.Add(10 * step + 0.003);
+            engine.ClipTransitions.Add("player:clip.attack");
+            engine.ClipTransitionSeconds.Add(10 * step + 0.0125);
+            recording.Engine = engine;
+
+            var built = (JsonObject)MetricRegistry.CreateWithEngine().Compute(recording)["engine"];
+            double Num(string key) => ((JsonNumber)built[key]).Value;
+            Assert.Equal(2.0, Num("input_visible_count"));
+            Assert.Equal(1.0, Num("input_visible_missing"));
+            Assert.Equal(12.5, Num("input_visible_ms_max"), 6);
+            Assert.Equal(2.0, Num("clip_transition_count"));
+            Assert.Equal("dummy:clip.hit;player:clip.attack", ((JsonString)built["clip_transitions"]).Value);
+        }
+
+        [Fact]
         public void EngineGroup_IsConditional_NotInTheDefaultRegistry_AndHeadlessFingerprintsNeverCarryIt()
         {
             var runner = LabTestSupport.Runner;

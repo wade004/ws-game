@@ -36,6 +36,17 @@ namespace Lab
 
         /// <summary>移动动作 id；宿主把它重绑到左摇杆以便注入任意模长的轴值（见 <see cref="LabHost"/> 判断记录）。</summary>
         public string MoveAction { get; set; } = "input.action.move";
+
+        /// <summary>同一份选项换玩家职业（脚本 <c>meta.playerClass</c>，M5-S7）；原对象不变。</summary>
+        internal LabHostOptions WithPlayerClass(string classId) => new LabHostOptions
+        {
+            DataSources = DataSources,
+            PlayerClassId = classId,
+            PlayerFactionId = PlayerFactionId,
+            PlayerId = PlayerId,
+            Seed = Seed,
+            MoveAction = MoveAction,
+        };
     }
 
     /// <summary>
@@ -72,7 +83,7 @@ namespace Lab
     /// （宿主不再自己提交施放意图）；每步末尾（事件派发之后）采缓冲槽与运动层状态并让反馈流水线兜底出批；
     /// 靶子（含 AI 巡逻靶）的位置每步同步进空间索引（引擎侧由物理空间查询适配器做）。可破坏障碍是真正的动态阻挡：
     /// 出场时在地形阻挡之外追加其占位矩形（半边长 0.5），被打死后经 <c>INavigation2D.RemoveBlocking</c> 增量移除，
-    /// 阻挡版本号随之递增（06 第 10 节勘误 4 的收口）。动态阻挡由靶子数据声明（<c>block_half_extent</c>，<c>breakable</c> 缺省 0.5），
+    /// 阻挡版本号随之递增（06 第 2 节 的收口）。动态阻挡由靶子数据声明（<c>block_half_extent</c>，<c>breakable</c> 缺省 0.5），
     /// 不限手感场景：基础靶子集里的可破坏障碍同样是真阻挡；阻挡变更另记一条 <c>blocking_changed</c> 逻辑事件。
     /// 靶子可选声明韧性（<c>poise</c>）：出场后写进韧性属性，受击裁决读它。
     /// </para>
@@ -199,7 +210,7 @@ namespace Lab
         public static LabRecording Run(
             LabHostOptions options, LabScenario cell, InputScript script, LabCatalog? catalog, LabRunVariant? variant,
             LabHostExtension? extension) =>
-            Start(options, cell, script, catalog, variant, extension, false).RunToEnd();
+            Start(options, cell, script, catalog, variant, extension, false).RunToEnd(variant?.TimeScale ?? 1.0);
 
         /// <summary>
         /// 开一次可单步推进的运行（交互式试玩宿主用，ADR-0141）：装配与 <see cref="Run(LabHostOptions, LabScenario, InputScript, LabCatalog?, LabRunVariant?, LabHostExtension?)"/>
@@ -234,6 +245,12 @@ namespace Lab
             }
 
             var meta = script.Meta;
+            if (meta.PlayerClass.Length > 0 && !string.Equals(meta.PlayerClass, options.PlayerClassId, StringComparison.Ordinal))
+            {
+                // 脚本指定了玩家职业（体型矩阵脚本经职业行的 feel_archetype_ref 走生产路径选体型，ADR-0146/0151）；缺省不变。
+                options = options.WithPlayerClass(meta.PlayerClass);
+            }
+
             var step = 1.0 / meta.TickRate;
             var nav = new StubNavigation2D();
 
@@ -269,7 +286,7 @@ namespace Lab
                     }
                     : null;
 
-            // 空间语义（06 第 10 节勘误 9）：plane 不装配任何空间能力（行为与引入前逐位一致）；side_2d/volume 装配竖直轴（重力下的跳跃/击飞/落地）
+            // 空间语义（06 第 1.2 节）：plane 不装配任何空间能力（行为与引入前逐位一致）；side_2d/volume 装配竖直轴（重力下的跳跃/击飞/落地）
             // 并打开命中形状的高度窗口；volume 另外把"最近"改成含高度差的三维距离；side_2d 额外锁深度（输入的竖直分量不是深度）。
             var spaceModel = variant.SpaceOverride ?? cell.Space;
             var vertical = LabScenario.IsVerticalSpace(spaceModel);
@@ -532,6 +549,8 @@ namespace Lab
             var factory = new RecordingViewFactory();
             var displayInfo = new DisplayInfoRegistry(world.Registry, world.Bus);
             var frameDt = 1.0 / meta.FrameRateCap;
+            // 表现帧的模拟时间步长：缺省等于脚本帧长；慢放重放（LabSession.RunToEnd(timeScale)）按尺度缩小它，帧样本时间与帧记录随之按真实的帧距走。
+            var frameClockStep = frameDt;
             LabHostContext? hostContext = null;
             IViewFactory viewFactory = factory;
             if (extension != null || live)
@@ -646,6 +665,14 @@ namespace Lab
             if (feelOn)
             {
                 recording.Feel = new FeelRecording { Preset = effectivePreset, CalibrationId = calibrationId, Assembled = true };
+                // 输入动作的类别（found.input_action.class）：可选度量组 latency 按它给输入分类（只读辅助，不进任何既有度量）。
+                foreach (var definition in definitions)
+                {
+                    if (definition.Class.HasValue)
+                    {
+                        recording.Feel.InputClasses[definition.ActionId.Value] = definition.Class.Value.ToString().ToLowerInvariant();
+                    }
+                }
             }
 
             var wasActive = new Dictionary<string, bool>(StringComparer.Ordinal);
@@ -667,7 +694,9 @@ namespace Lab
 
                     return n;
                 };
-                feelRig = new FeelRig(world, recording.Feel!, labels, ordinalOf, step, dummyUnits, extension?.FeedbackTee, meta.PoseExt);
+                // 声明了 latency 度量组的脚本需要姿势请求（输入到首次可见响应里的"姿势切换"）：没有声明姿势观测选项时装一份缺省的观测装置（只读）。
+                var poseObservation = meta.PoseExt ?? (LabExtraMetrics.IsDeclared(meta, LabExtraMetrics.Latency) ? new ScriptPoseOptions() : null);
+                feelRig = new FeelRig(world, recording.Feel!, labels, ordinalOf, step, dummyUnits, extension?.FeedbackTee, poseObservation);
             }
 
             var dummyMoves = new Dictionary<string, Vec2>(StringComparer.Ordinal);
@@ -1291,9 +1320,9 @@ namespace Lab
                 var view = factory.PlayerView;
                 var continuous = string.Equals(cell.Facing, "continuous", StringComparison.Ordinal);
                 recording.Frames.Add(view == null || !view.HasPose
-                    ? new FrameSample(frame, frame * frameDt, tick, alpha, false, Vec2.Zero, 0, 0, 0)
+                    ? new FrameSample(frame, frame * frameClockStep, tick, alpha, false, Vec2.Zero, 0, 0, 0)
                     : new FrameSample(
-                        frame, frame * frameDt, tick, alpha, true, view.Position, view.Facing.RawRadians,
+                        frame, frame * frameClockStep, tick, alpha, true, view.Position, view.Facing.RawRadians,
                         continuous ? 0 : view.Facing.Index, continuous ? 0 : view.Facing.DirectionCount));
                 extension?.OnFrame(frame, alpha, dt);
                 frame++;
@@ -1349,7 +1378,12 @@ namespace Lab
             }
 
             return new LabSession(
-                script, recording, hostContext, live, duration, step, frameDt, () => tick, AdvanceFrame, InjectLive, Finish);
+                script, recording, hostContext, live, duration, step, frameDt, () => tick, AdvanceFrame, InjectLive, Finish,
+                dt =>
+                {
+                    frameClockStep = dt;
+                    recording.FrameSeconds = dt;
+                });
         }
 
         private static string FirstBinding(InputMapHost inputMap, string action)

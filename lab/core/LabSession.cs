@@ -19,6 +19,7 @@ namespace Lab
         private readonly Action<double> _advance;
         private readonly Action<ScriptEvent> _inject;
         private readonly Func<LabRecording> _finish;
+        private readonly Action<double>? _setFrameStep;
         private readonly int _duration;
         private bool _finished;
 
@@ -43,10 +44,15 @@ namespace Lab
 
         public bool Finished => _finished;
 
+        /// <summary>脚本声明的总固定步数（实时会话为 <see cref="int.MaxValue"/>）；<see cref="Tick"/> 达到它之后再推进不再执行固定步。</summary>
+        public int DurationTicks => _duration;
+
         internal LabSession(
             InputScript script, LabRecording recording, LabHostContext? context, bool live, int duration, double stepSeconds,
-            double frameSeconds, Func<int> tick, Action<double> advance, Action<ScriptEvent> inject, Func<LabRecording> finish)
+            double frameSeconds, Func<int> tick, Action<double> advance, Action<ScriptEvent> inject, Func<LabRecording> finish,
+            Action<double>? setFrameStep = null)
         {
+            _setFrameStep = setFrameStep;
             Script = script;
             Recording = recording;
             Context = context;
@@ -93,15 +99,35 @@ namespace Lab
         }
 
         /// <summary>按脚本声明的时长跑到底（以脚本帧长逐帧推进）并收尾；脚本回放的入口（<see cref="LabHost.Run(LabHostOptions, LabScenario, InputScript, LabCatalog?, LabRunVariant?, LabHostExtension?)"/>）。</summary>
-        public LabRecording RunToEnd()
+        public LabRecording RunToEnd() => RunToEnd(1.0);
+
+        /// <summary>
+        /// 同 <see cref="RunToEnd()"/>，另按 <paramref name="timeScale"/> 缩放表现时钟（M5-S7，手感设计 06 第 3.5 节"慢放到四分之一速对照"）：
+        /// 每个表现帧推进 <c>脚本帧长 × timeScale</c> 的模拟时间，所以 0.25 倍时同样的固定步被摊到四倍多的表现帧上，
+        /// 视图、特效、镜头按更细的帧距推进——慢放的是表现，不是逻辑：固定步序列、每步的输入与世界状态与 1 倍时逐位相同，
+        /// 逻辑类度量逐字节一致（<c>feellab run --time-scale</c> 与 <c>LabKernelTests</c> 逐个证明）。<paramref name="timeScale"/> 必须是有限正数；
+        /// 1 倍时与 <see cref="RunToEnd()"/> 走同一条代码、记录逐位相同。
+        /// </summary>
+        public LabRecording RunToEnd(double timeScale)
         {
             if (Live)
             {
                 throw new InvalidOperationException("实时会话没有预定时长，不能 RunToEnd");
             }
 
+            if (!(timeScale > 0.0) || double.IsInfinity(timeScale))
+            {
+                throw new ArgumentOutOfRangeException(nameof(timeScale), timeScale, "时间尺度必须是有限正数");
+            }
+
+            var dt = timeScale == 1.0 ? FrameSeconds : FrameSeconds * timeScale;
+            if (timeScale != 1.0)
+            {
+                _setFrameStep?.Invoke(dt);
+            }
+
             var guard = 0;
-            var maxFrames = (int)Math.Ceiling(_duration * StepSeconds / FrameSeconds) + 10 + _duration;
+            var maxFrames = (int)Math.Ceiling(_duration * StepSeconds / dt) + 10 + _duration;
             while (Tick < _duration)
             {
                 if (++guard > maxFrames)
@@ -109,7 +135,7 @@ namespace Lab
                     throw new InvalidOperationException("实验室宿主在预期帧数内没有推进完全部固定步（时钟累加异常）");
                 }
 
-                _advance(FrameSeconds);
+                _advance(dt);
             }
 
             return Finish();

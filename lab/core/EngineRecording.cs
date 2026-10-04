@@ -57,6 +57,12 @@ namespace Lab
 
         /// <summary>引擎侧 rig 实际播放过的剪辑切换（<c>单位标签:剪辑 id</c>，按发生顺序，相邻重复不记）。观测用，不进指纹：用来看"逻辑发了攻击、引擎真的播了攻击剪辑"。</summary>
         public List<string> ClipTransitions { get; } = new List<string>();
+
+        /// <summary>
+        /// <see cref="ClipTransitions"/> 每一条发生的模拟时刻（秒，一一对应；该帧驱动完成时的模拟时间，与无头宿主"帧结束"口径一致）。
+        /// 供 <see cref="EngineMetricGroup"/> 的"输入到首次可见响应"度量用（M5-S7）；缺省空表示宿主没有记时刻。
+        /// </summary>
+        public List<double> ClipTransitionSeconds { get; } = new List<double>();
     }
 
     /// <summary>一次攻击的命中对齐样本：逻辑命中 tick（动作标记 <c>hit_frame</c>）与引擎动画 hit_frame 事件到达时刻。</summary>

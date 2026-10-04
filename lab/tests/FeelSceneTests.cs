@@ -82,7 +82,14 @@ namespace Tests.Lab
             foreach (var s in scripts)
             {
                 // 手感场景格式是版本 3；脚本带期望清单（06 第 3.1 节）时按"用到的最高特性"写版本 4。
-                var version = s.Expectations.Count > 0 ? InputScript.ExpectFormatVersion : InputScript.FeelFormatVersion;
+                // 含宿主级事件（loadout 等，体型 × 武器矩阵用）的脚本写版本 5（交互式试玩格式）。
+                var interactive = false;
+                foreach (var e in s.Events)
+                {
+                    interactive |= e.Kind == ScriptEventKind.Loadout || e.Kind == ScriptEventKind.Spawn || e.Kind == ScriptEventKind.Preset;
+                }
+
+                var version = interactive ? InputScript.InteractiveFormatVersion : s.Expectations.Count > 0 ? InputScript.ExpectFormatVersion : InputScript.FeelFormatVersion;
                 Assert.Equal(version, s.EffectiveFormatVersion);
                 Assert.Contains("\"formatVersion\": " + version, s.ToJson());
                 Assert.Equal(s.ToJson(), InputScript.Parse(s.ToJson()).ToJson());

@@ -212,11 +212,25 @@ namespace Lab
         /// </summary>
         public ScriptPoseOptions? PoseExt { get; set; }
 
+        /// <summary>
+        /// 玩家职业行 id（<c>arch.class.*</c>，M5-S7，ADR-0151；缺省空 = 运行入口给的职业，实验室数据集里是 <c>arch.class.lab_hero</c>）。
+        /// 玩家的体型原型/角色手感引用写在职业行上（ADR-0146），所以体型矩阵脚本用它走生产路径选体型，而不是调试覆盖。
+        /// </summary>
+        public string PlayerClass { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 声明启用的可选度量组名（<c>meta.extraMetrics</c>，M5-S7，ADR-0151；缺省空）：这些组都是条件组，只在脚本声明了它们时才出现在指纹里，
+        /// 所以给既有脚本之外的新脚本补度量不改任何既有基线；取值见 <see cref="LabExtraMetrics.Known"/>，未知名字是脚本内容错误。
+        /// </summary>
+        public List<string> ExtraMetrics { get; } = new List<string>();
+
         /// <summary>是否用到了手感场景的格式版本 3 字段。</summary>
         public bool UsesFeelFormat =>
             Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0 || SpaceExt != null || PoiseImpactScale.Count > 0
             || HitRadiusFromFeel
-            || PoseExt != null;
+            || PoseExt != null
+            || PlayerClass.Length > 0
+            || ExtraMetrics.Count > 0;
 
         /// <summary>是否用到了格式版本 2 的字段（决定序列化时写的 <c>formatVersion</c>）。</summary>
         public bool UsesExtendedFormat =>
@@ -481,6 +495,16 @@ namespace Lab
                 }
             }
 
+            meta.PlayerClass = LabJson.OptionalString(metaObj, "playerClass", what + ".meta") ?? string.Empty;
+            ReadStrings(metaObj, "extraMetrics", meta.ExtraMetrics, what + ".meta");
+            foreach (var name in meta.ExtraMetrics)
+            {
+                if (Array.IndexOf(LabExtraMetrics.Known, name) < 0)
+                {
+                    throw new LabFormatException($"{what}.meta.extraMetrics 里的 {name} 不是已知的可选度量组（{string.Join("|", LabExtraMetrics.Known)}）");
+                }
+            }
+
             meta.HitRadiusFromFeel = metaObj.TryGetValue("hitRadiusFromFeel", out var hitRadiusFlag) && hitRadiusFlag is JsonBool hitRadiusBool && hitRadiusBool.Value;
             meta.Feel = metaObj.TryGetValue("feel", out var feelFlag) && feelFlag is JsonBool feelBool && feelBool.Value;
             ReadStrings(metaObj, "learnSkills", meta.LearnSkills, what + ".meta");
@@ -717,6 +741,16 @@ namespace Lab
                     }
 
                     meta.Add("poiseImpactScale", scaleBuilder.Build());
+                }
+
+                if (Meta.PlayerClass.Length > 0)
+                {
+                    meta.Add("playerClass", LabJson.Str(Meta.PlayerClass));
+                }
+
+                if (Meta.ExtraMetrics.Count > 0)
+                {
+                    meta.Add("extraMetrics", new JsonArray(Meta.ExtraMetrics.ConvertAll(g => (JsonValue)LabJson.Str(g))));
                 }
             }
 

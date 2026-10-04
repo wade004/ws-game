@@ -1,0 +1,113 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_x_combo",
+    "scriptVersion": 1,
+    "description": "连招补项度量（M5-S7，ADR-0151）：同 feel_combo3 的连按，量连招接续尝试数、接续开始数与成功率，取消后残留命中数，以及输入到首次可见响应的延迟。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 130,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [
+      "skill.lab_a_combo2",
+      "skill.lab_a_combo3"
+    ],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_combo1"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": "",
+    "extraMetrics": [
+      "attackx",
+      "latency",
+      "hitx",
+      "crowd"
+    ]
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 19,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 20,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 34,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 35,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "follow_ups_match_segments",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "attackx.combo_follow_ups",
+      "op": "eq",
+      "versus": {
+        "metric": "actiontl.combo_segments"
+      },
+      "note": "接续开始数与动作时间线组的连招段数是同一个量的两种算法，必须相等"
+    },
+    {
+      "id": "rate_in_unit_interval",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "attackx.combo_success_rate",
+      "op": "between",
+      "min": 0,
+      "max": 1
+    },
+    {
+      "id": "no_residual_hits",
+      "metric": "attackx.residual_hits",
+      "op": "eq",
+      "value": 0
+    }
+  ]
+}
