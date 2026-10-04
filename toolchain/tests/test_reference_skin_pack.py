@@ -324,6 +324,29 @@ def test_quality_frames_have_clear_center_and_distinct_tier_colors():
     assert len(set(means)) == len(means)                   # 五档的主色互不相同（品质阶梯可区分）
 
 
+def test_static_layers_sit_on_the_body_under_canvas_center_alignment():
+    """预览区把静态层与身体静态层按画布中心叠放（框架不读锚点对位）：胸甲盖在躯干上、武器握点落在身体 hand_main 锚点上。
+    占位层图是 144 画布里脚底对齐的动画帧几何，叠到 64x96 的身体上整体偏下；参考层图按身体几何摆，预览才看得出穿在身上。"""
+    pd = SPEC["paperdoll"]
+    off_x = (pd["canvas"] - pd["body_canvas"][0]) // 2
+    off_y = (pd["canvas"] - pd["body_canvas"][1]) // 2
+    anchors = json.loads((PLACEHOLDER / "sprites" / "placeholder_hero" / "anchors.json").read_text(encoding="utf-8"))["directions"]
+    x0, y0, x1, y1 = pd["torso"]
+    for item, spec in pd["items"].items():
+        for direction, anchor in ((d, anchors[d]["hand_main"]) for d in ("front", "front_side_r", "side_r", "back_side_r", "back")):
+            path = REF / "sprites" / f"item_{item}" / direction / f"{spec['layer']}.png"
+            im = _rgba(path)
+            assert im.size == (pd["canvas"], pd["canvas"]), path
+            bx0, by0, bx1, by1 = im.getchannel("A").getbbox()
+            cx, cy = (bx0 + bx1) / 2, (by0 + by1) / 2
+            if "size" in spec:                                   # 胸甲：中心落在躯干中心
+                assert abs(cx - ((x0 + x1) / 2 + off_x)) <= 2 and abs(cy - ((y0 + y1) / 2 + off_y)) <= 2, (path, cx, cy)
+            else:                                                # 武器：握点（沿长度 grip 比例处）落在手锚点
+                assert abs(cx - (anchor[0] + off_x)) <= 2, (path, cx)
+                grip_y = by0 + spec["grip"] * (by1 - by0)
+                assert abs(grip_y - (anchor[1] + off_y)) <= 2, (path, grip_y)
+
+
 # ---------------------------------------------------------------------------
 # lint 自身的反例（拿真实美术破坏一处）
 # ---------------------------------------------------------------------------

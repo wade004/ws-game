@@ -213,40 +213,46 @@ def make_icon(raw_dir: Path, name: str) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 PLACEHOLDER_SPRITES = HERE.parent.parent / "_placeholder" / "sprites"
-LAYER_ITEMS = {                        # 物品 -> (层名, 是否把斜放的图标转正)
-    "std_sword_1h": ("hand_main", True), "std_greatsword": ("hand_main", True), "std_dagger": ("hand_main", True),
-    "std_bow": ("hand_main", True), "std_staff": ("hand_main", True), "std_chestplate": ("chest", False),
-}
 DIR_WIDTH = {"front": 1.0, "front_side_r": 0.85, "side_r": 0.6, "back_side_r": 0.85, "back": 1.0}
+PD = SPEC["paperdoll"]
 
 
-def make_layer(art: np.ndarray, rotate: bool, direction: str, bbox) -> np.ndarray:
-    """图标美术放进占位层在同一朝向下的包围盒位置（画布 144x144 与占位一致，纸娃娃的骨骼/层级/锚点不用动）。"""
-    x0, y0, x1, y1 = bbox
-    bw, bh = x1 - x0, y1 - y0
-    if rotate:
+def make_layer(art: np.ndarray, item: dict, direction: str, hand_anchor) -> np.ndarray:
+    """把图标美术放到纸娃娃静态层画布里（144x144，与身体静态层按画布中心对齐，见 pack_spec.paperdoll 注释）。
+    武器：转正（握柄朝上）、握点落在身体该方向的 hand_main 锚点；胸甲：盖住躯干。"""
+    off_x = (PD["canvas"] - PD["body_canvas"][0]) // 2
+    off_y = (PD["canvas"] - PD["body_canvas"][1]) // 2
+    weapon = "length" in item
+    if weapon:
         art = R.autocrop(R.rotate_premul(art, R.principal_angle_deg(art)))
     if direction.startswith("back"):
         art = R.adjust(R.flip_lr(art), brightness=0.82)
     ah, aw = art.shape[:2]
-    k = bh / ah if rotate else min(bw / aw, bh / ah)
-    nh = max(2, int(round(ah * k)))
-    nw = max(2, int(round(aw * k * DIR_WIDTH[direction])))
+    if weapon:
+        nh = item["length"]
+        nw = max(2, int(round(aw * nh / ah * DIR_WIDTH[direction])))
+        x = hand_anchor[0] + off_x - nw / 2
+        y = hand_anchor[1] + off_y - item["grip"] * nh
+    else:
+        nh = item["size"]
+        nw = max(2, int(round(aw * nh / ah * DIR_WIDTH[direction])))
+        x0, y0, x1, y1 = PD["torso"]
+        x = (x0 + x1) / 2 + off_x - nw / 2
+        y = (y0 + y1) / 2 + off_y - nh / 2
     img = R.resize_premul(art, nw, nh)
-    canvas = np.zeros((144, 144, 4), np.float32)
-    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
-    ox, oy = max(0, min(144 - nw, cx - nw // 2)), max(0, min(144 - nh, cy - nh // 2))
+    canvas = np.zeros((PD["canvas"], PD["canvas"], 4), np.float32)
+    ox, oy = int(round(x)), int(round(y))
     canvas[oy:oy + nh, ox:ox + nw] = img
     return finish(canvas)
 
 
 def layer_files(raw_dir: Path) -> dict[str, np.ndarray]:
+    anchors = json.loads((PLACEHOLDER_SPRITES / "placeholder_hero" / "anchors.json").read_text(encoding="utf-8"))["directions"]
     out: dict[str, np.ndarray] = {}
-    for item, (layer, rot) in LAYER_ITEMS.items():
+    for item, spec in PD["items"].items():
         art = prep(R.erode_alpha(raw(raw_dir, "icon_" + item), 1.0))
         for d in DIR_WIDTH:
-            ph = R.load_rgba(PLACEHOLDER_SPRITES / f"item_{item}" / d / f"{layer}.png")
-            out[f"sprites/item_{item}/{d}/{layer}.png"] = make_layer(art, rot, d, R.alpha_bbox(ph, 1.0))
+            out[f"sprites/item_{item}/{d}/{spec['layer']}.png"] = make_layer(art, spec, d, anchors[d]["hand_main"])
     return out
 
 

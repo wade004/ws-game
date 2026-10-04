@@ -16,6 +16,20 @@
   },
   "icon": {"size": 128, "max_extent": 100},
   "font": "fonts/noto_sans_cjk_sc.otf",
+  "paperdoll": {
+    "_comment": "静态层与身体静态层在预览区里按画布中心对齐（框架不读锚点对位），所以层图按身体层几何摆放：身体画布 64x96、层画布 144x144，身体坐标 +(40,24) = 层画布坐标。torso 是身体躯干包围盒（身体坐标），长度单位像素；hand_main 手握点取占位精灵集 anchors.json 的 hand_main。",
+    "canvas": 144,
+    "body_canvas": [64, 96],
+    "torso": [22, 30, 43, 67],
+    "items": {
+      "std_sword_1h": {"layer": "hand_main", "length": 27, "grip": 0.16},
+      "std_greatsword": {"layer": "hand_main", "length": 48, "grip": 0.12},
+      "std_dagger": {"layer": "hand_main", "length": 17, "grip": 0.2},
+      "std_bow": {"layer": "hand_main", "length": 37, "grip": 0.5},
+      "std_staff": {"layer": "hand_main", "length": 59, "grip": 0.62},
+      "std_chestplate": {"layer": "chest", "size": 32}
+    }
+  },
   "chosen": {
     "slot_base": 203,
     "glow_frame": 211,
