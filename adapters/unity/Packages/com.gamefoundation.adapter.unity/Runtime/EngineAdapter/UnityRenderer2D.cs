@@ -60,6 +60,13 @@
 // Id 升序），不退化为"不处理"。CompareDrawOrder 读的是 SortingGroup.sortingOrder（一级键）与
 // Root.transform.position.y（二级键，已经叠加平局偏移）两个"引擎实际落地的最终值"，不重新调用
 // TieBreakComparer 计算。
+//
+// 判断记录（纸娃娃静态层锚点对齐，ADR-0155）：SetLayers 在层图都已加载时，把"挂在身体层上的装备层"按锚点对齐——装备层所在精灵集的 anchors.json 声明了
+// directions.<方向>.grip、身体层所在精灵集声明了同方向同层名的锚点（如 hand_main）时，把层图上的 grip 对到身体图的挂接点上（平移层的渲染器，公式与装备面板预览区
+// 共用 PaperdollAnchors.AttachOffset，两边各按自己的枢轴与像素密度摆）；任一缺失、层图或身体图还没加载完（占位方块）、没有名为 body 的层时，该层不平移
+// （枢轴落在原点，与改动前逐位一致）。镜像方向（SetTransform 的 flipX）平移量的 x 取反，使镜像后 grip 仍落在镜像后的挂接点上。逐层动画帧
+// （SetLayerSprite）是另一套美术、自带枢轴摆位，不平移；RestoreLayerSprite 写回静态层图时恢复平移。冷加载路径：层图晚到时由既有"加载完成 -> SetLayers 全量重写"
+// 链路重算，与热路径是同一个出口、同一条规则。
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
@@ -118,6 +125,15 @@ namespace Adapter.Unity.EngineAdapter
             /// 因此依赖用例执行顺序（2026-09-23 全量门禁实测：单跑通过、全量跑失败）。本字段让断言
             /// 改看"这个精灵实例实际应用了什么"，与执行顺序无关。</summary>
             public List<Id> LayerResourceIds = new List<Id>();
+
+            /// <summary>ADR-0155：与 <see cref="LayerRenderers"/> 一一对应的"锚点对齐平移量"（世界单位，未镜像时的值；全零 = 没有任何层声明了锚点）。</summary>
+            public List<Vector2> LayerAnchorOffsets = new List<Vector2>();
+
+            /// <summary>ADR-0155：<see cref="LayerAnchorOffsets"/> 里是否有非零项（没有时 SetTransform 的镜像切换不必碰层的本地位置）。</summary>
+            public bool HasAnchorOffsets;
+
+            /// <summary>ADR-0155：当前被逐层动画帧（<see cref="SetLayerSprite"/>）占着的层下标；这些层不平移。<see cref="SetLayers"/> 全量重写后清空。</summary>
+            public HashSet<int> AnimatedLayers = new HashSet<int>();
             public int Layer;
             public double SortY;
             public bool FlipX;
@@ -280,7 +296,87 @@ namespace Adapter.Unity.EngineAdapter
                 instance.LayerResourceIds.Add(layers[i]);
             }
 
+            instance.AnimatedLayers.Clear();
+            RefreshLayerAnchors(instance);
             ApplySortingOrders(instance);
+        }
+
+        private const string BodyLayerName = "body";
+        private const string GripAnchorName = "grip";
+
+        /// <summary>
+        /// ADR-0155：按精灵集 anchors.json 的 <c>grip</c> 与身体同名挂接点重算每层的锚点对齐平移量并写到层的本地位置（见文件顶部判断记录）。
+        /// 每次 <see cref="SetLayers"/> 都重算（层集合、方向、装备、资源加载完成都经这里），没有任何声明时所有层的本地位置恒为原点。
+        /// </summary>
+        private void RefreshLayerAnchors(SpriteInstance instance)
+        {
+            var count = instance.LayerRenderers.Count;
+            instance.LayerAnchorOffsets.Clear();
+            for (var i = 0; i < count; i++)
+            {
+                instance.LayerAnchorOffsets.Add(Vector2.zero);
+            }
+
+            instance.HasAnchorOffsets = false;
+            var bodyIndex = instance.LayerNames.IndexOf(BodyLayerName);
+            if (bodyIndex >= 0
+                && TryParseLayerId(instance.LayerResourceIds[bodyIndex], out var bodySet, out var bodyDirection, out _)
+                && _resourceLoader.TryGetSprite(instance.LayerResourceIds[bodyIndex], out var bodySprite))
+            {
+                for (var i = 0; i < count; i++)
+                {
+                    if (i == bodyIndex
+                        || !TryParseLayerId(instance.LayerResourceIds[i], out var set, out var direction, out var layerName)
+                        || string.Equals(set, bodySet, StringComparison.Ordinal)
+                        || !_resourceLoader.TryGetSprite(instance.LayerResourceIds[i], out var sprite)
+                        || !_resourceLoader.TryGetSpriteSetAnchor(set, direction, GripAnchorName, out var grip)
+                        || !_resourceLoader.TryGetSpriteSetAnchor(bodySet, bodyDirection, layerName, out var attach))
+                    {
+                        continue;
+                    }
+
+                    var offset = PaperdollAnchors.AttachOffset(
+                        attach, PaperdollAnchors.PivotPixelTopLeft(bodySprite), 1f / bodySprite.pixelsPerUnit,
+                        grip, PaperdollAnchors.PivotPixelTopLeft(sprite), 1f / sprite.pixelsPerUnit);
+                    instance.LayerAnchorOffsets[i] = offset;
+                    instance.HasAnchorOffsets = true;
+                }
+            }
+
+            ApplyLayerOffsets(instance);
+        }
+
+        /// <summary>把 <see cref="SpriteInstance.LayerAnchorOffsets"/> 写到各层渲染器的本地位置（镜像时 x 取反；被逐层动画帧占着的层归零）。</summary>
+        private static void ApplyLayerOffsets(SpriteInstance instance)
+        {
+            var sign = instance.FlipX ? -1f : 1f;
+            for (var i = 0; i < instance.LayerRenderers.Count; i++)
+            {
+                var offset = i < instance.LayerAnchorOffsets.Count && !instance.AnimatedLayers.Contains(i) ? instance.LayerAnchorOffsets[i] : Vector2.zero;
+                instance.LayerRenderers[i].transform.localPosition = new Vector3(offset.x * sign, offset.y, 0f);
+            }
+        }
+
+        /// <summary>层资源 id（<c>layer.&lt;集&gt;__&lt;方向&gt;__&lt;层&gt;</c>）拆成精灵集目录名、方向档位名、层名；形状不对返回 false。拆法与加载器的 TryResolveSpriteSetRelativeDir 同一条规则。</summary>
+        private static bool TryParseLayerId(Id resourceId, out string set, out string direction, out string layer)
+        {
+            set = direction = layer = string.Empty;
+            var value = resourceId.Value;
+            if (value == null || !value.StartsWith("layer.", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var parts = AssetRefConventions.StripCategoryPrefix(value).Split(new[] { "__" }, StringSplitOptions.None);
+            if (parts.Length != 3)
+            {
+                return false;
+            }
+
+            set = parts[0];
+            direction = parts[1];
+            layer = parts[2];
+            return true;
         }
 
         /// <summary>见 <see cref="SpriteInstance.LayerNames"/> 判断记录：从形如
@@ -314,6 +410,7 @@ namespace Adapter.Unity.EngineAdapter
             instance.LayersRoot.localPosition = new Vector3(layersLocal.x, worldHeightOffset, layersLocal.z);
 
             var oldTieBreakGroupKey = instance.TieBreakGroupKey;
+            var flipChanged = instance.FlipX != flipX;
             instance.Layer = layer;
             instance.SortY = sortY;
             instance.FlipX = flipX;
@@ -321,6 +418,11 @@ namespace Adapter.Unity.EngineAdapter
             foreach (var renderer in instance.LayerRenderers)
             {
                 renderer.flipX = flipX;
+            }
+
+            if (flipChanged && instance.HasAnchorOffsets)
+            {
+                ApplyLayerOffsets(instance);        // ADR-0155：镜像后平移量的 x 随之取反
             }
 
             if (instance.AnimRootRenderer != null)
@@ -533,6 +635,10 @@ namespace Adapter.Unity.EngineAdapter
                 return;
             }
             instance.LayerRenderers[layerIndex].sprite = sprite;
+            if (instance.AnimatedLayers.Add(layerIndex) && instance.HasAnchorOffsets)
+            {
+                ApplyLayerOffsets(instance);        // ADR-0155：逐层动画帧自带枢轴摆位，不再叠锚点平移
+            }
         }
 
         /// <summary>消费方反馈第五十批根治：逐层剪辑切到"该层没有任何剪辑命中"的状态时，
@@ -567,6 +673,10 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             instance.LayerRenderers[layerIndex].sprite = ResolveSprite(instance.LayerResourceIds[layerIndex]);
+            if (instance.AnimatedLayers.Remove(layerIndex) && instance.HasAnchorOffsets)
+            {
+                ApplyLayerOffsets(instance);        // ADR-0155：写回静态层图，恢复锚点平移
+            }
 
             var countKey = (handle.Value, layerIndex);
             _restoreLayerSpriteCallCountForTests[countKey] =

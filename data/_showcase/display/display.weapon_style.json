@@ -1,0 +1,21 @@
+{
+  "table": "display.weapon_style",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.weapon_style.show_sprite",
+      "auto_attack_anim": "sprite_anim.show_hero_combo1_325_400",
+      "cast_anim_override": {
+        "skill.lab_a_combo1": "sprite_anim.show_hero_combo1_600_167",
+        "skill.lab_a_combo2": "sprite_anim.show_hero_combo2_600_167",
+        "skill.lab_a_combo3": "sprite_anim.show_hero_combo3_600_250",
+        "skill.lab_a_slam": "sprite_anim.show_hero_slam_600_250",
+        "skill.lab_a_charge": "sprite_anim.show_hero_charge_600_250",
+        "skill.lab_a_poise_chip": "sprite_anim.show_hero_combo1_600_167",
+        "skill.lab_a_lunge": "sprite_anim.show_hero_combo1_600_167",
+        "skill.lab_spx_jab": "sprite_anim.show_hero_combo1_600_167",
+        "skill.lab_a_elite_swing": "sprite_anim.show_brute_swing_600_500"
+      }
+    }
+  ]
+}

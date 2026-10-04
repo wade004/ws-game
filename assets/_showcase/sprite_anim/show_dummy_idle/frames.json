@@ -1,0 +1,17 @@
+{
+  "frame_w": 192,
+  "frame_h": 192,
+  "fps": 20,
+  "frame_duration": 0.05,
+  "loop": true,
+  "frames": [
+    {
+      "index": 0,
+      "x": 0,
+      "y": 0,
+      "w": 192,
+      "h": 192,
+      "duration": 0.2
+    }
+  ]
+}

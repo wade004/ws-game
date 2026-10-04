@@ -38,7 +38,9 @@ namespace Adapter.Unity.Ui
     /// 一次性构造好、本类型不做二次缓存），不会被默认值那份缓存吃掉；即便调用方在 <see cref="Install"/>
     /// 之前已经访问过一次触发默认值缓存生成，之后安装覆盖仍然对新建的控件生效（消费方反馈原文
     /// 场景）。已经建好的面板不会被回溯重建——这是与"运行期只读取，不做全局重刷"一致的显式取舍，
-    /// 见 ADR-0082。</para>
+    /// 见 ADR-0082。例外是 <see cref="UiVisuals.SwitchSkin"/>（运行期换皮肤，ADR-0155）：它经
+    /// <see cref="UiSkinBindings.ReapplyAll"/> 统一刷新所有 <see cref="UiWidgets"/> 造出的控件；直接调
+    /// <see cref="Install"/>/<see cref="Reset"/> 仍不回溯。</para>
     /// </summary>
     public static class UiSkin
     {

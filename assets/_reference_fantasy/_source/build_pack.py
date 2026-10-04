@@ -252,8 +252,20 @@ def grip_anchors(spec: dict, anchors: dict) -> dict:
     off_x = (PD["canvas"] - PD["body_canvas"][0]) // 2
     off_y = (PD["canvas"] - PD["body_canvas"][1]) // 2
     return {"canvas": {"width": PD["canvas"], "height": PD["canvas"]},
+            "pixels_per_unit": body_pixels_per_unit(),
             "directions": {d: {"grip": [anchors[d]["hand_main"][0] + off_x, anchors[d]["hand_main"][1] + off_y]}
                            for d in DIR_WIDTH}}
+
+
+def body_pixels_per_unit():
+    """身体精灵集（占位 placeholder_hero）声明的像素密度：层精灵集必须与它一致，运行期合成里层与身体才是同一个比例（ADR-0155，equip_layer_density_mismatch）。"""
+    doc = json.loads((PLACEHOLDER_SPRITES / "placeholder_hero" / "anchors.json").read_text(encoding="utf-8"))
+    return doc["pixels_per_unit"]
+
+
+def density_only_anchors() -> dict:
+    """没有握点的层精灵集（胸甲，居中叠放）的 anchors.json：只声明画布与像素密度。"""
+    return {"canvas": {"width": PD["canvas"], "height": PD["canvas"]}, "pixels_per_unit": body_pixels_per_unit()}
 
 
 def layer_files(raw_dir: Path) -> dict[str, np.ndarray]:
@@ -335,10 +347,10 @@ def build(raw_dir: Path, out: Path) -> list[str]:
         put(rel, img, out)
     anchors = json.loads((PLACEHOLDER_SPRITES / "placeholder_hero" / "anchors.json").read_text(encoding="utf-8"))["directions"]
     for item, spec in PD["items"].items():
-        if "length" not in spec:
-            continue            # 非武器层（胸甲）按画布居中叠放，不声明握点
         path = out / "sprites" / f"item_{item}" / "anchors.json"
-        path.write_text(json.dumps(grip_anchors(spec, anchors), indent=2) + "\n", encoding="utf-8", newline="\n")
+        # 非武器层（胸甲）按画布居中叠放，不声明握点，只声明像素密度（与身体一致）
+        doc = grip_anchors(spec, anchors) if "length" in spec else density_only_anchors()
+        path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
         written.append(str(path.relative_to(out)).replace("\\", "/"))
     return sorted(written)
 

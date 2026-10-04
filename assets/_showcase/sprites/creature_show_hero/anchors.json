@@ -1,0 +1,98 @@
+{
+  "canvas": {
+    "width": 224,
+    "height": 224
+  },
+  "pixels_per_unit": 150,
+  "direction_count": 8,
+  "authored_directions": [
+    "front",
+    "side_r",
+    "back"
+  ],
+  "layers": [
+    "body"
+  ],
+  "directions": {
+    "front": {
+      "root": [
+        112.0,
+        197.1
+      ],
+      "overhead": [
+        112.0,
+        53.1
+      ]
+    },
+    "front_side_r": {
+      "root": [
+        112.0,
+        197.1
+      ],
+      "overhead": [
+        112.0,
+        53.1
+      ]
+    },
+    "side_r": {
+      "root": [
+        112.0,
+        197.1
+      ],
+      "overhead": [
+        112.0,
+        53.1
+      ]
+    },
+    "back_side_r": {
+      "root": [
+        112.0,
+        197.1
+      ],
+      "overhead": [
+        112.0,
+        53.1
+      ]
+    },
+    "back": {
+      "root": [
+        112.0,
+        197.1
+      ],
+      "overhead": [
+        112.0,
+        53.1
+      ]
+    },
+    "front_side_l": {
+      "root": [
+        112.0,
+        197.1
+      ],
+      "overhead": [
+        112.0,
+        53.1
+      ]
+    },
+    "side_l": {
+      "root": [
+        112.0,
+        197.1
+      ],
+      "overhead": [
+        112.0,
+        53.1
+      ]
+    },
+    "back_side_l": {
+      "root": [
+        112.0,
+        197.1
+      ],
+      "overhead": [
+        112.0,
+        53.1
+      ]
+    }
+  }
+}

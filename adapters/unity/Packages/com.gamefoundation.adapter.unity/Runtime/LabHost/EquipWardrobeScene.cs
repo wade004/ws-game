@@ -41,8 +41,6 @@ namespace Adapter.Unity.LabHost
         private float _clipTime;
         private int _stepIndex;
         private bool _ended;
-        private bool _skinInstalled;
-        private RectTransform? _controls;
         private readonly HashSet<Id> _carouselIds = new HashSet<Id>();
 
         /// <summary>
@@ -118,14 +116,8 @@ namespace Adapter.Unity.LabHost
 
             Stage = WardrobeStage.Create(Host.Runner, template);
             var pack = UiSkinPack.Load(skinRef.Length > 0 ? skinRef : null);
-            var skinOverride = pack.CreateOverride();
-            if (skinOverride != null)
-            {
-                UiSkin.Install(skinOverride);
-                _skinInstalled = true;
-            }
-
             Visuals = new UiVisuals(pack, Stage.Registry, Stage.DisplayInfo);
+            Visuals.InstallSkinOverride();      // 非占位皮肤装 UiSkin 覆盖；覆盖归 UiVisuals 持有，场景销毁时随 Visuals.Dispose 撤掉（ADR-0155）
             Carousel = new WardrobeCarouselModel(Stage.Entries, PaperdollPreview.Directions);
 
             _ui = UiRoot.Create("EquipWardrobeUi");
@@ -164,8 +156,8 @@ namespace Adapter.Unity.LabHost
         }
 
         /// <summary>
-        /// 运行期切换界面皮肤（空 = 占位皮肤，ADR-0152）：图标/层图缓存与皮肤包由 <see cref="UiVisuals.SwitchSkin"/> 作废并重装，装备面板订阅它自行重建，
-        /// 本场景再重建底部控制条（它在旧皮肤下建出来的底板与按钮）并卸掉自己加载过的轮播剪辑缓存。此前换皮肤需要手工 Unload 缓存的图标才能看到新皮肤的图。
+        /// 运行期切换界面皮肤（空 = 占位皮肤，ADR-0152、ADR-0155）：图标/层图缓存与皮肤包由 <see cref="UiVisuals.SwitchSkin"/> 作废并重装，装备面板订阅它自行重建，
+        /// 底部控制条的底板与按钮经 <see cref="UiWidgets"/> 建出，由换皮肤的统一刷新换成新皮肤（场景不必再自己重建）；本场景只卸掉自己加载过的轮播剪辑缓存。
         /// </summary>
         public void SwitchSkin(string newSkinRef)
         {
@@ -180,14 +172,6 @@ namespace Adapter.Unity.LabHost
             _carouselIds.Clear();
             visuals.SwitchSkin(newSkinRef.Length > 0 ? newSkinRef : null);
             skinRef = newSkinRef;
-            _skinInstalled = UiSkin.IsOverrideInstalled;
-            if (_controls != null)
-            {
-                _controls.gameObject.SetActive(false);
-                Destroy(_controls.gameObject);
-            }
-
-            BuildControls();
             Panel?.RefreshUi();
         }
 
@@ -196,7 +180,6 @@ namespace Adapter.Unity.LabHost
             var bar = UiWidgets.CreatePanelBackground("Controls", _ui!.Content, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(560f, 150f), new Vector2(0f, 90f));
             var row = new GameObject("Buttons", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             var rowRect = (RectTransform)row.transform;
-            _controls = bar;
             rowRect.SetParent(bar, false);
             UiWidgets.SetRect(rowRect, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(8f, -38f), new Vector2(-8f, -8f));
             var group = row.GetComponent<HorizontalLayoutGroup>();
@@ -266,6 +249,11 @@ namespace Adapter.Unity.LabHost
 
         private void Update()
         {
+            if (Visuals != null && Visuals.RetiredPackCount > 0)
+            {
+                Visuals.ReleaseRetiredPacks();      // ADR-0155
+            }
+
             if (Stage == null || Panel == null || _ended)
             {
                 return;
@@ -376,12 +364,7 @@ namespace Adapter.Unity.LabHost
             Interaction?.Dispose();
             Interaction = null;
             Stage?.Dispose();
-            Visuals?.Dispose();
-            if (_skinInstalled)
-            {
-                UiSkin.Reset();
-                _skinInstalled = false;
-            }
+            Visuals?.Dispose();         // 同时撤掉它持有的 UiSkin 覆盖
 
             if (_ui != null)
             {

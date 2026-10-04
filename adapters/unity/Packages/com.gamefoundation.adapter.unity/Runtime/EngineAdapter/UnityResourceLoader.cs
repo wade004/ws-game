@@ -480,16 +480,22 @@ namespace Adapter.Unity.EngineAdapter
             /// 必警告，任选其一结果都一样）。</summary>
             public bool FallbackDirectionKeyIsAmbiguous { get; }
 
+            /// <summary>ADR-0155：anchors.json 解析出的整份 JSON 对象（供 <see cref="TryGetSpriteSetAnchor"/> 按"方向 + 锚点名"取任意具名锚点，
+            /// 如层图的 <c>grip</c> 与身体的 <c>hand_main</c>）；文件缺失/解析失败（<see cref="Empty"/>）为 <c>null</c>。与 <c>pixels_per_unit</c>/脚底锚点同一次读盘、同一份缓存。</summary>
+            public JsonObject? Document { get; }
+
             public SpriteSetAnchorsInfo(
                 float? pixelsPerUnit,
                 IReadOnlyDictionary<string, (double X, double Y, int? CanvasWidth, int? CanvasHeight)>? directionRoots,
                 string? fallbackDirectionKey,
-                bool fallbackDirectionKeyIsAmbiguous)
+                bool fallbackDirectionKeyIsAmbiguous,
+                JsonObject? document = null)
             {
                 PixelsPerUnit = pixelsPerUnit;
                 DirectionRoots = directionRoots;
                 FallbackDirectionKey = fallbackDirectionKey;
                 FallbackDirectionKeyIsAmbiguous = fallbackDirectionKeyIsAmbiguous;
+                Document = document;
             }
         }
 
@@ -885,6 +891,30 @@ namespace Adapter.Unity.EngineAdapter
         /// 不清的话此后新解码的层图仍按旧根的锚点定枢轴与大小。只清缓存的解析结果，不动已解码的精灵（它们由 <see cref="Unload"/> 按资源 id 清理）。
         /// </summary>
         public void InvalidateSpriteSetAnchorsCache() => _spriteSetAnchorsCache.Clear();
+
+        /// <summary>
+        /// [ADR-0155](../../../../../../../architecture/adr/0155-皮肤遗留两项运行期纸娃娃读锚点与面板换皮统一刷新.md)：精灵集 <c>sprites/&lt;集&gt;/anchors.json</c> 里
+        /// <c>directions.&lt;方向&gt;.&lt;锚点名&gt;</c> 声明的像素锚点（<c>[x, y]</c>，原点左上，单位是该集图片自己的像素）。装备面板预览区（<c>UiVisuals.TryGetAnchor</c>）
+        /// 与运行期纸娃娃合成（<see cref="UnityRenderer2D.SetLayers"/>）读同一份：同一次读盘、同一份缓存，换皮肤/换内容根时随
+        /// <see cref="InvalidateSpriteSetAnchorsCache"/> 一起清掉。文件缺失、没有该方向/锚点或格式不对一律返回 false（调用方按未声明处理，行为与改动前逐位一致）。
+        /// <paramref name="spriteSet"/> 是精灵集目录名（如 <c>placeholder_hero</c>、<c>item_std_sword_1h</c>），不带 <c>sprites/</c> 前缀。
+        /// </summary>
+        public bool TryGetSpriteSetAnchor(string spriteSet, string direction, string anchor, out Vector2 pixel)
+        {
+            pixel = default;
+            var document = GetOrReadSpriteSetAnchors("sprites/" + spriteSet).Document;
+            if (document != null
+                && document.TryGetValue("directions", out var directions) && directions is JsonObject byDirection
+                && byDirection.TryGetValue(direction, out var one) && one is JsonObject anchors
+                && anchors.TryGetValue(anchor, out var value) && value is JsonArray pair && pair.Count == 2
+                && pair[0] is JsonNumber x && pair[1] is JsonNumber y)
+            {
+                pixel = new Vector2((float)x.Value, (float)y.Value);
+                return true;
+            }
+
+            return false;
+        }
 
         public void Unload(Id resourceId)
         {
@@ -1402,7 +1432,7 @@ namespace Adapter.Unity.EngineAdapter
                 }
 
                 var directionRoots = ParseDirectionRoots(obj, out var fallbackKey, out var ambiguous);
-                return new SpriteSetAnchorsInfo(pixelsPerUnit, directionRoots, fallbackKey, ambiguous);
+                return new SpriteSetAnchorsInfo(pixelsPerUnit, directionRoots, fallbackKey, ambiguous, obj);
             }
             catch
             {
@@ -2213,5 +2243,29 @@ namespace Adapter.Unity.EngineAdapter
         /// <see cref="AssetRefConventions.StripCategoryPrefix"/>，全仓唯一实现见该类型。</summary>
         private static string StripCategoryPrefix(string resourceRefId) =>
             AssetRefConventions.StripCategoryPrefix(resourceRefId);
+    }
+
+    /// <summary>
+    /// 纸娃娃静态层的锚点对齐数学（ADR-0155）：装备面板预览区（<c>PaperdollPreview</c>，两张图都按画布中心摆、整体乘同一个缩放）与运行期合成
+    /// （<see cref="UnityRenderer2D.SetLayers"/>，两个精灵各按自己的枢轴与像素密度摆）共用这一处，所以"把层的 <c>grip</c> 对到身体的挂接点上"在两处是同一条公式。
+    /// </summary>
+    public static class PaperdollAnchors
+    {
+        /// <summary>
+        /// 层相对"默认摆位（枢轴落在原点）"需要平移的量：使层图上 <paramref name="gripPixel"/>（层图像素，原点左上）落到身体图上 <paramref name="attachPixel"/>（身体图像素，原点左上）的位置。
+        /// 像素坐标先减各自的枢轴（同为原点左上的像素坐标）、乘各自的"像素到输出单位"比例，再把 y 翻成向上；结果 = 身体点 - 层点。
+        /// 预览区传画布中心作枢轴、两边同一个缩放（输出单位是预览框像素）；运行期传精灵枢轴与 <c>1 / pixelsPerUnit</c>（输出单位是世界单位）。
+        /// </summary>
+        public static Vector2 AttachOffset(
+            Vector2 attachPixel, Vector2 bodyPivotPixel, float bodyScale,
+            Vector2 gripPixel, Vector2 layerPivotPixel, float layerScale)
+        {
+            var bodyPoint = new Vector2((attachPixel.x - bodyPivotPixel.x) * bodyScale, (bodyPivotPixel.y - attachPixel.y) * bodyScale);
+            var layerPoint = new Vector2((gripPixel.x - layerPivotPixel.x) * layerScale, (layerPivotPixel.y - gripPixel.y) * layerScale);
+            return bodyPoint - layerPoint;
+        }
+
+        /// <summary>精灵枢轴换成"像素坐标、原点左上"（<see cref="Sprite.pivot"/> 是像素坐标、原点左下）。</summary>
+        public static Vector2 PivotPixelTopLeft(Sprite sprite) => new Vector2(sprite.pivot.x, sprite.rect.height - sprite.pivot.y);
     }
 }

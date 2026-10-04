@@ -942,6 +942,268 @@ namespace Adapter.Unity.Tests.LabHost
 
             Assert.Greater(aligned, 0, "至少有一件参考武器走了锚点对齐路径");
         }
+
+        // ───────── 运行期合成读锚点（UnityRenderer2D.SetLayers，ADR-0155）─────────
+        // 判断记录：期望值不复用生产公式（PaperdollAnchors），而由"精灵像素点的世界坐标"独立算出——
+        // 世界坐标 = 渲染器位置 + ((像素 x - 枢轴 x) / 像素密度（镜像取反）, (画布高 - 像素 y - 枢轴 y) / 像素密度)，锚点值读自内容根里的 anchors.json 文件。
+
+        private sealed class RuntimeRig
+        {
+            public UnityResourceLoader Loader = null!;
+            public UnityRenderer2D Renderer = null!;
+            public Core.Foundation.EngineAdapter.SpriteHandle Handle;
+            public Transform LayersRoot = null!;
+
+            public SpriteRenderer LayerRenderer(int index) => LayersRoot.GetChild(index).GetComponent<SpriteRenderer>();
+        }
+
+        private RuntimeRig NewRuntimeRig()
+        {
+            var go = new GameObject("RuntimeAnchorRig");
+            _spawned.Add(go);
+            var loader = new UnityResourceLoader();
+            var renderer = new UnityRenderer2D(go.transform, loader);
+            var handle = renderer.CreateSpriteInstance(new Id("sprite.hero"));
+            return new RuntimeRig { Loader = loader, Renderer = renderer, Handle = handle, LayersRoot = renderer.GetLayersRoot(handle)! };
+        }
+
+        private static void LoadAll(RuntimeRig rig, IEnumerable<Id> ids)
+        {
+            var failed = new List<string>();
+            foreach (var id in ids)
+            {
+                rig.Loader.LoadAsync(id, Core.Foundation.EngineAdapter.ResourceKind.Image, (rid, ok) =>
+                {
+                    if (!ok)
+                    {
+                        failed.Add(rid.Value);
+                    }
+                });
+            }
+
+            Pump(rig.Loader);
+            CollectionAssert.IsEmpty(failed, "层图加载失败");
+        }
+
+        private static Id BodyId(string direction) => new Id("layer.placeholder_hero__" + direction + "__body");
+
+        private static Id LayerOf(string set, string direction, string layer) => new Id("layer." + set + "__" + direction + "__" + layer);
+
+        private static void Place(RuntimeRig rig, IReadOnlyList<Id> ids, bool flipX)
+        {
+            rig.Renderer.SetLayers(rig.Handle, ids);
+            rig.Renderer.SetTransform(rig.Handle, Core.Foundation.Common.Vec2.Zero, 0, 0, 0, 0, 1, flipX);
+        }
+
+        /// <summary>读内容根里 sprites/&lt;集&gt;/anchors.json 的 directions.&lt;方向&gt;.&lt;锚点&gt;（独立于加载器的读法）。</summary>
+        private Vector2 FileAnchor(string set, string direction, string anchor)
+        {
+            var doc = (Core.Foundation.Common.Json.JsonObject)Core.Foundation.Common.Json.JsonReader.Parse(File.ReadAllText(Path.Combine(_root, "sprites", set, "anchors.json")));
+            var one = (Core.Foundation.Common.Json.JsonObject)((Core.Foundation.Common.Json.JsonObject)doc["directions"])[direction];
+            var pair = (Core.Foundation.Common.Json.JsonArray)one[anchor];
+            return new Vector2((float)((Core.Foundation.Common.Json.JsonNumber)pair[0]).Value, (float)((Core.Foundation.Common.Json.JsonNumber)pair[1]).Value);
+        }
+
+        /// <summary>精灵上一个像素点（原点左上）的世界坐标。</summary>
+        private static Vector2 WorldOfPixel(SpriteRenderer renderer, Vector2 pixelTopLeft)
+        {
+            var sprite = renderer.sprite;
+            var ppu = sprite.pixelsPerUnit;
+            var local = new Vector3(
+                (pixelTopLeft.x - sprite.pivot.x) / ppu * (renderer.flipX ? -1f : 1f),
+                (sprite.rect.height - pixelTopLeft.y - sprite.pivot.y) / ppu,
+                0f);
+            return renderer.transform.TransformPoint(local);
+        }
+
+        private static Vector2 WorldCenter(SpriteRenderer renderer) =>
+            WorldOfPixel(renderer, new Vector2(renderer.sprite.rect.width * 0.5f, renderer.sprite.rect.height * 0.5f));
+
+        [Test]
+        public void Runtime_ReferenceWeapon_GripLandsOnTheBodyHandMain_InEveryAuthoredDirectionAndMirrored()
+        {
+            var rig = NewRuntimeRig();
+            var nonZero = 0;
+            foreach (var direction in PaperdollPreview.Directions)
+            {
+                var ids = new List<Id> { BodyId(direction), LayerOf("item_std_sword_1h", direction, "hand_main") };
+                LoadAll(rig, ids);
+                var attach = FileAnchor("placeholder_hero", direction, "hand_main");
+                var grip = FileAnchor("item_std_sword_1h", direction, "grip");
+                foreach (var flip in new[] { false, true })
+                {
+                    Place(rig, ids, flip);
+                    var body = rig.LayerRenderer(0);
+                    var weapon = rig.LayerRenderer(1);
+                    Assert.AreEqual(Vector3.zero, body.transform.localPosition, "身体层始终在原点 " + direction);
+                    var handMain = WorldOfPixel(body, attach);
+                    var gripWorld = WorldOfPixel(weapon, grip);
+                    Assert.AreEqual(handMain.x, gripWorld.x, 1e-4f, $"{direction} flip={flip}: 武器 grip 的世界 x 应落在身体 hand_main 上");
+                    Assert.AreEqual(handMain.y, gripWorld.y, 1e-4f, $"{direction} flip={flip}: 武器 grip 的世界 y 应落在身体 hand_main 上");
+
+                    // 对照：不平移时（居中叠放的旧行为）两点是分开的——说明断言不是平凡成立。
+                    var applied = weapon.transform.localPosition;
+                    weapon.transform.localPosition = Vector3.zero;
+                    var unshifted = WorldOfPixel(weapon, grip);
+                    weapon.transform.localPosition = applied;
+                    if (!flip)
+                    {
+                        Assert.Greater(Vector2.Distance(unshifted, handMain), 0.01f, direction + " 居中叠放时 grip 与 hand_main 不重合");
+                        nonZero++;
+                    }
+
+                    TestContext.Out.WriteLine($"[runtime-anchor] {direction} flip={flip} offset=({applied.x:F5},{applied.y:F5}) unshifted-gap={Vector2.Distance(unshifted, handMain):F5}");
+                }
+            }
+
+            Assert.AreEqual(PaperdollPreview.Directions.Length, nonZero, "每个已制作方向都产生了非零平移");
+        }
+
+        [Test]
+        public void Runtime_ReferenceItems_ShareTheBodyDensity_SoRelativeSizeAndPlacementMatchThePreview()
+        {
+            // 参考包每个层精灵集（含不声明握点的胸甲）都声明与身体一致的 pixels_per_unit（ADR-0155）：运行期层与身体按同一个密度换算，
+            // 所以"装备相对身体的尺寸"与预览区（两者同一个缩放）一致；位置也一致（预览区对身体居中、层中心 = anchoredPosition）。
+            var stage = NewStage();
+            var uiRoot = NewUiRoot();
+            var (preview, _, previewLoader) = NewPreview(stage, uiRoot, "front");
+            var rig = NewRuntimeRig();
+            var bodyPpu = (float)((Core.Foundation.Common.Json.JsonNumber)((Core.Foundation.Common.Json.JsonObject)Core.Foundation.Common.Json.JsonReader.Parse(
+                File.ReadAllText(Path.Combine(_root, "sprites", "placeholder_hero", "anchors.json"))))["pixels_per_unit"]).Value;
+            var checkedItems = 0;
+            foreach (var entry in stage.Entries.Where(e => e.IsPaperdoll))
+            {
+                stage.UnequipAll();
+                Assert.IsTrue(stage.Equip(entry.ItemId));
+                var layers = stage.Panel.PaperdollLayers.ToList();
+                var (layerName, setName) = (layers.Single().Layer, UiVisuals.SetName(layers.Single().MeshRef.Value));
+                foreach (var direction in PaperdollPreview.Directions)
+                {
+                    preview.SetDirection(direction);
+                    SettlePreview(preview, layers, previewLoader);
+                    var ids = new List<Id> { BodyId(direction), LayerOf(setName, direction, layerName) };
+                    LoadAll(rig, ids);
+                    Place(rig, ids, false);
+                    var body = rig.LayerRenderer(0);
+                    var item = rig.LayerRenderer(1);
+                    Assert.AreEqual(bodyPpu, item.sprite.pixelsPerUnit, 1e-4f, entry.ItemId + "/" + direction + " 层集与身体同一个像素密度");
+
+                    var previewBody = preview.BodyImage!;
+                    var previewItem = preview.EquipmentLayers.Single().Image;
+                    var previewSizeRatio = ((RectTransform)previewItem.transform).sizeDelta.x / ((RectTransform)previewBody.transform).sizeDelta.x;
+                    var runtimeSizeRatio = (item.sprite.rect.width / item.sprite.pixelsPerUnit) / (body.sprite.rect.width / body.sprite.pixelsPerUnit);
+                    Assert.AreEqual(previewSizeRatio, runtimeSizeRatio, 1e-4f, entry.ItemId + "/" + direction + " 相对宽度");
+
+                    if (!rig.Loader.TryGetSpriteSetAnchor(setName, direction, "grip", out _))
+                    {
+                        // 没声明握点的层（胸甲）：运行期按各精灵枢轴叠放（既有行为，ADR-0155 不改），相对位置不与预览（画布居中）比较，只比尺寸。
+                        continue;
+                    }
+
+                    var k = preview.Root.sizeDelta.y * 0.9f / previewBody.sprite.rect.height;
+                    var previewRelative = ((RectTransform)previewItem.transform).anchoredPosition / k;
+                    var runtimeRelative = (WorldCenter(item) - WorldCenter(body)) * bodyPpu;
+                    Assert.AreEqual(previewRelative.x, runtimeRelative.x, 0.01f, entry.ItemId + "/" + direction + " 相对位置 x");
+                    Assert.AreEqual(previewRelative.y, runtimeRelative.y, 0.01f, entry.ItemId + "/" + direction + " 相对位置 y");
+                    checkedItems++;
+                }
+            }
+
+            Assert.Greater(checkedItems, 0);
+            TestContext.Out.WriteLine($"[runtime-vs-preview] reference items x directions checked = {checkedItems}, body ppu = {bodyPpu}");
+
+            // 非平凡位置：层图没有预摆放（探针，握点不在画布中心，同样声明与身体一致的密度）时运行期相对位置 = 预览区相对位置，且不为零。
+            WriteAnchorProbe("{\"canvas\":{\"width\":100,\"height\":120},\"pixels_per_unit\":" + bodyPpu + ",\"directions\":{\"front\":{\"grip\":[10,20]}}}");
+            preview.SetDirection("front");
+            SettlePreview(preview, ProbeLayers(), previewLoader);
+            var probeIds = new List<Id> { BodyId("front"), LayerOf("item_anchor_probe", "front", "hand_main") };
+            LoadAll(rig, probeIds);
+            Place(rig, probeIds, false);
+            var probeBody = rig.LayerRenderer(0);
+            var probeLayer = rig.LayerRenderer(1);
+            var probeK = preview.Root.sizeDelta.y * 0.9f / preview.BodyImage!.sprite.rect.height;
+            var probePreview = ((RectTransform)preview.EquipmentLayers.Single().Image.transform).anchoredPosition / probeK;
+            var probeRuntime = (WorldCenter(probeLayer) - WorldCenter(probeBody)) * bodyPpu;
+            Assert.Greater(probePreview.magnitude, 1f, "探针的预览相对位置不是零（断言不是平凡成立）");
+            Assert.AreEqual(probePreview.x, probeRuntime.x, 0.01f, "探针 x");
+            Assert.AreEqual(probePreview.y, probeRuntime.y, 0.01f, "探针 y");
+            TestContext.Out.WriteLine($"[runtime-vs-preview] probe preview=({probePreview.x:F4},{probePreview.y:F4}) runtime=({probeRuntime.x:F4},{probeRuntime.y:F4})");
+        }
+
+        [Test]
+        public void Runtime_UndeclaredAnchors_KeepCenteredPlacement_BitIdenticalToToday()
+        {
+            // 四种"未声明"：层集没有 anchors.json；层声明了 grip 但身体没有同名挂接点；身体声明了挂接点但层没有 grip（胸甲）；与身体同一个精灵集的层（placeholder_hero 自己的 hand_main/head）。
+            WriteAnchorProbe("{}");
+            File.Delete(Path.Combine(_root, "sprites", "item_anchor_probe", "anchors.json"));
+            var neckDir = Path.Combine(_root, "sprites", "item_anchor_probe", "front");
+            File.Copy(Path.Combine(neckDir, "hand_main.png"), Path.Combine(neckDir, "neck_probe.png"), true);
+            var gripOnly = Path.Combine(_root, "sprites", "item_grip_only", "front");
+            Directory.CreateDirectory(gripOnly);
+            File.Copy(Path.Combine(neckDir, "hand_main.png"), Path.Combine(gripOnly, "neck_probe.png"), true);
+            File.WriteAllText(Path.Combine(_root, "sprites", "item_grip_only", "anchors.json"), "{\"directions\":{\"front\":{\"grip\":[10,20]}}}");
+            var rig = NewRuntimeRig();
+            var cases = new Dictionary<string, List<Id>>
+            {
+                ["没有 anchors.json"] = new List<Id> { BodyId("front"), LayerOf("item_anchor_probe", "front", "hand_main") },
+                ["身体没有同名挂接点"] = new List<Id> { BodyId("front"), LayerOf("item_grip_only", "front", "neck_probe") },
+                ["层没有 grip（胸甲）"] = new List<Id> { BodyId("front"), LayerOf("item_std_chestplate", "front", "chest") },
+                ["与身体同集的层"] = new List<Id> { BodyId("front"), LayerOf("placeholder_hero", "front", "hand_main"), LayerOf("placeholder_hero", "front", "head") },
+            };
+            foreach (var kv in cases)
+            {
+                LoadAll(rig, kv.Value);
+                foreach (var flip in new[] { false, true })
+                {
+                    Place(rig, kv.Value, flip);
+                    for (var i = 0; i < kv.Value.Count; i++)
+                    {
+                        var renderer = rig.LayerRenderer(i);
+                        Assert.AreEqual(Vector3.zero, renderer.transform.localPosition, $"{kv.Key} flip={flip} 第 {i} 层本地位置应恒为原点");
+                        Assert.IsTrue(rig.Loader.TryGetSprite(kv.Value[i], out var loaded));
+                        Assert.AreSame(loaded, renderer.sprite, $"{kv.Key} 第 {i} 层精灵应与加载器里的是同一个对象");
+                        Assert.AreEqual(flip, renderer.flipX);
+                    }
+                }
+            }
+
+            // 没有 body 层名的层集：整体不对齐。
+            var noBody = new List<Id> { LayerOf("item_std_sword_1h", "front", "hand_main") };
+            LoadAll(rig, noBody);
+            Place(rig, noBody, false);
+            Assert.AreEqual(Vector3.zero, rig.LayerRenderer(0).transform.localPosition, "没有 body 层不对齐");
+        }
+
+        [Test]
+        public void Runtime_AnimatedLayerFrame_DropsTheOffset_AndRestoreBringsItBack_ColdLoadMatchesHotPath()
+        {
+            var rig = NewRuntimeRig();
+            var ids = new List<Id> { BodyId("front"), LayerOf("item_std_sword_1h", "front", "hand_main") };
+
+            // 冷路径：层图还没加载完时 SetLayers 给占位方块，不平移；加载完成后再 SetLayers 才对齐。
+            Place(rig, ids, false);
+            Assert.AreEqual(Vector3.zero, rig.LayerRenderer(1).transform.localPosition, "冷路径：加载前不平移");
+            LoadAll(rig, ids);
+            Place(rig, ids, false);
+            var hot = rig.LayerRenderer(1).transform.localPosition;
+            Assert.Greater(((Vector2)hot).magnitude, 0.01f, "加载后平移生效");
+            var handMain = WorldOfPixel(rig.LayerRenderer(0), FileAnchor("placeholder_hero", "front", "hand_main"));
+            var gripWorld = WorldOfPixel(rig.LayerRenderer(1), FileAnchor("item_std_sword_1h", "front", "grip"));
+            Assert.AreEqual(0f, Vector2.Distance(handMain, gripWorld), 1e-4f, "冷加载与热路径同一规则");
+
+            // 逐层动画帧（另一套美术、自带枢轴摆位）：归零；写回静态层图后恢复同一个平移量。
+            rig.Loader.TryGetSprite(ids[0], out var someFrame);
+            rig.Renderer.SetLayerSprite(rig.Handle, 1, someFrame);
+            Assert.AreEqual(Vector3.zero, rig.LayerRenderer(1).transform.localPosition, "逐层动画帧不平移");
+            rig.Renderer.RestoreLayerSprite(rig.Handle, 1);
+            Assert.AreEqual(hot, rig.LayerRenderer(1).transform.localPosition, "写回静态层图后恢复平移");
+
+            // 镜像切换不重做 SetLayers：平移量的 x 随之取反，y 不变。
+            rig.Renderer.SetTransform(rig.Handle, Core.Foundation.Common.Vec2.Zero, 0, 0, 0, 0, 1, true);
+            var mirrored = rig.LayerRenderer(1).transform.localPosition;
+            Assert.AreEqual(-hot.x, mirrored.x, 1e-6f);
+            Assert.AreEqual(hot.y, mirrored.y, 1e-6f);
+        }
     }
 
     /// <summary>清单元素 → 面板实际用的类型化取用（同 EquipUiSkinPlayModeTests 的映射；任一边漂移用例都会红）。</summary>

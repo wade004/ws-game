@@ -546,16 +546,77 @@ def test_reference_weapon_grip_anchors_equal_the_body_hand_anchor_plus_canvas_of
     body = json.loads((PLACEHOLDER / "sprites" / "placeholder_hero" / "anchors.json").read_text(encoding="utf-8"))["directions"]
     for item, spec in pd["items"].items():
         path = REF / "sprites" / f"item_{item}" / "anchors.json"
-        if "length" not in spec:
-            assert not path.exists(), item
-            continue
         doc = json.loads(path.read_text(encoding="utf-8"))
+        if "length" not in spec:
+            assert "directions" not in doc, item        # 胸甲居中叠放：不声明握点，只声明像素密度
+            continue
         assert set(doc["directions"]) == set(FIVE_DIRS)
         for d in FIVE_DIRS:
             grip = doc["directions"][d]["grip"]
             assert grip == [body[d]["hand_main"][0] + off[0], body[d]["hand_main"][1] + off[1]], (item, d)
             w, h = Image.open(REF / "sprites" / f"item_{item}" / d / f"{spec['layer']}.png").size
             assert 0 <= grip[0] <= w and 0 <= grip[1] <= h
+
+
+def test_every_reference_layer_set_declares_the_body_pixel_density():
+    """参考包的每个层精灵集（含不声明握点的胸甲）都声明与身体精灵集一致的 pixels_per_unit：运行期合成里层与身体才是同一个比例（ADR-0155）。"""
+    body = json.loads((PLACEHOLDER / "sprites" / "placeholder_hero" / "anchors.json").read_text(encoding="utf-8"))["pixels_per_unit"]
+    sets = sorted((REF / "sprites").glob("item_*"))
+    assert len(sets) == len(SPEC["paperdoll"]["items"]) == 6
+    for d in sets:
+        doc = json.loads((d / "anchors.json").read_text(encoding="utf-8"))
+        assert doc["pixels_per_unit"] == body, d.name
+
+
+def _validate_with_body(tables, assets):
+    return E.EquipValidator(tables, assets, body_set="placeholder_hero").run()
+
+
+def test_reference_pack_is_clean_with_the_body_set_declared(equip_composite, tables):
+    report = _validate_with_body(tables, equip_composite)
+    assert [i.render_text() for i in report.issues] == []
+
+
+def _write_density(assets: Path, item: str, value) -> None:
+    path = assets / "sprites" / f"item_{item}" / "anchors.json"
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    if value is None:
+        doc.pop("pixels_per_unit", None)
+    else:
+        doc["pixels_per_unit"] = value
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+
+@pytest.mark.parametrize("value", [100, 16, 32.5, None])
+def test_neg_layer_density_differs_from_the_body_density(equip_composite, tables, value):
+    _write_density(equip_composite, "std_sword_1h", value)
+    report = _validate_with_body(tables, equip_composite)
+    hits = _hits(report, "item.std_sword_1h", E.CHECK_LAYER_DENSITY_MISMATCH)
+    assert len(hits) == 1 and hits[0].severity == "warning", [i.render_text() for i in report.issues]
+    assert "pixels_per_unit" in hits[0].message and "placeholder_hero" in hits[0].message
+    assert report.error_count == 0 and report.warning_count == 1
+    assert report.is_validated("item.std_sword_1h")              # 警告级：不阻断
+
+
+def test_layer_density_not_checked_without_layer_anchors_file_or_body_density(equip_composite, tables):
+    (equip_composite / "sprites" / "item_std_dagger" / "anchors.json").unlink()      # 层集没有 anchors.json（占位装备集的形态）：不报
+    assert [i.render_text() for i in _validate_with_body(tables, equip_composite).issues] == []
+    body = equip_composite / "sprites" / "placeholder_hero" / "anchors.json"
+    doc = json.loads(body.read_text(encoding="utf-8"))
+    doc.pop("pixels_per_unit")
+    body.write_text(json.dumps(doc), encoding="utf-8")                                # 身体没声明密度：没有比较基准，不报
+    _write_density(equip_composite, "std_sword_1h", 100)
+    assert [i.render_text() for i in _validate_with_body(tables, equip_composite).issues] == []
+
+
+def test_layer_density_body_set_comes_from_the_layout_row_and_is_skipped_when_undeclared(equip_composite, tables):
+    _write_density(equip_composite, "std_sword_1h", 100)
+    assert [i.render_text() for i in _validate(tables, equip_composite).issues] == []           # 数据里没有 preview_body_set：没有比较基准，不报
+    t = {k: list(v) for k, v in tables.items()}
+    t["ui_layout_definition"] = list(t["ui_layout_definition"]) + [
+        {"id": "ui_layout_definition.std_equipment", "panel": "equipment", "fields": {"anchor": "left_center", "preview_body_set": "placeholder_hero"}}]
+    hits = _hits(_validate(t, equip_composite), "item.std_sword_1h", E.CHECK_LAYER_DENSITY_MISMATCH)   # 布局行声明了身体集：照常核对
+    assert len(hits) == 1 and hits[0].severity == "warning"
 
 
 def _write_grip(assets: Path, item: str, direction: str, value) -> None:
@@ -594,7 +655,8 @@ def test_manifest_declares_the_coverage_thresholds_and_the_new_diagnostics(names
     m = M.load_manifest()
     assert 0 < m["icons"]["coverage"]["min_opaque_ratio"] < 1 and m["icons"]["coverage"]["alpha_cutoff"] == 128
     assert 0 < m["paperdoll"]["static_layer_coverage"]["min_opaque_ratio"] < 1
-    for name in (E.CHECK_OPAQUE_COVERAGE_LOW, E.CHECK_ANCHOR_OUT_OF_BOUNDS, E.CHECK_ANCHOR_INVALID, E.CHECK_BEHIND_DIRECTION_INVALID):
+    for name in (E.CHECK_OPAQUE_COVERAGE_LOW, E.CHECK_ANCHOR_OUT_OF_BOUNDS, E.CHECK_ANCHOR_INVALID, E.CHECK_BEHIND_DIRECTION_INVALID,
+                 E.CHECK_LAYER_DENSITY_MISMATCH):
         assert name in m["diagnostics"] and name in E.CHECK_NAMES
     assert "equip_opaque_coverage_low" in M.render_checklist(*names)
 
