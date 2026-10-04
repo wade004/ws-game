@@ -12,10 +12,12 @@
 // 其余层与身体保持原顺序；缺省空 = 所有方向都是上面的现行叠放次序。运行期合成（SpriteViewBase）用同一份声明，预览与游戏里的前后关系一致。
 // 判断记录（静态层锚点对齐，ADR-0152）：层精灵集的 anchors.json 可选声明 directions.<方向>.grip（层图自己的像素坐标，原点左上），身体层精灵集的 anchors.json 里同层名的锚点
 // （如 hand_main）是挂接点；两者都声明时把层的 grip 对到身体的挂接点上，任一缺失就按画布居中叠放（与未声明时逐位一致）。身体层本身始终居中。
+// 运行期合成（UnityRenderer2D.SetLayers）读同一份锚点、用同一条公式（PaperdollAnchors.AttachOffset，ADR-0155），只是按精灵自己的枢轴与像素密度摆。
 // 判断记录（尺寸由资源算出）：预览框尺寸 = 皮肤包预览区背景精灵的原生尺寸 × preview_scale；层精灵按"身体层精灵高度 → 预览框高度 90%"的统一比例缩放
 // （没有身体层时按各层自己的高度），不写死像素。预览框用矩形遮罩裁掉超出部分（占位装备层画布比身体层大）。
 using System;
 using System.Collections.Generic;
+using Adapter.Unity.EngineAdapter;
 using Core.Foundation.Common;
 using Presentation.Ui;
 using UnityEngine;
@@ -215,10 +217,10 @@ namespace Adapter.Unity.Ui
                         && _visuals.TryGetAnchor(l.SpriteSet, direction, "grip", out var grip)
                         && _visuals.TryGetAnchor(_bodySet, direction, l.Layer, out var attach))
                     {
-                        // 像素坐标原点在左上；本地坐标以各自画布中心为原点、y 向上。
-                        var bodyPoint = new Vector2((attach.x - bodySprite.rect.width * 0.5f) * k, (bodySprite.rect.height * 0.5f - attach.y) * k);
-                        var layerPoint = new Vector2((grip.x - sprite.rect.width * 0.5f) * k, (sprite.rect.height * 0.5f - grip.y) * k);
-                        layerRect.anchoredPosition = bodyPoint - layerPoint;
+                        // 像素坐标原点在左上；本地坐标以各自画布中心为原点、y 向上；与运行期合成（UnityRenderer2D.SetLayers）共用 PaperdollAnchors.AttachOffset。
+                        layerRect.anchoredPosition = PaperdollAnchors.AttachOffset(
+                            attach, new Vector2(bodySprite.rect.width * 0.5f, bodySprite.rect.height * 0.5f), k,
+                            grip, new Vector2(sprite.rect.width * 0.5f, sprite.rect.height * 0.5f), k);
                     }
                 }
             }

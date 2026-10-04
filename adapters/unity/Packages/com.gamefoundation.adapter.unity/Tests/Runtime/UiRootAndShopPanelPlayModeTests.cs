@@ -10,6 +10,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Adapter.Unity.Ui;
 using Adapter.Unity.Ui.Panels;
@@ -34,6 +35,8 @@ namespace Adapter.Unity.Tests.Runtime
 
         private AssemblyFixture? _asm;
         private readonly List<GameObject> _spawned = new List<GameObject>();
+        private readonly List<IDisposable> _disposables = new List<IDisposable>();
+        private string? _skinRoot;
 
         [UnityTearDown]
         public IEnumerator TearDown()
@@ -54,6 +57,21 @@ namespace Adapter.Unity.Tests.Runtime
             }
 
             yield return null;
+
+            // 皮肤用例自己造的资源（先等面板销毁完，宿主 OnDestroy 要用到注入的 UiVisuals）。
+            foreach (var d in _disposables)
+            {
+                d.Dispose();
+            }
+
+            _disposables.Clear();
+            UiSkin.Reset();
+            if (_skinRoot != null && Directory.Exists(_skinRoot))
+            {
+                Directory.Delete(_skinRoot, true);
+            }
+
+            _skinRoot = null;
         }
 
         private UiRoot CreateRoot(string name = "UiRootUnderTest")
@@ -63,13 +81,14 @@ namespace Adapter.Unity.Tests.Runtime
             return root;
         }
 
-        private (UiPanelHost Host, UiRoot Root, AssemblyFixture Asm) BuildHost()
+        private (UiPanelHost Host, UiRoot Root, AssemblyFixture Asm) BuildHost(Func<AssemblyFixture, UiVisuals>? makeVisuals = null)
         {
             _asm = AssemblyFixture.Build(20261001UL);
             var root = CreateRoot();
             var hostGo = new GameObject("UiPanelHostUnderTest");
             _spawned.Add(hostGo);
             var host = hostGo.AddComponent<UiPanelHost>();
+            host.Visuals = makeVisuals?.Invoke(_asm);     // 缺省 null：宿主按数据自建（与改动前一致）
             host.Initialize(
                 root.Content, _asm.Registry, _asm.Presentation,
                 saveSlotCandidates: Array.Empty<Id>(),
@@ -303,6 +322,223 @@ namespace Adapter.Unity.Tests.Runtime
                 uiPanel.Show();
                 Assert.IsTrue(background.gameObject.activeInHierarchy, $"面板 {panel} 显示后其背景节点 {backgroundName} 应当可见");
             }
+        }
+
+        // ------------------------------------------------------------------
+        // 运行期换皮肤：所有面板统一刷新（ADR-0155）
+        // ------------------------------------------------------------------
+
+        private const string ReferenceSkinRef = "skin.reference_fantasy";
+
+        /// <summary>临时内容根：只放占位皮肤包与参考皮肤包（皮肤包从文件读，不依赖适配器资源根里有没有参考包）。</summary>
+        private string BuildSkinRoot()
+        {
+            var repoRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", ".."));
+            var root = Path.Combine(Application.temporaryCachePath, "ui_skin_refresh_tests", Guid.NewGuid().ToString("N").Substring(0, 8));
+            CopyTree(Path.Combine(repoRoot, "assets", "_placeholder", "ui", "skin", "default"), Path.Combine(root, "ui", "skin", "default"));
+            CopyTree(Path.Combine(repoRoot, "assets", "_reference_fantasy", "ui", "skin", "reference_fantasy"), Path.Combine(root, "ui", "skin", "reference_fantasy"));
+            _skinRoot = root;
+            return root;
+        }
+
+        private static void CopyTree(string from, string to)
+        {
+            Assert.IsTrue(Directory.Exists(from), "缺目录 " + from);
+            Directory.CreateDirectory(to);
+            foreach (var file in Directory.GetFiles(from))
+            {
+                File.Copy(file, Path.Combine(to, Path.GetFileName(file)), true);
+            }
+
+            foreach (var dir in Directory.GetDirectories(from))
+            {
+                CopyTree(dir, Path.Combine(to, Path.GetFileName(dir)));
+            }
+        }
+
+        /// <summary>UiSkin 现在这一代给出的全部皮肤精灵（面板底图、纯色矩形、按钮各状态图）。</summary>
+        private static HashSet<Sprite> CurrentSkinSprites()
+        {
+            var set = new HashSet<Sprite> { UiSkin.PanelSprite, UiSkin.FlatSprite };
+            var buttons = UiSkin.ButtonSprites;
+            if (buttons != null)
+            {
+                foreach (var s in new[] { buttons.Normal, buttons.Hover, buttons.Pressed, buttons.Disabled, buttons.Selected })
+                {
+                    if (s != null)
+                    {
+                        set.Add(s);
+                    }
+                }
+            }
+
+            return set;
+        }
+
+        /// <summary>
+        /// 漏网判定（不看登记表，只看界面树里实际持有的精灵）：<paramref name="content"/> 子树里的 Image 与 Button 状态图，凡是属于被换下的旧皮肤包、
+        /// 或属于上一代 UiSkin 给出而不在这一代里的，都算漏网。返回"路径: 精灵名"清单（遍历全部子节点含隐藏的，所以调用前要等被替换的旧节点销毁完）。
+        /// </summary>
+        private static List<string> StaleSkinSprites(Transform content, UiVisuals visuals, HashSet<Sprite> previousGeneration, HashSet<Sprite> currentGeneration)
+        {
+            bool IsStale(Sprite? sprite) =>
+                sprite != null && !currentGeneration.Contains(sprite) && (visuals.IsRetiredSkinSprite(sprite) || previousGeneration.Contains(sprite));
+
+            var leaks = new List<string>();
+            foreach (var image in content.GetComponentsInChildren<Image>(true))
+            {
+                if (IsStale(image.sprite))
+                {
+                    leaks.Add(PathUnder(image.transform, content) + ": " + image.sprite.name);
+                }
+            }
+
+            foreach (var button in content.GetComponentsInChildren<Button>(true))
+            {
+                var state = button.spriteState;
+                foreach (var sprite in new[] { state.highlightedSprite, state.pressedSprite, state.selectedSprite, state.disabledSprite })
+                {
+                    if (IsStale(sprite))
+                    {
+                        leaks.Add(PathUnder(button.transform, content) + " (spriteState): " + sprite.name);
+                    }
+                }
+            }
+
+            return leaks;
+        }
+
+        private static string PathUnder(Transform t, Transform root)
+        {
+            var path = t.name;
+            for (var p = t.parent; p != null && p != root; p = p.parent)
+            {
+                path = p.name + "/" + path;
+            }
+
+            return path;
+        }
+
+        [UnityTest]
+        public IEnumerator SwitchSkin_PlaceholderToReferenceAndBack_EveryPanelRefreshes()
+        {
+            var skinRoot = BuildSkinRoot();
+            UiSkin.Reset();
+            var pack = UiSkinPack.Load(null, skinRoot);
+            UiVisuals visuals = null!;
+            var (host, root, _) = BuildHost(asm =>
+            {
+                visuals = new UiVisuals(pack, asm.Registry, asm.Presentation.DisplayInfo);
+                _disposables.Add(visuals);
+                return visuals;
+            });
+            yield return null;
+
+            // 遍历枚举与登记表（不写死面板清单）：每个 UiPanel 取值都有一个面板，面板根节点都在内容树里。
+            foreach (var panel in (UiPanel[])Enum.GetValues(typeof(UiPanel)))
+            {
+                Assert.IsTrue(host.Panels.ContainsKey(panel), "UiPanel." + panel + " 没有登记面板——新增枚举值要进宿主的面板登记表");
+                Assert.IsTrue(host.Panels[panel].Root.transform.IsChildOf(root.Content), "UiPanel." + panel + " 的面板根不在内容树里");
+            }
+
+            Assert.AreEqual(Enum.GetValues(typeof(UiPanel)).Length, host.Panels.Count);
+
+            var stepNames = new[] { "占位→参考", "参考→占位", "占位→参考（再来一轮）" };
+            var targets = new string?[] { ReferenceSkinRef, null, ReferenceSkinRef };
+            var textColors = new List<Color> { UiSkin.TextColor };
+            var staleCountsBefore = new List<int>();
+            for (var step = 0; step < targets.Length; step++)
+            {
+                var previous = CurrentSkinSprites();
+                // 换之前：每个面板里"文字色等于当前皮肤文字色"的标签，换之后应当都跟到新皮肤的文字色。
+                var oldTextColor = UiSkin.TextColor;
+                var labelsOnSkinColor = root.Content.GetComponentsInChildren<TextMeshProUGUI>(true).Where(l => l.color == oldTextColor).ToList();
+                Assert.Greater(labelsOnSkinColor.Count, 0, "前置：界面里有取皮肤文字色的标签");
+
+                // 对照（证明漏网判定抓得住）：一个不经 UiWidgets、也没订阅的 Image 持有当前皮肤底图，换皮肤后必须被判成漏网。
+                var strayGo = new GameObject("StrayUnboundImage", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+                strayGo.transform.SetParent(host.Hud.transform, false);
+                strayGo.GetComponent<Image>().sprite = UiSkin.PanelSprite;
+
+                visuals.SwitchSkin(targets[step], skinRoot);
+                yield return null;      // 被面板重建换下的旧节点在帧末销毁
+
+                var current = CurrentSkinSprites();
+                var staleBefore = StaleSkinSprites(root.Content, visuals, previous, current);
+                staleCountsBefore.Add(staleBefore.Count);
+                Assert.AreEqual(1, staleBefore.Count, stepNames[step] + "：对照用的未登记 Image 应恰好被判成漏网，其余都应已换新：" + string.Join("; ", staleBefore));
+                StringAssert.Contains("StrayUnboundImage", staleBefore[0]);
+                UnityEngine.Object.Destroy(strayGo);
+                yield return null;
+
+                var leaks = StaleSkinSprites(root.Content, visuals, previous, current);
+                Assert.IsEmpty(leaks, stepNames[step] + "：这些界面部件仍持有旧皮肤的精灵：" + string.Join("; ", leaks));
+                Assert.IsEmpty(UiSkinBindings.FindStale(root.Content), stepNames[step] + "：登记过的控件里还有停在旧皮肤取值上的");
+
+                // 每个面板（含 HUD）里至少有一块底图是现行皮肤的面板底图。
+                foreach (var panel in (UiPanel[])Enum.GetValues(typeof(UiPanel)))
+                {
+                    var hasCurrentPanelSprite = host.Panels[panel].Root.GetComponentsInChildren<Image>(true).Any(i => i.sprite == UiSkin.PanelSprite);
+                    Assert.IsTrue(hasCurrentPanelSprite, $"{stepNames[step]}：UiPanel.{panel} 里没有任何一块底图用现行皮肤的面板底图");
+                }
+
+                // 文字色：换之前取皮肤文字色的标签，现在取新皮肤的文字色。
+                var newTextColor = UiSkin.TextColor;
+                Assert.AreNotEqual(oldTextColor, newTextColor, "前置：两套皮肤的文字色不同，否则下面的断言是空的");
+                foreach (var label in labelsOnSkinColor.Where(l => l != null))
+                {
+                    Assert.AreEqual(newTextColor, label.color, stepNames[step] + "：标签 " + PathUnder(label.transform, root.Content) + " 的文字色没有跟到新皮肤");
+                }
+
+                // 按钮：每个 UiWidgets 按钮的底图现在是新皮肤的取值（参考皮肤 = 九宫格按钮图 Normal，占位皮肤 = 纯色矩形）。
+                var expectedButtonSprite = UiSkin.ButtonSprites != null ? UiSkin.ButtonSprites.Normal : UiSkin.FlatSprite;
+                var hudButtons = host.Hud.GetComponentsInChildren<Button>(true);
+                Assert.Greater(hudButtons.Length, 0, "HUD 里有按钮");
+                foreach (var button in hudButtons)
+                {
+                    Assert.AreSame(expectedButtonSprite, button.GetComponent<Image>().sprite, stepNames[step] + "：HUD 按钮 " + button.name + " 的底图");
+                }
+
+                textColors.Add(newTextColor);
+                TestContext.Out.WriteLine($"[skin-refresh] {stepNames[step]}: stale-with-control={staleBefore.Count} stale-after={leaks.Count} bindings={UiSkinBindings.Count} textColor={ColorUtility.ToHtmlStringRGB(newTextColor)}");
+            }
+
+            // 一个来回之后回到起点：文字色又是占位皮肤的那一个。
+            Assert.AreEqual(textColors[0], textColors[2], "占位→参考→占位 之后回到占位皮肤文字色");
+        }
+
+        [UnityTest]
+        public IEnumerator SwitchSkin_TakesOverTheGlobalSkinOverride_AndDisposeReleasesIt()
+        {
+            var skinRoot = BuildSkinRoot();
+            UiSkin.Reset();
+            var foreign = new UiSkinOverride { TextColor = Color.magenta };
+            UiSkin.Install(foreign);
+            var loader = new Adapter.Unity.EngineAdapter.UnityResourceLoader();
+            var visuals = new UiVisuals(UiSkinPack.Load(null, skinRoot), null, null, loader);
+            try
+            {
+                Assert.IsFalse(visuals.OwnsSkinOverride, "前置：覆盖是别人装的");
+
+                visuals.SwitchSkin(ReferenceSkinRef, skinRoot);
+                Assert.IsTrue(visuals.OwnsSkinOverride, "换到非占位皮肤后，覆盖归 UiVisuals");
+                Assert.AreNotEqual(Color.magenta, UiSkin.TextColor, "别人装的覆盖被接管（换皮肤就是要这套皮肤）");
+                Assert.AreEqual(visuals.Pack.ThemeColor("text"), UiSkin.TextColor, "文字色来自新皮肤包 theme.json");
+
+                visuals.SwitchSkin(null, skinRoot);
+                Assert.IsFalse(UiSkin.IsOverrideInstalled, "换回占位皮肤：撤掉覆盖，UiSkin 回到缺省");
+                Assert.IsFalse(visuals.OwnsSkinOverride);
+
+                visuals.SwitchSkin(ReferenceSkinRef, skinRoot);
+                Assert.IsTrue(UiSkin.IsOverrideInstalled);
+            }
+            finally
+            {
+                visuals.Dispose();
+            }
+
+            Assert.IsFalse(UiSkin.IsOverrideInstalled, "Dispose 撤掉自己持有的覆盖");
+            yield return null;
         }
 
         private static string Short(Id id)
