@@ -82,17 +82,17 @@ namespace Adapter.Unity.Tests.Runtime
             yield return new WaitForFixedUpdate();
         }
 
-        /// <summary>拍板 7：UiPanel 现有十一个值（恢复 Shop，见 UiLayoutSchema.cs 判断记录），本用例
+        /// <summary>拍板 7：UiPanel 现有十二个值（恢复 Shop，见 UiLayoutSchema.cs 判断记录；ADR-0149 新增 Equipment），本用例
         /// 用 <c>Enum.GetValues</c> 遍历全部取值，新增 Shop 自动纳入覆盖，不需要单独为它另写一条
         /// 开关测试。</summary>
         [UnityTest]
-        public IEnumerator AllElevenPanels_CanToggleOpenAndClose_WithoutException()
+        public IEnumerator AllPanels_CanToggleOpenAndClose_WithoutException()
         {
             yield return LoadShellScene();
             var shell = RequireShellRoot();
             yield return EnterInWorld(shell);
 
-            Assert.AreEqual(11, ((UiPanel[])System.Enum.GetValues(typeof(UiPanel))).Length, "UiPanel 应为十一个值（拍板 7 恢复 Shop）");
+            Assert.AreEqual(12, ((UiPanel[])System.Enum.GetValues(typeof(UiPanel))).Length, "UiPanel 应为十二个值（拍板 7 恢复 Shop，ADR-0149 新增 Equipment）");
 
             foreach (var panelKind in (UiPanel[])System.Enum.GetValues(typeof(UiPanel)))
             {

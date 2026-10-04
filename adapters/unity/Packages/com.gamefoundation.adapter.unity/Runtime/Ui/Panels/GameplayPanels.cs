@@ -24,6 +24,7 @@ using Presentation.Assembly;
 using Presentation.Ui;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Adapter.Unity.Ui.Panels
 {
@@ -332,21 +333,67 @@ namespace Adapter.Unity.Ui.Panels
     }
 
     /// <summary>背包与装备：格子数量/数量与逻辑背包一致（09 §7.1、<see cref="InventoryViewModel"/>，
-    /// 阶段 4 验收标准 3）。</summary>
+    /// 阶段 4 验收标准 3）。
+    /// <para>
+    /// 判断记录（图标、品质框与数量，ADR-0149）：给了 <see cref="UiVisuals"/> 的重载在每行最前面多一个物品格——槽位框（皮肤包 <c>slot_frame/_default.png</c>）、
+    /// 图标（物品模板 → <c>display.map.icon_id</c> → 适配器资源加载器的 icon 路径）、品质框（皮肤包 <c>quality_frame/&lt;品质名&gt;.png</c>）与右下角数量；
+    /// 格子边长、锚点取 <c>ui_layout_definition</c> 的 inventory 行（<c>cell_size</c>、<c>anchor</c>），缺省 32 像素与右上角（与改动前的矩形逐位一致）。
+    /// 既有三参数 <see cref="Construct(RectTransform, InventoryViewModel, UiIntents)"/> 保持不变（没有物品格，行为与改动前一致）；文本标签与"使用"按钮两种形态都保留。
+    /// </para></summary>
     public sealed class InventoryPanel : UiPanelBehaviour
     {
+        private const float DefaultCellSize = 32f;
+
         private InventoryViewModel _vm = null!;
         private UiIntents _intents = null!;
         private RectTransform _list = null!;
+        private UiVisuals? _visuals;
+        private float _cellSize = DefaultCellSize;
         private readonly List<GameObject> _rows = new List<GameObject>();
+
+        /// <summary>每行物品格的控件引用（仅带 <see cref="UiVisuals"/> 构造时有）。</summary>
+        public sealed class ItemCell
+        {
+            public Image Frame = null!;
+            public Image Quality = null!;
+            public Image Icon = null!;
+            public TextMeshProUGUI Count = null!;
+        }
+
+        private readonly List<ItemCell> _cells = new List<ItemCell>();
+
+        /// <summary>每行的物品格（行序同 <see cref="InventoryViewModel.Slots"/>）。</summary>
+        public IReadOnlyList<ItemCell> Cells => _cells;
+
+        /// <summary>格子边长（像素）。</summary>
+        public float CellSize => _cellSize;
+
+        /// <summary>面板底板（九宫格背景）。</summary>
+        public RectTransform Background { get; private set; } = null!;
 
         public void Construct(RectTransform parent, InventoryViewModel vm, UiIntents intents)
         {
             _vm = vm;
             _intents = intents;
             var root = UiWidgets.CreatePanelBackground("InventoryPanel", parent, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(260f, 260f), new Vector2(-140f, -140f));
+            Background = root;
             _list = UiWidgets.CreateVerticalList("List", root, 2f);
             UiWidgets.SetRect(_list, Vector2.zero, Vector2.one, new Vector2(8, 8), new Vector2(-8, -8));
+        }
+
+        /// <summary>带皮肤包与资源的重载（ADR-0149）：行首多一个物品格（槽位框 + 图标 + 品质框 + 数量），布局取数据行。</summary>
+        public void Construct(RectTransform parent, InventoryViewModel vm, UiIntents intents, UiVisuals? visuals)
+        {
+            Construct(parent, vm, intents);
+            if (visuals == null)
+            {
+                return;
+            }
+
+            _visuals = visuals;
+            var layout = visuals.LayoutOf(UiPanel.Inventory, new UiPanelLayout("top_right", 1, DefaultCellSize, 1f, string.Empty, "front"));
+            _cellSize = layout.CellSize > 0f ? layout.CellSize : DefaultCellSize;
+            layout.ApplyAnchor(Background, new Vector2(260f, 260f));
         }
 
         /// <summary>逻辑格子数与已渲染行数不一致时才重建行（避免每帧都销毁重建 GameObject）。</summary>
@@ -360,6 +407,11 @@ namespace Adapter.Unity.Ui.Panels
                 rect.SetParent(_list, false);
                 var hl = row.AddComponent<UnityEngine.UI.HorizontalLayoutGroup>();
                 hl.spacing = 6f; hl.childControlWidth = false; hl.childControlHeight = true; hl.childForceExpandWidth = false;
+                if (_visuals != null)
+                {
+                    _cells.Add(CreateItemCell(rect));
+                }
+
                 var label = UiWidgets.CreateLabel("Label", rect, "-", 16);
                 label.rectTransform.sizeDelta = new Vector2(140f, 22f);
                 var capturedIndex = rowIndex;
@@ -370,6 +422,11 @@ namespace Adapter.Unity.Ui.Panels
             {
                 var last = _rows[_rows.Count - 1];
                 _rows.RemoveAt(_rows.Count - 1);
+                if (_cells.Count > _rows.Count)
+                {
+                    _cells.RemoveAt(_cells.Count - 1);
+                }
+
                 Destroy(last);
             }
 
@@ -378,7 +435,57 @@ namespace Adapter.Unity.Ui.Panels
                 var slot = _vm.Slots[i];
                 var label = _rows[i].transform.Find("Label").GetComponent<TextMeshProUGUI>();
                 label.text = $"{ShortId(slot.TemplateId)} x{slot.Count}";
+                if (_visuals != null && i < _cells.Count)
+                {
+                    RefreshItemCell(_cells[i], slot.TemplateId, slot.Count);
+                }
             }
+        }
+
+        private ItemCell CreateItemCell(RectTransform row)
+        {
+            var go = new GameObject("Cell", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(LayoutElement));
+            var rect = (RectTransform)go.transform;
+            rect.SetParent(row, false);
+            var element = go.GetComponent<LayoutElement>();
+            element.preferredWidth = _cellSize;
+            element.preferredHeight = _cellSize;
+            element.minWidth = _cellSize;
+            element.minHeight = _cellSize;
+            var frame = go.GetComponent<Image>();
+            frame.sprite = _visuals!.Pack.SlotFrameDefault();
+            frame.type = Image.Type.Simple;
+            frame.raycastTarget = false;
+
+            Image Child(string name, float inset)
+            {
+                var child = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+                var childRect = (RectTransform)child.transform;
+                childRect.SetParent(rect, false);
+                UiWidgets.SetRect(childRect, Vector2.zero, Vector2.one, new Vector2(inset, inset), new Vector2(-inset, -inset));
+                var image = child.GetComponent<Image>();
+                image.raycastTarget = false;
+                image.preserveAspect = true;
+                image.enabled = false;
+                return image;
+            }
+
+            var icon = Child("Icon", 2f);
+            var quality = Child("Quality", 0f);
+            var count = UiWidgets.CreateLabel("Count", rect, string.Empty, 11, TextAlignmentOptions.BottomRight);
+            UiWidgets.SetRect(count.rectTransform, Vector2.zero, Vector2.one, new Vector2(2f, 1f), new Vector2(-2f, -1f));
+            return new ItemCell { Frame = frame, Quality = quality, Icon = icon, Count = count };
+        }
+
+        private void RefreshItemCell(ItemCell cell, Id template, int count)
+        {
+            var visuals = _visuals!;
+            var iconSprite = visuals.Icon(visuals.IconOfTemplate(template));
+            cell.Icon.sprite = iconSprite;
+            cell.Icon.enabled = iconSprite != null;
+            cell.Quality.sprite = visuals.Pack.QualityFrame(visuals.QualityNameOf(template));
+            cell.Quality.enabled = true;
+            cell.Count.text = count > 1 ? count.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
         }
 
         private void OnUseClicked(int index)

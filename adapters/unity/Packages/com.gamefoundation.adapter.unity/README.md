@@ -773,6 +773,14 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   `DiagnosticsFeed` 一致）。同批 PlayMode 用例 `DiagnosticsHubCompositionPlayModeTests` 另以 24 来源普查表 +
   反射遍历覆盖 `RegisterCoreSources` 的登记完整性（新增公开可达的 `InMemory*Diagnostics` 忘登记会红）。
 
+### 界面皮肤包与装备面板（`Runtime/Ui/`，ADR-0149，手感设计/08）
+
+- **皮肤包运行期读取**：`UiSkinPack.Load(skinRef, contentRoot)` 读 `<内容根>/ui/skin/<名>/`（`toolchain/resource_layout_map.json` 的 `ui` 映射把 `assets/<数据集>/ui/` 同步进 `StreamingAssets/GameFoundation/ui/`）。类型化取用：`SlotFrame`/`SlotState`/`SlotSpriteState`、`QualityFrame`、`PaperdollBackground`、`PanelBackground`、`Button`、`TooltipBackground/Divider/Row`、`DragState`；通用取用 `ElementSprite(UiSkinFile)` 与 `Optional`。回落链"本包 → 占位皮肤同名 → 占位 `_default` → 程序生成的框"，每次回落进 `Fallbacks`，可选元素缺失进 `OptionalAbsent`（不算回落）。精灵按文件缓存，类型化取用与通用取用是同一个对象。`skin.default` 的 `CreateOverride()` 返回 null——不安装任何 `UiSkin` 覆盖，面板底图、按钮、字体、配色逐位保持原有默认；非缺省皮肤把主题颜色、`panel/background.png`（九宫格，边框取主题 `panel_border`，缺省 5，超过半幅时钳到半幅）、`button/*.png`（`UiSkinOverride.ButtonSprites`，`UiWidgets.CreateButton` 改用精灵切换）、字体映射成覆盖。
+- **契约清单视图**：`UiSkinManifest` 解析 `toolchain/asset_import/skin_manifest.json`（唯一权威）并按槽位/品质展开成文件清单；`UiSkinGallery` 把每个元素各画一遍（九宫格元素按几种尺寸各画一份）。运行期不需要读清单；完整性用例用它逐元素核对"换皮肤后没有默认皮肤残留"，并让类型化取用与清单路径逐元素一致。
+- **装备面板与预览**：`EquipmentPanel`（槽位网格：槽位框 + 图标 + 品质框 + 悬停/按下/选中/禁用状态精灵，点击已装备槽位卸下；`PaperdollPreview`：身体层 + 各装备层逐层叠放，方向可切换）绑生产类 `EquipmentViewModel`，布局取 `ui_layout_definition` 的 `equipment` 行（缺省内置布局）；背包面板的带 `UiVisuals` 重载每行多一个物品格。`UiVisuals` 把皮肤包、数据注册表与适配器资源加载器串起来（图标按 `display.map.icon_id`，纸娃娃层按 `layer.<集>__<方向>__<层>`）。`UiPanelHost` 新增 `Equipment` 面板（键 `U`）。
+- **实验室换装场景**（`Runtime/LabHost/`）：`EquipWardrobeScene`（装备面板 + 预览区 + 方向 × 姿势键轮播 + 逐件穿戴）、`EquipWardrobeRunner`（跑数据生成的衣橱脚本并核对资源，写本地报告与拼图）、`WardrobeCarouselModel`（轮播遍历的纯逻辑）。
+- **用例**：`Tests/Runtime/LabHost/EquipUiSkinPlayModeTests.cs`（`module:ui` + `module:lab`：皮肤替换完整性、真实面板、九宫格多尺寸、状态变体、回落、缺省不变）与 `EquipWardrobeLabHostTests.cs`（`module:lab`：轮播一圈每格一次、引擎宿主衣橱核对、场景逐件穿戴）。替换皮肤由 `SkinTestKit` 按清单确定性程序生成（每个元素一个由路径散列算出的唯一颜色，读回像素即可确认精灵来自哪个文件）。
+
 ### Shell 流程（`Runtime/Shell/`）
 
 ```

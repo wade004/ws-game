@@ -76,6 +76,22 @@ namespace Adapter.Unity.Ui
             colors.pressedColor = new Color(0.8f, 0.8f, 0.85f, 1f);
             colors.disabledColor = new Color(0.6f, 0.6f, 0.6f, 0.6f);
             button.colors = colors;
+            var skinned = UiSkin.ButtonSprites;
+            if (skinned != null)
+            {
+                // 皮肤包提供了按钮九宫格状态图（ADR-0149）：换成精灵切换，其余状态缺省取常态图；没有提供时上面的着色外观逐位不变。
+                image.sprite = skinned.Normal;
+                image.type = Image.Type.Sliced;
+                image.color = Color.white;
+                button.transition = Selectable.Transition.SpriteSwap;
+                button.spriteState = new SpriteState
+                {
+                    highlightedSprite = skinned.Hover ?? skinned.Normal,
+                    pressedSprite = skinned.Pressed ?? skinned.Normal,
+                    selectedSprite = skinned.Selected ?? skinned.Normal,
+                    disabledSprite = skinned.Disabled ?? skinned.Normal,
+                };
+            }
             if (onClick != null)
             {
                 button.onClick.AddListener(() => onClick());

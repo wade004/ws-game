@@ -26,6 +26,7 @@ namespace Adapter.Unity.Ui
         public HudPanel Hud { get; private set; } = null!;
         public ActionBarPanel ActionBar { get; private set; } = null!;
         public InventoryPanel Inventory { get; private set; } = null!;
+        public EquipmentPanel Equipment { get; private set; } = null!;
         public QuestLogPanel QuestLog { get; private set; } = null!;
         public DialogPanel Dialog { get; private set; } = null!;
         public SkillBookPanel SkillBook { get; private set; } = null!;
@@ -36,6 +37,15 @@ namespace Adapter.Unity.Ui
         public ShopPanel Shop { get; private set; } = null!;
 
         public IReadOnlyDictionary<UiPanel, IUiPanel> Panels => _panels;
+
+        /// <summary>
+        /// 面板取皮肤包与图标/纸娃娃层资源的入口（ADR-0149）。<see cref="Initialize"/> 之前可以注入（测试换皮肤包、换资源根）；
+        /// 不注入则按数据装配（<see cref="UiVisuals.Create"/>：皮肤包取 ui_layout_definition 的 skin_ref，缺省占位皮肤；加载器取全局宿主的）。
+        /// </summary>
+        public UiVisuals? Visuals { get; set; }
+
+        private bool _ownsVisuals;
+        private bool _installedSkin;
 
         /// <summary>八个"游戏内"面板（Hud/ActionBar/Inventory/QuestLog/Dialog/SkillBook/
         /// CharacterStats/Settings）的公共父节点；<see cref="SaveSlots"/>/<see cref="PauseMenu"/>
@@ -65,6 +75,19 @@ namespace Adapter.Unity.Ui
             Func<double>? getSfxBusVolume = null,
             Action<double>? onSfxBusVolumeChanged = null)
         {
+            if (Visuals == null)
+            {
+                Visuals = UiVisuals.Create(registry, presentation.DisplayInfo);
+                _ownsVisuals = true;
+            }
+
+            // 非缺省皮肤包把主题配色/面板底图/字体装成 UiSkin 覆盖；缺省皮肤不装任何覆盖（逐位不变）。调用方自己装过覆盖时以调用方的为准。
+            if (!UiSkin.IsOverrideInstalled && Visuals.Pack.CreateOverride() is { } skinOverride)
+            {
+                UiSkin.Install(skinOverride);
+                _installedSkin = true;
+            }
+
             var declaredPanels = new HashSet<UiPanel>();
             foreach (var record in registry.GetAll(UiSchemas.UiLayoutDefinition.Name))
             {
@@ -72,7 +95,8 @@ namespace Adapter.Unity.Ui
             }
             foreach (var panel in (UiPanel[])Enum.GetValues(typeof(UiPanel)))
             {
-                if (!declaredPanels.Contains(panel))
+                // 装备面板的布局行是可选的（缺省布局见 EquipmentPanel.DefaultLayout），不为缺行告警。
+                if (panel != UiPanel.Equipment && !declaredPanels.Contains(panel))
                 {
                     Debug.LogWarning($"[UiPanelHost] ui_layout_definition 未登记面板 \"{panel}\" 的行，仍按默认布局构建（不阻断）。");
                 }
@@ -95,9 +119,15 @@ namespace Adapter.Unity.Ui
             _panels[UiPanel.ActionBar] = ActionBar;
 
             Inventory = CreatePanel<InventoryPanel>("Inventory", GameplayGroup);
-            Inventory.Construct((RectTransform)Inventory.transform, presentation.Inventory, presentation.UiIntents);
+            Inventory.Construct((RectTransform)Inventory.transform, presentation.Inventory, presentation.UiIntents, Visuals);
             Inventory.Hide();
             _panels[UiPanel.Inventory] = Inventory;
+
+            // 装备面板（ADR-0149）：槽位网格 + 纸娃娃预览，槽位/外观取自数据，美术取自皮肤包与资源加载器，布局取 ui_layout_definition 的 equipment 行。
+            Equipment = CreatePanel<EquipmentPanel>("Equipment", GameplayGroup);
+            Equipment.Construct((RectTransform)Equipment.transform, presentation.Equipment, Visuals, presentation.UiIntents);
+            Equipment.Hide();
+            _panels[UiPanel.Equipment] = Equipment;
 
             QuestLog = CreatePanel<QuestLogPanel>("QuestLog", GameplayGroup);
             // 消费方反馈第六批（阻塞）：改走 QuestLogPanel.Construct 新增的携带 IL10nHost 的加性重载
@@ -171,12 +201,29 @@ namespace Adapter.Unity.Ui
 
         public bool IsOpen(UiPanel panel) => _panels.TryGetValue(panel, out var p) && p.IsOpen;
 
+        private void OnDestroy()
+        {
+            // 只撤自己装的皮肤覆盖与自己建的资源入口；调用方注入的 Visuals 由调用方释放。
+            if (_installedSkin)
+            {
+                UiSkin.Reset();
+                _installedSkin = false;
+            }
+
+            if (_ownsVisuals && Visuals != null)
+            {
+                Visuals.Dispose();
+                Visuals = null;
+            }
+        }
+
         private void Update()
         {
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {
                 if (keyboard.iKey.wasPressedThisFrame) Toggle(UiPanel.Inventory);
+                if (keyboard.uKey.wasPressedThisFrame) Toggle(UiPanel.Equipment);
                 if (keyboard.jKey.wasPressedThisFrame) Toggle(UiPanel.QuestLog);
                 if (keyboard.kKey.wasPressedThisFrame) Toggle(UiPanel.SkillBook);
                 if (keyboard.cKey.wasPressedThisFrame) Toggle(UiPanel.CharacterStats);

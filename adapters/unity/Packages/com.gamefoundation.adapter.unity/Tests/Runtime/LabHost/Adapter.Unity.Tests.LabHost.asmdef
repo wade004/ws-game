@@ -4,6 +4,8 @@
     "references": [
         "Adapter.Unity",
         "Adapter.Unity.LabHost",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],
