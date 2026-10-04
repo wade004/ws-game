@@ -460,6 +460,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.98.0] - 2026-10-04
+
 ### 新增
 
 - **参考界面皮肤包与真实素材回归（[ADR-0152](architecture/adr/0152-参考界面皮肤包与真实素材回归.md)，手感落地 M5-S6 后续）**：全部可选、缺省皮肤与基线逐位不变。①新增样例包 `assets/_reference_fantasy/`（通用奇幻风、本地出图 + 可复现后处理脚本 `_source/`；皮肤包清单全元素含可选项、样例装备图标与纸娃娃静态层），不替换占位皮肤、不进内容同步与发布打包；回归 `toolchain/tests/test_reference_skin_pack.py`（零错误零警告、可选缺失为空、真实美术不变量与负例）与 PlayMode `ReferenceSkinPlayModeTests`。②走真实美术发现并修复五处缺陷：背包面板物品格不认 `cell_size`（曾按 100 x 100 画出；带皮肤的重载现在显式设定行高与格子尺寸）；图标无透明像素不再被报成"主体贴边"（贴边报包围盒）；品质框中心区报最大 alpha 与像素位置；布局 `cell_size`=0 在背包面板里也取槽位框原生宽度（新增公开 `UiPanelLayout.ResolveCellSize`，此前背包当成 32 px）；`EquipWardrobeScene` 新增可选 `SkinRef`（缺省占位皮肤，行为不变）。适配器包新增对 `Adapter.Unity.Tests.LabHost` 的测试可见性。
