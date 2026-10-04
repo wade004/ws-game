@@ -112,6 +112,9 @@ namespace Adapter.Unity.Presentation
             _inner?.SetPaused(paused);
         }
 
+        /// <summary>ADR-0147：见 <see cref="IFrameAnimPlayer.SetSpeed"/>（内部播放器还没创建说明从未播放过剪辑，下一次 <see cref="Play"/> 的速率参数生效）。</summary>
+        public void SetSpeed(double speed) => _inner?.SetSpeed(speed);
+
         /// <summary>按 <paramref name="deltaSeconds"/> 推进内部播放器（暂停时内部播放器自己忽略）；只由 <see cref="Step"/> 调用
         /// （M4-W4：此前是给实验室宿主与测试用的内部入口，现在统一走公开的 <see cref="Step"/> 加可注入的 <see cref="TimeSource"/>）。</summary>
         private void Advance(double deltaSeconds)

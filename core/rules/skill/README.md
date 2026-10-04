@@ -1682,10 +1682,11 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 - **T9 `source: clip`**：运行期永远只读 `skill.def.timeline`（规则层不读表现域）。作者态工具 `TimelineClipImporter` 把剪辑事件
   （`active_start/active_end` 界定判定相；`hit`/`hit:<n>`、`combo_open/close`、`cancel_open:<类>`、`invuln_*`、`armor_*`、`motion_*`、`release` 抄写）
   导入成时间线字段；`TimelineClipConsistencyRule(IClipMarkerSource, toleranceMs)` 比对：`source: clip` 任一偏差（超过 0.5 毫秒抄写取整误差）
-  Error，`source: data` 超过 `marker_tolerance_ms` Warning，取不到剪辑时 `clip` 为 Error、`data` 跳过。**当前数据里没有"技能 → 动画集 →
-  剪辑"的对应关系，没有生产用 `IClipMarkerSource`**，所以该规则没有登记进 `RulesSchemaCatalog`（只登记了不依赖剪辑的
-  `SkillTimelineRule`）；本切片只提供接口 `IClipMarkerSource`、内存替身 `InMemoryClipMarkerSource` 与上述工具/规则，装配方有了真实
-  来源后自行 `RegisterValidationRule`。
+  Error，`source: data` 超过 `marker_tolerance_ms` Warning，取不到剪辑时 `clip` 为 Error、`data` 跳过。**ADR-0147 补上了生产来源**："技能 → 剪辑"的对应来自武器表现数据（`display.weapon_style.cast_anim_override` 与普攻映射，见手感设计/04 第 8 节），
+  规则组装层的 `DisplayClipMarkerSource`（读数据表，不读引擎资源）实现 `IClipMarkerSource`，`SkillClipConsistencyRule` 用它跑 `TimelineClipConsistencyRule` 并已登记进 `RulesSchemaCatalog`；
+  剪辑条目需要可选加法字段 `display.anim_set.clips[*].duration_ms`（事件是百分比，没有总时长无法换算毫秒），没声明的剪辑取不到标记——`source: data` 的技能跳过、`source: clip` 的技能报错。
+  本模块仍只提供接口 `IClipMarkerSource`、内存替身 `InMemoryClipMarkerSource` 与上述工具/规则；运行期规则层依旧只读 `skill.def.timeline`。
+  `timeline.motion.driver: root_motion` 已删除，`SkillTimelineRule` 加载期报错（`timeline_motion_driver_removed`），`custom:<id>` 位移曲线引用解析不到报错（`timeline_motion_curve_missing`）；`ActionStartedEvent` 追加三相动画播放速率（`TimelineSchedule.StartupRate/ActiveRate/RecoveryRate`）。
 - **T10 `IActionStateQuery` 与位移段快照**：本类（`CastPipeline`）实现，经 `SkillHost.ActionStateQuery` 暴露。声明了 `motion` 块的动作在
   被接受时落定 `ActionMotionState`（类型由运动切片 S2 定义，`Core.Rules.Common.ActionMotion.cs`，本切片原样采用、不另建位移类型）并随
   `ActionState.Motion` 提供给运动仲裁器：窗口 = `motion_start`/`motion_end` 标记换算后的 tick（`StartTick` 含、`EndTick` 不含，与

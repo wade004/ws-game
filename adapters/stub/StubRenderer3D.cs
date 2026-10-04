@@ -59,6 +59,7 @@ namespace Adapters.Stub
         public readonly Dictionary<int, PlacementRecord> Placements = new Dictionary<int, PlacementRecord>();
         public readonly Dictionary<int, AnimPlayback> CurrentAnims = new Dictionary<int, AnimPlayback>();
         public readonly Dictionary<int, double> AnimSpeeds = new Dictionary<int, double>();
+        public readonly Dictionary<int, double> Leans = new Dictionary<int, double>();
         public readonly Dictionary<int, Dictionary<Id, Id?>> SlotMeshes = new Dictionary<int, Dictionary<Id, Id?>>();
         public readonly Dictionary<int, (Id SocketId, int ChildHandle)> Attachments = new Dictionary<int, (Id, int)>();
         public readonly Dictionary<int, Dictionary<string, double>> MaterialParams = new Dictionary<int, Dictionary<string, double>>();
@@ -94,6 +95,12 @@ namespace Adapters.Stub
         {
             EnsureAlive(handle);
             AnimSpeeds[handle.Value] = speed;
+        }
+
+        public void SetLean(ModelHandle handle, double degrees)
+        {
+            EnsureAlive(handle);
+            Leans[handle.Value] = degrees;
         }
 
         public SubscriptionHandle OnAnimEvent(ModelHandle handle, AnimEventCallback callback)

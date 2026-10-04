@@ -38,11 +38,12 @@ namespace Lab
         private readonly List<KeyValuePair<string, Id>> _targets = new List<KeyValuePair<string, Id>>();
         private readonly FeedbackBinderCore? _binder;
         private readonly ImpactPipeline? _pipeline;
+        private readonly PoseRig? _poseRig;
         private int _tick;
 
         public FeelRig(
             HeadlessWorld world, FeelRecording record, Dictionary<Id, string> labels, Func<Id?, int> ordinal, double step,
-            IEnumerable<KeyValuePair<string, Id>> targets, IFeedbackSink? tee = null)
+            IEnumerable<KeyValuePair<string, Id>> targets, IFeedbackSink? tee = null, ScriptPoseOptions? pose = null)
         {
             _world = world;
             _record = record;
@@ -56,6 +57,11 @@ namespace Lab
             if (feel == null)
             {
                 return;
+            }
+
+            if (pose != null)
+            {
+                _poseRig = new PoseRig(world, feel, record, labels, step, _playerId, _targets, () => _tick);
             }
 
             var recordingSink = new RecordingSink(this, tee);
@@ -280,6 +286,7 @@ namespace Lab
             }
 
             _binder?.Dispose();
+            _poseRig?.Dispose();
         }
 
         /// <summary>记录型假 sink：反馈流水线出批的每条指令记成表现时间线条目。</summary>

@@ -1643,3 +1643,7 @@ GameBootstrap.cs` 同样两根合并（`data/_framework` + 游戏自己的 `data
 - 精灵残影：`UnitySpriteView` 实现 `IAfterimageTarget`，开启时在精灵根挂 `AfterimageEmitter`（每 0.05 秒留一份根下全部 `SpriteRenderer` 的半透明副本，起始不透明度 0.5、线性淡出、寿命 0.2 秒）；`UnityModelView` 不实现，开关静默忽略（没有可复用的副本机制，已知限制）。
 - `UnityViewFactory.ComputeKeyframes`：剪辑里同名事件（走路剪辑的两次 `footstep`）以"名#序号"登记，此前互相覆盖只剩一次；模型路线 `UnityRenderer3D.RaiseAnimEvent` 原本就把 `:` 换成 `.`，`anim_event.fx.<id>` 由表现层标准化为 `fx:<id>`。
 - 测试：`Tests/Runtime/AvFeedbackPlayModeTests.cs`（缩放脉冲峰值/过半/叠加上限、震动马达输出与叠加规则、闪白系数 1/0.5/0、重复关键帧、残影生成与淡出）。
+
+## 姿势与动画契约落地的引擎侧接线（M5-S4，ADR-0147）
+
+`UnityViewFactory` 实现 `ILocomotionPresentationReceiver`、`ILocomotionBlendsReceiver`、`IHitReactionQueryReceiver`（由 `PresentationAssembly` 交付，没交付时全部缺省行为逐位不变）：动画状态机带受击反应查询进入反应驱动模式，`ClipPlaybackRates` 汇总剪辑播放速率，`AnimClipResolver` 在状态、受击子键或速率变化时（`OnRateChanged`）重算：受击子键经姿势回落链解析、速率经 `UnityFrameAnimPlayer.SetSpeed`（序列帧）与 `ModelCharacterRig.SetClipSpeed`（骨骼剪辑）交给播放器，启停混合时长经 `SetNextBlendSeconds` 提示（只骨骼剪辑），前倾经 `UnityRenderer3D.SetLean`（角色外形根节点的俯仰，只骨骼模型外形；序列帧外形保持直立）。`ModelCharacterRig` 与 `SpriteCharacterRig` 实现 `IAnimMarkerEmitter`（ADR-0148），剪辑标记经 `AnimMarker` 对外发布。PlayMode 用例：`AnimClipResolverTests`（受击子键切换剪辑、速率换算与复位）、`AnimationLayerTests`（序列帧播放器速率）。

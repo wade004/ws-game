@@ -194,16 +194,39 @@ namespace Lab
         /// </summary>
         public bool HitRadiusFromFeel { get; set; }
 
+        /// 姿势与动画观测选项（<c>poseExt</c> 块，M5-S4，ADR-0147，格式版本 3；缺省 null = 不装姿势观测，一切与既有行为逐位一致）：
+        /// 宿主在手感装置里装出与生产装配同一批部件（动画状态机、播放速率、移动呈现参数馈送），把姿势请求序列与剪辑播放速率记成事件，
+        /// 供 <c>poseext</c> 条件度量组使用。
+        /// </summary>
+        public ScriptPoseOptions? PoseExt { get; set; }
+
         /// <summary>是否用到了手感场景的格式版本 3 字段。</summary>
         public bool UsesFeelFormat =>
             Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0 || SpaceExt != null || PoiseImpactScale.Count > 0
-            || HitRadiusFromFeel;
+            || HitRadiusFromFeel
+            || PoseExt != null;
 
         /// <summary>是否用到了格式版本 2 的字段（决定序列化时写的 <c>formatVersion</c>）。</summary>
         public bool UsesExtendedFormat =>
             Scene.Length > 0 || ExtraDataRoots.Count > 0 || ExtraDataExcludeTables.Count > 0 || ExtraDataExcludeRows.Count > 0
             || FeelCalibrationId.Length > 0
             || UnarmedAttackSkill.Length > 0;
+    }
+
+    /// <summary>
+    /// 脚本的姿势与动画观测选项（<c>meta.poseExt</c>，M5-S4，ADR-0147）。
+    /// <para>
+    /// 判断记录：①观测只读——装的是生产部件（<c>AnimStateMachine</c> 的受击反应驱动模式、<c>ClipPlaybackRates</c>、<c>PoseGaitFeeder</c>），
+    /// 不自建平行机制；受击反应驱动模式只在受击裁决装配且未处于离散模式（<c>HitFeelHost.Active</c>）时进入，与生产装配同口径。
+    /// 目标选择式格子剥掉了时间线（瞬发、没有倒地/起身段），各格子的受击反应与姿势请求本来就不同，所以 <c>poseext</c> 度量组是表现类
+    /// （跨格子不比较，每格子各自基线），脚本期望只对动作式格子声明。
+    /// ②<see cref="Sprint"/> 让玩家的移动请求用冲刺模式（<c>MoveMode.Sprint</c>，速度 = 基础速度 × <c>sprint_speed_ratio</c>）；
+    /// 缺省仍是走路模式（判断记录 29）。
+    /// </para>
+    /// </summary>
+    public sealed class ScriptPoseOptions
+    {
+        public bool Sprint { get; set; }
     }
 
     /// <summary>
@@ -429,6 +452,11 @@ namespace Lab
             if (metaObj.TryGetValue("spaceExt", out var spaceExtValue) && spaceExtValue is JsonObject spaceExtObj)
             {
                 meta.SpaceExt = ReadSpaceExt(spaceExtObj, what + ".meta.spaceExt");
+            }
+
+            if (metaObj.TryGetValue("poseExt", out var poseExtValue) && poseExtValue is JsonObject poseExtObj)
+            {
+                meta.PoseExt = new ScriptPoseOptions { Sprint = poseExtObj.TryGetValue("sprint", out var sprintValue) && sprintValue is JsonBool sprintBool && sprintBool.Value };
             }
 
             if (metaObj.TryGetValue("poiseImpactScale", out var scaleValue) && scaleValue is JsonObject scaleObj)
@@ -658,6 +686,13 @@ namespace Lab
                 if (Meta.HitRadiusFromFeel)
                 {
                     meta.Add("hitRadiusFromFeel", LabJson.Bool(true));
+                }
+
+                if (Meta.PoseExt != null)
+                {
+                    var poseBuilder = new JsonObjectBuilder();
+                    if (Meta.PoseExt.Sprint) poseBuilder.Add("sprint", LabJson.Bool(true));
+                    meta.Add("poseExt", poseBuilder.Build());
                 }
 
                 if (Meta.PoiseImpactScale.Count > 0)

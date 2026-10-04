@@ -133,10 +133,24 @@ namespace Core.Rules.Skill
         /// <summary>实际生效的时长系数（含下限夹取，1 = 未缩短）。</summary>
         public double AppliedFactor { get; }
 
+        /// <summary>
+        /// 各相的动画播放速率（ADR-0147）：作者毫秒 ÷ 重映射后实际毫秒（tick 数 × 步长）。表现层按它缩放该相的剪辑播放，
+        /// 使被重映射（加速、体型/武器分相倍率、时长下限夹取）的动作与判定时间线不脱节；相位长度为 0 或作者值为 0 时取 1。
+        /// </summary>
+        public double StartupRate { get; }
+
+        public double ActiveRate { get; }
+
+        public double RecoveryRate { get; }
+
         private TimelineSchedule(
             int startup, int active, int recovery, IReadOnlyList<TimelineEvent> events,
-            IReadOnlyList<TimelineWindow> cancelWindows, TimelineWindow? comboWindow, double appliedFactor)
+            IReadOnlyList<TimelineWindow> cancelWindows, TimelineWindow? comboWindow, double appliedFactor,
+            double startupRate, double activeRate, double recoveryRate)
         {
+            StartupRate = startupRate;
+            ActiveRate = activeRate;
+            RecoveryRate = recoveryRate;
             StartupTicks = startup;
             ActiveTicks = active;
             RecoveryTicks = recovery;
@@ -277,7 +291,12 @@ namespace Core.Rules.Skill
             var sorted = new List<TimelineEvent>(events.Count);
             foreach (var e in events) sorted.Add(e.Ev);
 
-            return new TimelineSchedule(startupTicks, activeTicks, recoveryTicks, sorted, cancelWindows, comboWindow, factor);
+            double PhaseRate(double authoredMs, int ticks) =>
+                authoredMs > 0 && ticks > 0 ? authoredMs / (ticks * stepSeconds * 1000.0) : 1.0;
+
+            return new TimelineSchedule(
+                startupTicks, activeTicks, recoveryTicks, sorted, cancelWindows, comboWindow, factor,
+                PhaseRate(origS, startupTicks), PhaseRate(origA, activeTicks), PhaseRate(origR, recoveryTicks));
         }
 
         /// <summary>该类别的取消窗口在 <paramref name="elapsedTicks"/> 是否打开。</summary>

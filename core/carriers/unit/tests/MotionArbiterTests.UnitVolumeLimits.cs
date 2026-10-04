@@ -424,7 +424,6 @@ namespace Tests.Carriers.Unit
                 Actions = actions,
                 ActionClock = new FakeClock(),
                 Stagger = new FakeStagger(),
-                RootMotion = new FakeRootMotion(),
             };
             var handler = new MovementTickHandler(units, stats, new FakeAuraQuery(), host, bus, nav, opts);
             world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, handler);

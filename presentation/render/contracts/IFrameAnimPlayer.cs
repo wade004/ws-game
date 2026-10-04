@@ -64,5 +64,12 @@ namespace Presentation.Render
 
         /// <summary>设置暂停状态（幂等），见 <see cref="IsPaused"/>。</summary>
         void SetPaused(bool paused) { }
+
+        /// <summary>
+        /// ADR-0147：播放中改变当前剪辑的播放速率倍率（动作分相重映射、移动剪辑匹配地面速度），不重置时间轴；<paramref name="speed"/> 必须为正数。
+        /// 默认接口成员：既有实现缺省什么都不做（等价于"该实现不支持播放中调速"，剪辑按 <see cref="Play"/> 时的速率播完）。
+        /// 框架自带两个实现（<see cref="Presentation.Render.FrameAnimPlayer"/>、Unity 的 <c>UnityFrameAnimPlayer</c>）都支持。
+        /// </summary>
+        void SetSpeed(double speed) { }
     }
 }

@@ -152,6 +152,12 @@ namespace Presentation.Render
                 HitFrameReached?.Invoke(EntityId);
             }
 
+            // 完成回调事件（装配内部用）不是剪辑标记，不对外发布（ADR-0147）。
+            if (eventId == AnimFinishedEventId)
+            {
+                return;
+            }
+
             var marker = AnimMarkerNames.FromModelEventId(eventId.Value);
             if (marker != null)
             {
@@ -161,18 +167,62 @@ namespace Presentation.Render
 
         public void SetAnimState(AnimState state) => CurrentAnimState = state;
 
+        /// <summary>
+        /// ADR-0147：下一次 <see cref="PlayClip"/> 的混合时长提示（秒，一次性，播放时消费）——起步/急停（idle ⇄ move）切换时由装配层按手感档案的
+        /// <c>start_blend_ms</c>/<c>stop_blend_ms</c> 给出。优先级：作者对这一对键的显式声明 &gt; 本提示 &gt; 目标剪辑逐键声明 &gt; 默认
+        /// （<see cref="DefaultBlendSeconds"/>）。没有提示、没有挂 <see cref="AnimBlendSource"/> 时与此前逐位一致。
+        /// </summary>
+        public void SetNextBlendSeconds(double seconds) => _nextBlendHint = seconds < 0.0 ? 0.0 : seconds;
+
+        private double? _nextBlendHint;
+
         public void PlayClip(Id clipId, bool loop = false, double speed = 1.0)
         {
             // 手感落地 M2-A：顿帧冻结期间换剪辑照常换，但播放速率保持 0（冻结），记下请求速率供解冻时恢复。
             _requestedClipSpeed = speed;
             var blendSeconds = DefaultBlendSeconds;
-            if (AnimBlendSource != null && AnimBlendSource.TryGetBlendSeconds(_lastClipId, clipId, out var declared))
+            var hint = _nextBlendHint;
+            _nextBlendHint = null;
+            if (AnimBlendSource != null)
             {
-                blendSeconds = declared;
+                if (hint.HasValue && AnimBlendSource.TryGetPairBlendSeconds(_lastClipId, clipId, out var pair))
+                {
+                    blendSeconds = pair;
+                }
+                else if (hint.HasValue)
+                {
+                    blendSeconds = hint.Value;
+                }
+                else if (AnimBlendSource.TryGetBlendSeconds(_lastClipId, clipId, out var declared))
+                {
+                    blendSeconds = declared;
+                }
             }
+            else if (hint.HasValue)
+            {
+                blendSeconds = hint.Value;
+            }
+
             _lastClipId = clipId;
             _renderer.PlayAnim(_handle, clipId, loop, _frozen ? 0.0 : speed, blendSeconds);
         }
+
+        /// <summary>
+        /// ADR-0147：播放中改变当前剪辑的播放速率（动作分相重映射、移动剪辑匹配地面速度）。顿帧冻结期间只记下请求速率（解冻时恢复），
+        /// 不打断冻结。<paramref name="speed"/> 必须为正数。
+        /// </summary>
+        public void SetClipSpeed(double speed)
+        {
+            if (!(speed > 0.0)) throw new ArgumentOutOfRangeException(nameof(speed), "speed 必须为正数");
+            _requestedClipSpeed = speed;
+            if (!_frozen)
+            {
+                _renderer.SetAnimSpeed(_handle, speed);
+            }
+        }
+
+        /// <summary>ADR-0147：身体前倾（度，前倾为正）；转发 <see cref="IRenderer3D.SetLean"/>（不支持的渲染实现保持直立）。纯呈现，不进判定。</summary>
+        public void SetLean(double degrees) => _renderer.SetLean(_handle, degrees);
 
         // --------------------------------------------------------------
         // IPresentationFreezable（手感落地 M2-A，手感设计/07 第 5 节）：骨骼动画经 IRenderer3D.SetAnimSpeed(0) 冻结 + 程序动画原语时间轴冻结

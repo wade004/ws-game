@@ -45,7 +45,8 @@ namespace Core.Carriers.Unit
         /// <summary>击退、受控位移、抛飞。</summary>
         Forced,
 
-        /// <summary>动作位移段由剪辑根运动驱动（适配层声明支持时）。</summary>
+        /// <summary>已删除（ADR-0147）：保留成员只为接口兼容，运动层不再产生该来源。</summary>
+        [System.Obsolete("root_motion 来源已删除（ADR-0147）")]
         RootMotion,
     }
 

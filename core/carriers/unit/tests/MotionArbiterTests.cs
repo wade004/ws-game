@@ -77,14 +77,11 @@ namespace Tests.Carriers.Unit
             public bool IsStaggered(Id unitId) => Staggered;
         }
 
-        private sealed class FakeRootMotion : IRootMotionSource
+        private sealed class FakeCurves : IMotionCurveSource
         {
-            public bool Supported;
-            public Vec2 Delta;
+            public readonly Dictionary<string, PiecewiseCurve> Curves = new Dictionary<string, PiecewiseCurve>();
 
-            public bool SupportsRootMotion => Supported;
-
-            public Vec2 ConsumeRootMotionDelta(Id unitId) => Delta;
+            public PiecewiseCurve? GetCurve(string curveId) => Curves.TryGetValue(curveId, out var c) ? c : null;
         }
 
         private sealed class Fx
@@ -102,7 +99,7 @@ namespace Tests.Carriers.Unit
             public FakeActions Actions = new FakeActions();
             public FakeClock Clock = new FakeClock();
             public FakeStagger Stagger = new FakeStagger();
-            public FakeRootMotion Root = new FakeRootMotion();
+            public FakeCurves CurveSource = new FakeCurves();
             public List<(MoveStopReason Reason, Vec2 Pos)> Stops = new List<(MoveStopReason, Vec2)>();
             public List<UnitMovedEvent> Moved = new List<UnitMovedEvent>();
             public List<UnitStateChangedEvent> StateChanged = new List<UnitStateChangedEvent>();
@@ -220,7 +217,7 @@ namespace Tests.Carriers.Unit
                     Actions = fx.Actions,
                     ActionClock = fx.Clock,
                     Stagger = fx.Stagger,
-                    RootMotion = fx.Root,
+                    Curves = fx.CurveSource,
                 };
                 host.Motion = fx.Motion;
             }
@@ -1380,29 +1377,43 @@ namespace Tests.Carriers.Unit
         }
 
         [Fact]
-        public void ActionRootMotion_UsesTheAdapterDelta_AndUnsupportedAdapterIsAnErrorNotAFallback()
+        public void ActionMotion_RootMotionDriver_IsRemoved_AndFailsLoudlyWithTheMigrationNote()
         {
+            // 复现：根运动驱动（ADR-0147 已删除）。不变量：不降级为代码驱动——位置不动，错误里带迁移说明。
+#pragma warning disable CS0618
             var motion = Lunge(2.0, 0, 5, new Vec2(1, 0), driver: ActionMotionDriver.RootMotion);
+#pragma warning restore CS0618
+            var fx = Build();
+            fx.Actions.State = Act(0, motion);
+            var ex = Assert.ThrowsAny<Exception>(() => fx.Tick());
+            Assert.Contains("root_motion", ex.ToString());
+            Assert.Contains(ActionMotion.RootMotionMigrationNote, ex.ToString());
+            Assert.Equal(Vec2.Zero, fx.Pos);
+        }
 
-            var supported = Build();
-            supported.Root.Supported = true;
-            supported.Root.Delta = new Vec2(0.3, 0.1);
-            for (var i = 0; i < 3; i++)
+        [Fact]
+        public void ActionMotion_BakedCurve_DrivesPerTickDisplacementFromTheCurveSource()
+        {
+            // 复现：烘焙曲线 custom:<id>（前半段不动、后半段走完）。不变量：逐 tick 位移 = D × (f(p1) − f(p0))，总和 = D。
+            var fx = Build();
+            fx.CurveSource.Curves["lunge_a"] = new PiecewiseCurve(new[]
             {
-                supported.Actions.State = Act(i, motion);
-                supported.Tick();
+                new CurvePoint(0.0, 0.0), new CurvePoint(0.5, 0.0), new CurvePoint(1.0, 1.0),
+            });
+            var motion = Lunge(3.0, 0, 6, new Vec2(1, 0), "custom:lunge_a");
+            var xs = new List<double>();
+            for (var i = 0; i < 7; i++)
+            {
+                fx.Actions.State = i < 6 ? Act(i, motion) : (ActionState?)null;
+                fx.Tick();
+                xs.Add(fx.Pos.X);
             }
 
-            Near(0.9, supported.Pos.X);
-            Near(0.3, supported.Pos.Y);
-            Assert.Equal(MotionSource.RootMotion, supported.Mo.Source);
-
-            var unsupported = Build();
-            unsupported.Root.Supported = false;
-            unsupported.Actions.State = Act(0, motion);
-            var ex = Assert.ThrowsAny<Exception>(() => unsupported.Tick());
-            Assert.Contains("root_motion", ex.ToString());
-            Assert.Equal(Vec2.Zero, unsupported.Pos); // 不降级为代码驱动
+            double F(double p) => MotionMath.EvalCurve("custom:lunge_a", p, fx.CurveSource);
+            for (var i = 1; i <= 6; i++) Near(3.0 * F(i / 6.0), xs[i - 1]);
+            Near(0.0, xs[2]);
+            Near(3.0, xs[5]);
+            Near(3.0, xs[6]);
         }
 
         [Fact]

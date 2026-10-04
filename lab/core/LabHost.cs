@@ -667,7 +667,7 @@ namespace Lab
 
                     return n;
                 };
-                feelRig = new FeelRig(world, recording.Feel!, labels, ordinalOf, step, dummyUnits, extension?.FeedbackTee);
+                feelRig = new FeelRig(world, recording.Feel!, labels, ordinalOf, step, dummyUnits, extension?.FeedbackTee, meta.PoseExt);
             }
 
             var dummyMoves = new Dictionary<string, Vec2>(StringComparer.Ordinal);
@@ -1114,7 +1114,7 @@ namespace Lab
                 var moveRequested = axis.SqrLength > 0.0001;
                 if (moveRequested)
                 {
-                    world.Gameplay.Carriers.Movement.Request(MoveRequest.InDirection(playerId, axis));
+                    world.Gameplay.Carriers.Movement.Request(MoveRequest.InDirection(playerId, axis, meta.PoseExt?.Sprint == true ? MoveMode.Sprint : MoveMode.Walk));
                 }
 
                 foreach (var move in dummyMoves)

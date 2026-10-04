@@ -227,6 +227,7 @@ namespace Core.Carriers.Unit
         private double RatioFor(MotionTick t, MoveMode mode)
         {
             if (t.BaseMode == MotionMode.Action) return t.Profile.ActionMoveSpeedRatio;
+            if (mode == MoveMode.Sprint) return t.Profile.SprintSpeedRatio;
             return mode == MoveMode.Walk ? t.Profile.WalkSpeedRatio : 1.0;
         }
 
@@ -848,62 +849,52 @@ namespace Core.Carriers.Unit
             SpeedProfile? stepProfile = null;
             var source = MotionSource.Action;
 
+#pragma warning disable CS0618 // 根运动已删除（ADR-0147）：只在这里识别旧值并报错
             if (decl.Driver == ActionMotionDriver.RootMotion)
             {
-                var src = _mot!.RootMotion;
-                if (src == null || !src.SupportsRootMotion)
-                {
-                    throw new InvalidOperationException(
-                        $"动作 \"{act.SkillId}\" 声明了 root_motion 驱动的位移，但适配层没有提供根运动能力（supportsRootMotion）；" +
-                        "不静默改为代码驱动（手感设计/02 第 4 节）");
-                }
-
-                var delta = ConsumeRootMotion(src, unit.EntityId);
-                step = delta.Length;
-                if (step > 0.0) dir = new Vec2(delta.X / step, delta.Y / step);
-                source = MotionSource.RootMotion;
+                throw new InvalidOperationException(
+                    $"动作 \"{act.SkillId}\" 的位移声明了已删除的 root_motion 驱动（ADR-0147）；{ActionMotion.RootMotionMigrationNote}");
             }
-            else
+#pragma warning restore CS0618
+
+            var len = Math.Max(1, m.EndTick - m.StartTick);
+            var p0 = (double)(act.ElapsedTicks - m.StartTick) / len;
+            var p1 = (double)(act.ElapsedTicks + 1 - m.StartTick) / len;
+            step = m.DistanceWorld *
+                   (MotionMath.EvalCurve(decl.Curve, p1, _mot!.Curves) - MotionMath.EvalCurve(decl.Curve, p0, _mot.Curves));
+            if (t.Profile.UnitBodyRadius > 0.0)
             {
-                var len = Math.Max(1, m.EndTick - m.StartTick);
-                var p0 = (double)(act.ElapsedTicks - m.StartTick) / len;
-                var p1 = (double)(act.ElapsedTicks + 1 - m.StartTick) / len;
-                step = m.DistanceWorld *
-                       (MotionMath.EvalCurve(decl.Curve, p1, _mot!.Curves) - MotionMath.EvalCurve(decl.Curve, p0, _mot.Curves));
-                if (t.Profile.UnitBodyRadius > 0.0)
-                {
-                    stepProfile = SpeedProfile.OfCurve(decl.Curve, p0, p1, _mot.Curves);
-                }
+                stepProfile = SpeedProfile.OfCurve(decl.Curve, p0, p1, _mot.Curves);
+            }
 
-                var toward = decl.Kind == ActionMotionKind.Charge || decl.Direction == ActionMotionDirection.TowardTarget;
-                if (toward && m.TargetId.HasValue && world.GetEntity(m.TargetId.Value) is Unit target && target.Alive)
+            var toward = decl.Kind == ActionMotionKind.Charge || decl.Direction == ActionMotionDirection.TowardTarget;
+            if (toward && m.TargetId.HasValue && world.GetEntity(m.TargetId.Value) is Unit target && target.Alive)
+            {
+                // 有体积的单位朝目标位移读目标 tick 起点的位置（顺序无关）；没有体积的单位读目标此刻的位置（既有行为）。
+                var toTarget = ObservedTargetPosition(unit, target) - from;
+                var dist = toTarget.Length;
+                if (dist > ZeroLengthEpsilon)
                 {
-                    // 有体积的单位朝目标位移读目标 tick 起点的位置（顺序无关）；没有体积的单位读目标此刻的位置（既有行为）。
-                    var toTarget = ObservedTargetPosition(unit, target) - from;
-                    var dist = toTarget.Length;
-                    if (dist > ZeroLengthEpsilon)
+                    var maxTurn = decl.MaxTurnDeg * (Math.PI / 180.0);
+                    var turn = MotionMath.WrapAngle(Math.Atan2(toTarget.Y, toTarget.X) - unit.Facing);
+                    turn = Math.Max(-maxTurn, Math.Min(maxTurn, turn));
+                    var angle = unit.Facing + turn;
+                    dir = new Vec2(Math.Cos(angle), Math.Sin(angle));
+                    if (decl.Kind == ActionMotionKind.Charge)
                     {
-                        var maxTurn = decl.MaxTurnDeg * (Math.PI / 180.0);
-                        var turn = MotionMath.WrapAngle(Math.Atan2(toTarget.Y, toTarget.X) - unit.Facing);
-                        turn = Math.Max(-maxTurn, Math.Min(maxTurn, turn));
-                        var angle = unit.Facing + turn;
-                        dir = new Vec2(Math.Cos(angle), Math.Sin(angle));
-                        if (decl.Kind == ActionMotionKind.Charge)
-                        {
-                            unit.Facing = angle;
-                        }
+                        unit.Facing = angle;
                     }
-
-                    step = Math.Min(step, Math.Max(0.0, dist - m.StopDistanceWorld));
                 }
 
-                if (decl.Kind == ActionMotionKind.Charge)
-                {
-                    var traveled = _chargeTraveled.TryGetValue(unit.EntityId, out var rec) && rec.Cast.Equals(act.CastInstanceId)
-                        ? rec.Traveled
-                        : 0.0;
-                    step = Math.Min(step, Math.Max(0.0, m.DistanceWorld - traveled));
-                }
+                step = Math.Min(step, Math.Max(0.0, dist - m.StopDistanceWorld));
+            }
+
+            if (decl.Kind == ActionMotionKind.Charge)
+            {
+                var traveled = _chargeTraveled.TryGetValue(unit.EntityId, out var rec) && rec.Cast.Equals(act.CastInstanceId)
+                    ? rec.Traveled
+                    : 0.0;
+                step = Math.Min(step, Math.Max(0.0, m.DistanceWorld - traveled));
             }
 
             t.Source = source;

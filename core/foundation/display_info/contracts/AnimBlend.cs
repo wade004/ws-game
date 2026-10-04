@@ -56,5 +56,16 @@ namespace Core.Foundation.DisplayInfo
         /// <summary>从剪辑 <paramref name="fromClip"/>（null = 此前没有播放过剪辑）切到 <paramref name="toClip"/> 的交叉淡入时长（秒）；
         /// 返回 false 表示数据没有声明（<paramref name="seconds"/> 无意义），调用方用默认值。</summary>
         bool TryGetBlendSeconds(Id? fromClip, Id toClip, out double seconds);
+
+        /// <summary>
+        /// 只问"每对键"声明（ADR-0147）：<paramref name="fromClip"/> 到 <paramref name="toClip"/> 这一对作者显式声明了混合时长才返回 true，
+        /// 不看目标剪辑的逐键值。起步/急停混合（手感档案的 <c>start_blend_ms</c>/<c>stop_blend_ms</c>）据此判断"作者对这一对另有指定"：
+        /// 每对键声明 &gt; 手感档案的起停混合 &gt; 目标剪辑逐键值 &gt; 默认。默认接口成员：既有实现缺省恒 false（不声明每对键）。
+        /// </summary>
+        bool TryGetPairBlendSeconds(Id? fromClip, Id toClip, out double seconds)
+        {
+            seconds = 0.0;
+            return false;
+        }
     }
 }

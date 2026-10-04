@@ -1,0 +1,72 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_pose_motion",
+    "scriptVersion": 1,
+    "description": "姿势与动画的速率（M5-S4，ADR-0147）：预设 feel.preset.pose_motion（前摇倍率 0.5、冲刺速度比 1.6）钉死。第 5 tick 出手一次近战（前摇被重映射到一半，剪辑播放速率 = 作者毫秒 ÷ 实际毫秒，前摇相约 2 倍、判定相与后摇相各自取整后的比值），第 60 tick 起以冲刺模式向 -x 推杆到第 100 tick（稳态速度 = 基础移速 × 冲刺速度比，移动剪辑的步幅速率 = 速度比 ÷ 步态参考速度比）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.pose_motion",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 130,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_slash"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/pose"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": "",
+    "poseExt": {
+      "sprint": true
+    }
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 60,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": -1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 100,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  ]
+}

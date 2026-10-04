@@ -126,7 +126,8 @@ namespace Tests.PresentationRender
             renderer.FireAnimEventForTest(handle, new Id("anim_event.fx.vfx.spark"));
             renderer.FireAnimEventForTest(handle, new Id("anim_event.finished"));
 
-            Assert.Equal(new[] { "footstep", "fx:vfx.spark", "finished" }, markers);
+            // 完成回调事件是装配内部用的，不算剪辑标记（ADR-0147），不对外发布。
+            Assert.Equal(new[] { "footstep", "fx:vfx.spark" }, markers);
         }
     }
 }

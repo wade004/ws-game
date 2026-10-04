@@ -201,11 +201,6 @@ namespace Core.Foundation.Feel
         /// </summary>
         private static readonly (string Name, string Note)[] PlannedFields =
         {
-            (FeelFieldNames.SprintSpeedRatio, "没有冲刺移动模式，目标速度不读该字段"),
-            (FeelFieldNames.StrideScale, "表现层尚未按实际地面速度匹配动画播放速率"),
-            (FeelFieldNames.StartBlendMs, "表现层尚未实现起步过渡"),
-            (FeelFieldNames.StopBlendMs, "表现层尚未实现急停过渡"),
-            (FeelFieldNames.LeanDegPerAccel, "表现层尚未实现按加速度的身体倾斜"),
         };
 
         /// <summary>框架默认登记（不可变，登记顺序即遍历顺序）。</summary>
@@ -354,7 +349,7 @@ namespace Core.Foundation.Feel
                     "落地姿势保持时长（手感落地 M4-W1b）：单位落地后空中阶段的落地相（jump.land）保持多久；缺省（无值）取呈现层默认 8 个 tick，0 = 不播落地姿势", optional: true),
                 Num(FeelFieldNames.StartBlendMs, Mv, P, Ms, C, 0, 1000, "起步混合时长"),
                 Num(FeelFieldNames.StopBlendMs, Mv, P, Ms, C, 0, 1000, "急停混合时长"),
-                Num(FeelFieldNames.LeanDegPerAccel, Mv, P, FeelUnit.Degrees, C, 0, 45, "身体倾斜：每单位加速度对应的倾斜角度上限（度）"),
+                Num(FeelFieldNames.LeanDegPerAccel, Mv, P, FeelUnit.Degrees, C, 0, 45, "身体倾斜：每单位加速度（速度比的变化率，1/秒）对应的前倾角度（度；加速前倾、减速后仰），总倾角夹在 45 度内；仅骨骼模型外形支持"),
 
                 // ---------- 动作（01 第 4 节，判定型）----------
                 Num(FeelFieldNames.PhaseScaleStartup, Ac, J, Ratio, W, 0.1, 10, "时间线前摇倍率", attr: HasteAttr),

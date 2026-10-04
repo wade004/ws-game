@@ -15,9 +15,10 @@ namespace Core.Carriers.Unit
     }
 
     /// <summary>
-    /// 剪辑根运动来源（手感设计/02 第 4 节 <c>driver: root_motion</c>）：适配层每表现帧回读剪辑根位移并累加，
-    /// 逻辑 tick 取走累加量作为本 tick 的候选位移（逻辑位置仍只由 tick 步骤 4 决定）。
+    /// 已删除（ADR-0147）：剪辑根运动来源。根运动由表现帧累加、逻辑 tick 取走，模拟结果依赖表现帧率与引擎动画求值，违反"判定与帧率无关"，
+    /// 无头回放与指纹基线无法覆盖。接口只为程序集接口兼容保留，运动层不再读取它；带位移的动画改走导入期烘焙的位移曲线（<see cref="IMotionCurveSource"/>）。
     /// </summary>
+    [System.Obsolete("根运动已删除（ADR-0147）：改用导入期烘焙的位移曲线（skill.motion_curve + motion.curve = custom:<id>）")]
     public interface IRootMotionSource
     {
         /// <summary>适配层能力 <c>supportsRootMotion</c>；为 false 时声明了 <c>root_motion</c> 的动作位移报错，不降级。</summary>
@@ -117,7 +118,8 @@ namespace Core.Carriers.Unit
         /// <summary>硬直状态只读查询：<c>staggered</c> 模式。</summary>
         public IStaggerStateQuery? Stagger { get; set; }
 
-        /// <summary>剪辑根运动来源：<c>root_motion</c> 驱动的动作位移。</summary>
+        /// <summary>已删除（ADR-0147）：赋值被忽略，运动层不读取。</summary>
+        [System.Obsolete("根运动已删除（ADR-0147）；赋值被忽略")]
         public IRootMotionSource? RootMotion { get; set; }
 
         /// <summary>自定义曲线解析（<c>custom:&lt;id&gt;</c>）。</summary>

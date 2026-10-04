@@ -82,11 +82,15 @@ namespace Tests.Foundation.Feel
                 if (def.Status == FeelFieldStatus.Planned) Assert.False(string.IsNullOrWhiteSpace(def.StatusNote), def.Name);
                 else Assert.Null(def.StatusNote);
             }
-            Assert.Contains(FeelFields.Default.Fields, f => f.Status == FeelFieldStatus.Planned);
             Assert.Contains(FeelFields.Default.Fields, f => f.Status == FeelFieldStatus.Active);
 
             var active = FeelFields.Default.Fields.First(f => f.Status == FeelFieldStatus.Active);
             Assert.Throws<ArgumentException>(() => active.WithStatus(FeelFieldStatus.Active, "active 不带原因"));
+
+            // 登记里当前没有 planned 字段（全部有消费方）；planned 状态本身仍可用，说明随状态保存。
+            var planned = active.WithStatus(FeelFieldStatus.Planned, "尚无消费方");
+            Assert.Equal(FeelFieldStatus.Planned, planned.Status);
+            Assert.Equal("尚无消费方", planned.StatusNote);
         }
 
         // ------------------------------------------------------------------ 字段目录文档片段
