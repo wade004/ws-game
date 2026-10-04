@@ -108,6 +108,15 @@ namespace Lab
 
         /// <summary>装备面板里已装备槽位数。</summary>
         public int PanelOccupied { get; set; }
+
+        /// <summary>副手武器手感引用相对上一次快照是否变了（换装链的状态含副手，副手变化同样重算解析并发 <c>feel.weapon_changed</c>）。</summary>
+        public bool OffhandChanged { get; set; }
+
+        /// <summary>解出的增味层强度档（<c>sfx_sweetener_tier</c>，副手可叠加字段）。仅供副手叠加度量组（<c>equip_offhand</c>）读取。</summary>
+        public int SweetenerTier { get; set; }
+
+        /// <summary>解出的命中特效强度倍率（<c>impact_vfx_scale</c>，副手可叠加字段）。仅供副手叠加度量组读取。</summary>
+        public double ImpactVfxScale { get; set; }
     }
 
     /// <summary>换装场景里玩家的一次普通攻击时间线动作（从 <c>action.started</c> 到 <c>action.finished</c>）。</summary>
@@ -193,6 +202,7 @@ namespace Lab
         private int _weaponChangedThisTick;
         private int _lastVersion;
         private string _lastMain = string.Empty;
+        private string _lastOffhand = string.Empty;
 
         public IReadOnlyCollection<Id> LearnedSkills { get; }
 
@@ -299,6 +309,7 @@ namespace Lab
             world.Bus.DispatchPending();
             _lastVersion = _feel.Resolver.GetVersion(_player);
             _lastMain = _provider.GetMainWeaponRef(_player) ?? string.Empty;
+            _lastOffhand = _provider.GetOffhandWeaponRef(_player) ?? string.Empty;
             _weaponChangedThisTick = 0;
         }
 
@@ -502,6 +513,8 @@ namespace Lab
             step.Family = _chain.GetFamily(_player) ?? string.Empty;
             step.WeaponChanged = !string.Equals(step.MainRef, _lastMain, StringComparison.Ordinal);
             _lastMain = step.MainRef;
+            step.OffhandChanged = !string.Equals(step.OffhandRef, _lastOffhand, StringComparison.Ordinal);
+            _lastOffhand = step.OffhandRef;
             step.WeaponChangedEvents = _weaponChangedThisTick;
 
             var resolver = _feel.Resolver;
@@ -512,6 +525,8 @@ namespace Lab
             step.ImpactClass = feel.Judging.GetText(FeelFieldNames.ImpactClass);
             step.AttackerHitstopTicks = feel.Judging.GetTicks(FeelFieldNames.AttackerHitstopMs);
             step.TargetHitstopTicks = feel.Judging.GetTicks(FeelFieldNames.TargetHitstopMs);
+            step.SweetenerTier = (int)Math.Round(feel.Presenting.GetNumber(FeelFieldNames.SfxSweetenerTier));
+            step.ImpactVfxScale = feel.Presenting.GetNumber(FeelFieldNames.ImpactVfxScale);
             var material = feel.Presenting.GetText(FeelFieldNames.SfxMaterial);
             step.SfxMaterial = material.Length > 0 ? material : "generic";
             step.SwingSfx = ResolveSfx("swing", step.SfxMaterial, step);

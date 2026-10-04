@@ -26,6 +26,7 @@ namespace Adapter.Unity.LabHost
     {
         [SerializeField] private string cell = "2d_action";
         [SerializeField] private string bodySet = "placeholder_hero";
+        [SerializeField] private string templateScript = EquipWardrobeRunner.TemplateScript;
         [SerializeField] private string repoRoot = string.Empty;
         [SerializeField] private bool autoStart = true;
         [SerializeField] private bool autoAdvance = true;
@@ -39,6 +40,13 @@ namespace Adapter.Unity.LabHost
         private float _clipTime;
         private int _stepIndex;
         private bool _ended;
+
+        /// <summary>衣橱数据集所取自的模板脚本 id（缺省 <see cref="EquipWardrobeRunner.TemplateScript"/>；ADR-0153 的副手与挂点装备夹具用 <c>equip_ext_cycle</c>）。在 <see cref="Begin"/> 之前设置。</summary>
+        public string TemplateScriptId
+        {
+            get => templateScript;
+            set => templateScript = string.IsNullOrEmpty(value) ? EquipWardrobeRunner.TemplateScript : value;
+        }
 
         public EngineLabHost? Host { get; private set; }
 
@@ -78,7 +86,7 @@ namespace Adapter.Unity.LabHost
             InputScript? template = null;
             foreach (var script in Host.LoadScripts())
             {
-                if (string.Equals(script.Meta.ScriptId, EquipWardrobeRunner.TemplateScript, StringComparison.Ordinal))
+                if (string.Equals(script.Meta.ScriptId, templateScript, StringComparison.Ordinal))
                 {
                     template = script;
                     break;
@@ -87,7 +95,7 @@ namespace Adapter.Unity.LabHost
 
             if (template == null)
             {
-                throw new InvalidOperationException("夹具里没有模板脚本 " + EquipWardrobeRunner.TemplateScript);
+                throw new InvalidOperationException("夹具里没有模板脚本 " + templateScript);
             }
 
             Stage = WardrobeStage.Create(Host.Runner, template);

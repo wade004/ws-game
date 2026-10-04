@@ -38,8 +38,8 @@ namespace Lab
             MetricSpec.Exact("weapon_changes", MetricClass.Logic, "主手武器引用发生变化的步数"),
             MetricSpec.Exact("family_changes", MetricClass.Logic, "武器族发生变化的步数"),
             MetricSpec.Exact("feel_version_changes", MetricClass.Logic, "手感解析版本号递增的步数"),
-            MetricSpec.Exact("unrefreshed_steps", MetricClass.Logic, "武器变了但版本没递增或没恰好发一次 feel.weapon_changed 的步数（应恒为 0）"),
-            MetricSpec.Exact("stale_version_steps", MetricClass.Logic, "武器没变却重算了解析（版本递增）的步数（应恒为 0）"),
+            MetricSpec.Exact("unrefreshed_steps", MetricClass.Logic, "主手或副手武器变了但版本没递增或没恰好发一次 feel.weapon_changed 的步数（应恒为 0）"),
+            MetricSpec.Exact("stale_version_steps", MetricClass.Logic, "主手与副手武器都没变却重算了解析（版本递增）的步数（应恒为 0）"),
             MetricSpec.Exact("pose_family_mismatch", MetricClass.Logic, "姿势族与换装链武器族不一致的步数（应恒为 0）"),
             MetricSpec.Exact("icon_missing", MetricClass.Logic, "穿上的物品没有图标 id 的步数（应恒为 0）"),
             MetricSpec.Exact("visual_missing", MetricClass.Logic, "穿上的物品没有外观映射的步数（应恒为 0）"),
@@ -101,8 +101,10 @@ namespace Lab
                 if (!string.Equals(s.Family, previousFamily, StringComparison.Ordinal)) familyChanges++;
                 previousFamily = s.Family;
                 if (s.FeelVersionDelta > 0) versionChanges++;
-                if (s.WeaponChanged && (s.FeelVersionDelta <= 0 || s.WeaponChangedEvents != 1)) unrefreshed++;
-                if (!s.WeaponChanged && s.FeelVersionDelta != 0) stale++;
+                // 换装链的状态含主手与副手引用：任一变化都应恰好重算一次（副手从未装备过的脚本里 OffhandChanged 恒为假，口径与此前逐位一致）。
+                var handsChanged = s.WeaponChanged || s.OffhandChanged;
+                if (handsChanged && (s.FeelVersionDelta <= 0 || s.WeaponChangedEvents != 1)) unrefreshed++;
+                if (!handsChanged && s.FeelVersionDelta != 0) stale++;
                 if (!string.Equals(s.PoseFamily, s.Family, StringComparison.Ordinal)) poseMismatch++;
                 if (!string.Equals(s.UiSlots, s.HostSlots, StringComparison.Ordinal)) uiMismatch++;
                 fallbacks += s.SfxFallbacks;

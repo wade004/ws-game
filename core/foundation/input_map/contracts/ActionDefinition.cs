@@ -96,6 +96,13 @@ namespace Core.Foundation.InputMap
         /// <summary>该动作是否经输入缓冲：必须是按钮型动作且声明了非 <see cref="ActionClass.Move"/> 的类别。</summary>
         public bool IsBuffered => Kind == ActionKind.Button && Class.HasValue && ActionClassDefaults.IsBuffered(Class.Value);
 
+        /// <summary>
+        /// 该动作是否只追踪按住状态（ADR-0153）：按钮型且类别为 <see cref="ActionClass.Move"/>——按住冲刺这类"随移动持续维持"的修饰键。
+        /// 它不入缓冲槽（没有记录、没有过期、没有取消窗口），按下/抬起只改行动者的按住状态，动作层经
+        /// <see cref="IInputBufferQuery.IsHeld"/> 读取；与 <see cref="IsBuffered"/> 互斥。
+        /// </summary>
+        public bool IsHeldTracked => Kind == ActionKind.Button && Class == ActionClass.Move;
+
         public ActionDefinition(
             Id actionId,
             ActionKind kind,

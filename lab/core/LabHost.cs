@@ -606,6 +606,8 @@ namespace Lab
                 world.Gameplay.Feel?.InputBuffer.BindLocalInput(inputMap, playerId, options.MoveAction);
             }
 
+            var moveIntent = new PlayerMoveIntentResolver(feelOn ? world.Gameplay.Feel?.InputBuffer : null);
+
             var binder = new ViewBinder(
                 world.Bus, viewFactory, new WorldSimSnapshot(world.World), displayInfo,
                 new ViewBinderOptions(null, directionCount));
@@ -1178,10 +1180,13 @@ namespace Lab
                     extension?.OnMoveAxis(tick, injectedStick, axis);
                 }
 
-                var moveRequested = axis.SqrLength > 0.0001;
+                // 玩家移动请求经移动意图解析器生成（与生产宿主同一部件，ADR-0153）：数据声明了冲刺输入动作且按住时升冲刺；
+                // 脚本 meta.poseExt.sprint 为真则整段都用冲刺模式（推杆冲刺，判断记录 29）。
+                var moveRequested = moveIntent.TryResolve(
+                    playerId, axis, out var playerMove, meta.PoseExt?.Sprint == true ? MoveMode.Sprint : MoveMode.Walk);
                 if (moveRequested)
                 {
-                    world.Gameplay.Carriers.Movement.Request(MoveRequest.InDirection(playerId, axis, meta.PoseExt?.Sprint == true ? MoveMode.Sprint : MoveMode.Walk));
+                    world.Gameplay.Carriers.Movement.Request(playerMove);
                 }
 
                 foreach (var move in dummyMoves)

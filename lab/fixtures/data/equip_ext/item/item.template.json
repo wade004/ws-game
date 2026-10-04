@@ -1,0 +1,32 @@
+{
+  "table": "item.template",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.std_offhand_dagger",
+      "slot": "item.slot.std_off_hand",
+      "quality": "item.quality.std_common",
+      "item_level": 1,
+      "weapon_profile": {
+        "damage_min": 3,
+        "damage_max": 5,
+        "speed": 1.5
+      },
+      "display_ref": "display.map.std_offhand_dagger",
+      "stack_size": 1,
+      "name_key": "l10n.item.std_offhand_dagger.name",
+      "feel_weapon_ref": "feel.weapon.offhand_dagger",
+      "equip_sfx_ref": "sfx.std_equip"
+    },
+    {
+      "id": "item.std_lantern",
+      "slot": "item.slot.std_trinket",
+      "quality": "item.quality.std_common",
+      "item_level": 1,
+      "display_ref": "display.map.std_lantern",
+      "stack_size": 1,
+      "name_key": "l10n.item.std_lantern.name",
+      "equip_sfx_ref": "sfx.std_equip"
+    }
+  ]
+}

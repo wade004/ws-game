@@ -30,8 +30,39 @@ namespace Adapter.Unity.Tests.Runtime
             }
         }
 
+        /// <summary>
+        /// 判断记录（ADR-0153，根治矩阵用例在高负载下偶发失败）：根因是用例按"帧数"等一个按"墙钟"完成的过程——加载器在后台线程读盘、解码，
+        /// 主线程每帧 <c>Tick</c> 收尾，夹具一帧不到一毫秒，"60 帧内必然提交"实际只给后台约几十毫秒；机器空闲时后台几毫秒就交卷，
+        /// 并行跑着另一个 Unity 时被拖慢，窗口落空。修法是把推进改成按完成走：每次 Tick 之前先等后台把已发起的加载全部交卷
+        /// （<see cref="CombatStanceAnimFixtureBase.AwaitBackgroundLoadsSettled"/>）并取消主线程每帧预算，用例的断言一字未改、没有加重试。
+        /// 缺省推进（其它沿用该夹具的用例）不变。
+        /// </summary>
+        protected override bool DeterministicLoadDriving => true;
+
         [UnityTest]
         public IEnumerator Invariant_DirectionSwitch_Atomic_ScenarioMatrix()
+        {
+            yield return RunScenarioMatrix();
+        }
+
+        /// <summary>
+        /// 复现 + 不变量：后台解码被确定性地拖慢（每次解码在并发闸门内多停 <see cref="StallMilliseconds"/> 毫秒，用来等价模拟"另一个 Unity 在跑、
+        /// CPU 被占满"），完整场景矩阵的全部断言仍要成立。改动前按帧数推进时，几十帧（几十毫秒）等不到被拖慢的解码，"最终应提交"一类断言必然落空；
+        /// 改动后按完成推进，结果与机器快慢无关。预热期间不注入（只拖慢被测的冷加载）。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Invariant_DirectionSwitch_Atomic_ScenarioMatrix_UnderStalledBackgroundDecode()
+        {
+            SetDecodeStall(StallMilliseconds);
+            yield return RunScenarioMatrix();
+        }
+
+        private const int StallMilliseconds = 400;
+
+        private static void SetDecodeStall(int milliseconds) =>
+            Adapter.Unity.EngineAdapter.UnityResourceLoader.DecodeStallMillisecondsForTests = milliseconds;
+
+        private IEnumerator RunScenarioMatrix()
         {
             yield return HotTurn();
             yield return MirrorOnly();
@@ -446,7 +477,7 @@ namespace Adapter.Unity.Tests.Runtime
             // 之后加载器把在途资源加载完成：回调不得抛异常（Unity 测试框架会把异常日志判失败）、不得重新建立记账。
             for (var i = 0; i < 30; i++)
             {
-                Loader.Tick();
+                TickLoader();
                 yield return null;
             }
             Assert.IsFalse(fx.Factory.HasDirectionPreparationStateForTests(fx.EntityId), "⑨销毁后的加载完成回调不得重建记账");

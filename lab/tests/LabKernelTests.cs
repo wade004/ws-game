@@ -36,7 +36,7 @@ namespace Tests.Lab
         }
 
         [Fact]
-        public void StandardScriptSet_HasTheElevenScripts()
+        public void StandardScriptSet_HasTheTwelveScripts()
         {
             var ids = new List<string>();
             foreach (var s in LabTestSupport.StandardScripts())
@@ -47,8 +47,8 @@ namespace Tests.Lab
             Assert.Equal(
                 new[]
                 {
-                    "attack_then_stop", "attack_while_moving", "diagonal", "equip_cycle", "equip_cycle_tick30", "group_hit", "move_small_axis",
-                    "move_tap", "pillar_loop", "reverse_180", "wall",
+                    "attack_then_stop", "attack_while_moving", "diagonal", "equip_cycle", "equip_cycle_tick30", "equip_ext_cycle", "group_hit",
+                    "move_small_axis", "move_tap", "pillar_loop", "reverse_180", "wall",
                 },
                 ids);
         }
@@ -196,14 +196,14 @@ namespace Tests.Lab
         [Fact]
         public void AllStandardScripts_OnAllSixCells_MatchCommittedBaselines()
         {
-            // 旧标准脚本（十个）的基线与手感场景脚本的基线分开把关（后者见 FeelSceneTests）；这里的口径与扩展前一字不差。
+            // 旧标准脚本（十二个，含 ADR-0153 的副手与挂点装备脚本 equip_ext_cycle）的基线与手感场景脚本的基线分开把关（后者见 FeelSceneTests）；这里的口径与扩展前一字不差。
             var results = new List<CellResult>();
             foreach (var script in LabTestSupport.StandardScripts())
             {
                 results.AddRange(LabTestSupport.CheckDeterministic(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
             }
 
-            Assert.Equal(11 * 6, results.Count);
+            Assert.Equal(12 * 6, results.Count);
             LabTestSupport.AssertAllPass(results, "基线比较失败");
         }
 

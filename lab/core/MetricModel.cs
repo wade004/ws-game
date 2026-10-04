@@ -238,6 +238,7 @@ namespace Lab
                 .Register(new AttackMetricGroup())
                 .Register(new PerformanceMetricGroup())
                 .Register(new EquipMetricGroup())
+                .Register(new EquipOffhandMetricGroup())
                 .Register(new InputBufferMetricGroup())
                 .Register(new ActionTimelineMetricGroup())
                 .Register(new HitstopMetricGroup())

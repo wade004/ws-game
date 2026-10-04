@@ -937,9 +937,9 @@ namespace Adapter.Unity.Shell
         private void HandleFixedInput()
         {
             var moveAxis = Presentation.InputMap.GetActionAxis(ActionMove);
-            if (moveAxis.SqrLength > 0.0001)
+            if (MoveIntent().TryResolve(PlayerId, moveAxis, out var moveRequest))
             {
-                Gameplay.Carriers.Movement.Request(MoveRequest.InDirection(PlayerId, moveAxis));
+                Gameplay.Carriers.Movement.Request(moveRequest);
             }
 
             // 手感落地 M2-A：开启手感且该动作被输入缓冲声明了类别（found.input_action.class）时，按钮边沿已由 PresentationAssembly
@@ -953,6 +953,23 @@ namespace Adapter.Unity.Shell
             {
                 if (!IsBufferedAction(ActionSkill1)) CastSkill(new Id(Skill1Id));
             });
+        }
+
+        private PlayerMoveIntentResolver? _moveIntent;
+        private InputBufferHost? _moveIntentBuffer;
+
+        /// <summary>玩家移动意图解析器（ADR-0153）：玩家移动请求（方向 + 步行/冲刺模式）一律经它生成；数据没有声明冲刺动作时与此前逐位一致。
+        /// 输入缓冲实例变化（重新装配）时重建。</summary>
+        private PlayerMoveIntentResolver MoveIntent()
+        {
+            var buffer = Gameplay.Feel?.InputBuffer;
+            if (_moveIntent == null || !ReferenceEquals(buffer, _moveIntentBuffer))
+            {
+                _moveIntentBuffer = buffer;
+                _moveIntent = new PlayerMoveIntentResolver(buffer);
+            }
+
+            return _moveIntent;
         }
 
         /// <summary>该输入动作是否由手感输入缓冲接管（手感已装配且动作被缓冲声明了类别）。</summary>

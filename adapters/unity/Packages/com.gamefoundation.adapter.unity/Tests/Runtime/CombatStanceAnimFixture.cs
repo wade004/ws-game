@@ -117,6 +117,55 @@ namespace Adapter.Unity.Tests.Runtime
         protected static string DefaultClipIdValue(string displayMapIdValue, string stateKey) =>
             $"anim.default.{displayMapIdValue}.{stateKey}";
 
+        // ---------------- 确定性加载推进（ADR-0153） ----------------
+
+        /// <summary>
+        /// 用例是否按"完成"而不是按"帧数"推进异步加载。加载器在后台线程读盘与解码、主线程每帧 <c>Tick</c> 收尾，机器负载高时后台线程
+        /// 被拖慢，"固定帧数内必然提交"这类按帧数写的窗口就会落空（夹具一帧不到一毫秒，几十帧只相当于几十毫秒墙钟）。为真时：
+        /// 每次 <c>Loader.Tick()</c> 之前先等后台把全部已发起的加载排进主线程完成队列（<see cref="AwaitBackgroundLoadsSettled"/>），
+        /// 并取消主线程每帧时间预算（一次 Tick 排空全部就绪项），于是"请求发起后的下一帧 Tick 必定完成它"与机器快慢无关。
+        /// 缺省 false = 既有用例的推进方式一字不变。
+        /// </summary>
+        protected virtual bool DeterministicLoadDriving => false;
+
+        private const int DeterministicWarmFrameCap = 50;
+
+        /// <summary><see cref="DeterministicLoadDriving"/> 为真时的屏障：阻塞到后台已没有"发起了但还没排进完成队列"的加载。
+        /// 没有重试、没有放宽断言——只是等后台线程交卷；<paramref name="guard"/> 仅是死锁保护（后台线程崩溃/死锁时报失败而不是挂死），不是时间预期。</summary>
+        protected void AwaitBackgroundLoadsSettled(TimeSpan? guard = null)
+        {
+            var limit = guard ?? TimeSpan.FromSeconds(120);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (Loader.BackgroundLoadsInFlightForTests > 0)
+            {
+                if (watch.Elapsed > limit)
+                {
+                    Assert.Fail($"后台加载 {limit.TotalSeconds:0} 秒仍未交卷（在途 {Loader.BackgroundLoadsInFlightForTests} 个）：后台线程可能已崩溃或死锁");
+                }
+                System.Threading.Thread.Sleep(1);
+            }
+        }
+
+        /// <summary>每次 Tick 之前的统一入口：确定性模式先过屏障。</summary>
+        protected void TickLoader()
+        {
+            if (DeterministicLoadDriving)
+            {
+                AwaitBackgroundLoadsSettled();
+            }
+            Loader.Tick();
+        }
+
+        /// <summary>预热期间临时关掉冷加载停留注入（只让被测的冷加载变慢，预热不变慢），返回原值供 <see cref="EndWarm"/> 恢复。</summary>
+        protected static int BeginWarm()
+        {
+            var saved = UnityResourceLoader.DecodeStallMillisecondsForTests;
+            UnityResourceLoader.DecodeStallMillisecondsForTests = 0;
+            return saved;
+        }
+
+        protected static void EndWarm(int saved) => UnityResourceLoader.DecodeStallMillisecondsForTests = saved;
+
         // ---------------- 资源写盘 / 预热 / 冷加载泵 ----------------
 
         /// <summary>写一份最小两帧序列帧资源（atlas.png + frames.json，fps=4），按 EffectFramesDocument 结构。</summary>
@@ -150,6 +199,7 @@ namespace Adapter.Unity.Tests.Runtime
         /// <summary>同步把 <paramref name="resourceId"/> 加载进缓存（热路径预热）。</summary>
         protected IEnumerator WarmEffectCache(Id resourceId)
         {
+            var stall = BeginWarm();
             var done = false;
             Loader.LoadAsync(resourceId, ResourceKind.Effect, (_, success) =>
             {
@@ -158,11 +208,13 @@ namespace Adapter.Unity.Tests.Runtime
             });
 
             var deadline = Time.realtimeSinceStartup + 5f;
-            while (!done && Time.realtimeSinceStartup < deadline)
+            // 确定性模式按"完成"推进：屏障之后一次 Tick 必定完成，帧数上限只是防挂死，不是时间预期。
+            for (var frame = 0; !done && (DeterministicLoadDriving ? frame < DeterministicWarmFrameCap : Time.realtimeSinceStartup < deadline); frame++)
             {
-                Loader.Tick();
+                TickLoader();
                 yield return null;
             }
+            EndWarm(stall);
             Assert.IsTrue(done, $"测试资源 \"{resourceId}\" 预热加载超时");
         }
 
@@ -171,7 +223,7 @@ namespace Adapter.Unity.Tests.Runtime
         protected IEnumerator PumpUntilCached(params Id[] ids)
         {
             var deadline = Time.realtimeSinceStartup + 8f;
-            while (Time.realtimeSinceStartup < deadline)
+            for (var frame = 0; DeterministicLoadDriving ? frame < DeterministicWarmFrameCap : Time.realtimeSinceStartup < deadline; frame++)
             {
                 var all = true;
                 for (var i = 0; i < ids.Length; i++)
@@ -185,7 +237,7 @@ namespace Adapter.Unity.Tests.Runtime
                 {
                     yield break;
                 }
-                Loader.Tick();
+                TickLoader();
                 yield return null;
             }
             Assert.Fail("冷加载资源应当能在合理时间内异步加载完成：" + string.Join(", ", ids));
@@ -196,7 +248,7 @@ namespace Adapter.Unity.Tests.Runtime
         {
             for (var i = 0; i < frames; i++)
             {
-                Loader.Tick();
+                TickLoader();
                 yield return null;
             }
         }

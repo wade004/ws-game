@@ -114,6 +114,23 @@ namespace Adapter.Unity.EngineAdapter
         private static readonly System.Threading.SemaphoreSlim DecodeGate =
             new System.Threading.SemaphoreSlim(DecodeParallelism, DecodeParallelism);
 
+        /// <summary>测试注入（ADR-0153）：每次后台解码在拿到并发闸门之后额外停留的毫秒数（默认 0 = 不停留，生产行为不变）。
+        /// 用来在 PlayMode 里确定性地模拟"后台线程被高负载拖慢"：解码完成时刻不再靠机器空闲，用例按完成而不是按帧数推进。</summary>
+        internal static volatile int DecodeStallMillisecondsForTests;
+
+        /// <summary>测试/诊断用（ADR-0153）：已发起、后台线程还没把结果排进完成队列的 Image/Effect/地图分层图请求个数。
+        /// 为 0 表示"此刻发起过的全部加载都已在主线程可见（下一次 <see cref="Tick"/> 即可处理）"。先读完成队列长度、再读在途集合：
+        /// 后台线程在两次读取之间入队只会让结果偏大（保守），不会提前报 0。只在主线程调用（<c>_loading</c> 只在主线程读写）。</summary>
+        internal int BackgroundLoadsInFlightForTests
+        {
+            get
+            {
+                var completed = PendingMainThreadCompletionCount;
+                var inFlight = _loading.Count - completed - _pendingFontLoads.Count - _pendingModelLoads.Count - _pendingAnimClipLoads.Count;
+                return inFlight > 0 ? inFlight : 0;
+            }
+        }
+
         /// <summary>已后台解码、尚未被主线程消费的 RGBA 字节总量软上限：超过时后台暂缓解码新图集。</summary>
         private const long PreparedBytesSoftCap = 128L * 1024L * 1024L;
 
@@ -224,6 +241,12 @@ namespace Adapter.Unity.EngineAdapter
                 await DecodeGate.WaitAsync().ConfigureAwait(false);
                 try
                 {
+                    var stallMilliseconds = DecodeStallMillisecondsForTests;
+                    if (stallMilliseconds > 0)
+                    {
+                        await Task.Delay(stallMilliseconds).ConfigureAwait(false);
+                    }
+
                     while (System.Threading.Interlocked.Read(ref _preparedBytes) >= PreparedBytesSoftCap)
                     {
                         await Task.Delay(4).ConfigureAwait(false);
