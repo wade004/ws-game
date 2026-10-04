@@ -1,0 +1,38 @@
+{
+  "canvas": {
+    "width": 144,
+    "height": 144
+  },
+  "directions": {
+    "front": {
+      "grip": [
+        78,
+        82
+      ]
+    },
+    "front_side_r": {
+      "grip": [
+        86,
+        82
+      ]
+    },
+    "side_r": {
+      "grip": [
+        92,
+        82
+      ]
+    },
+    "back_side_r": {
+      "grip": [
+        86,
+        82
+      ]
+    },
+    "back": {
+      "grip": [
+        78,
+        82
+      ]
+    }
+  }
+}

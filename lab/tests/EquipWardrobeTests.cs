@@ -172,6 +172,42 @@ namespace Tests.Lab
         }
 
         [Fact]
+        public void Stage_BagAndInstanceEquip_FollowTheRealCarriers_AndLocalizedNamesComeFromData()
+        {
+            using var stage = WardrobeStage.Create(LabTestSupport.Runner, Template);
+            var entry = stage.Entries.First(e => e.IsPaperdoll);
+            Assert.Empty(stage.Bag.Slots);
+
+            var instance = stage.AddToBag(entry.ItemId);
+            Assert.Single(stage.Bag.Slots);
+            Assert.Equal(instance, stage.Bag.Slots[0].InstanceId);
+            Assert.Equal(0, stage.Panel.OccupiedCount);
+
+            // 穿到不匹配的槽位被载体拒绝（结果原样带出失败原因），背包与装备都不变。
+            var other = stage.Panel.Slots.First(s => s.SlotId.Value != entry.SlotId).SlotId;
+            var rejected = stage.EquipInstance(instance, other);
+            Assert.False(rejected.Success);
+            Assert.Equal(Core.Carriers.Common.EquipFailureReason.SlotMismatch, rejected.Reason);
+            Assert.Equal(0, stage.Panel.OccupiedCount);
+            Assert.Single(stage.Bag.Slots);
+
+            var accepted = stage.EquipInstance(instance, new Core.Foundation.Common.Id(entry.SlotId));
+            Assert.True(accepted.Success);
+            Assert.Equal(1, stage.Panel.OccupiedCount);
+            Assert.Empty(stage.Bag.Slots);
+
+            // 卸下后回到背包。
+            Assert.True(stage.Unequip(entry.SlotId));
+            Assert.Single(stage.Bag.Slots);
+
+            // 物品名取自 l10n 数据行：模板的 name_key 经本地化宿主取到文案，不是 id。
+            var nameKey = stage.Registry.Get("item.template", entry.ItemId)!.GetId("name_key");
+            var text = stage.L10n.Text(nameKey);
+            Assert.False(string.IsNullOrEmpty(text));
+            Assert.DoesNotContain("std_", text);
+        }
+
+        [Fact]
         public void Stage_WalksEveryItem_PanelFollowsRealEquipmentState_AndEmptiesAfterUnequipAll()
         {
             using var stage = WardrobeStage.Create(LabTestSupport.Runner, Template);

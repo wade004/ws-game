@@ -99,7 +99,8 @@ def test_manifest_diagnostics_list_equals_the_check_names_of_the_two_modules():
     declared = set(M.load_manifest()["diagnostics"])
     emitted = {n for n in S.CHECK_NAMES}
     emitted |= {E.CHECK_ICON_SIZE_INVALID, E.CHECK_ICON_ALPHA_INVALID, E.CHECK_LAYER_IMAGE_INVALID,
-                E.CHECK_LAYER_FRAME_COUNT_MISMATCH, E.CHECK_LAYER_FRAME_SIZE_MISMATCH, E.CHECK_LAYER_ATLAS_MISMATCH}
+                E.CHECK_LAYER_FRAME_COUNT_MISMATCH, E.CHECK_LAYER_FRAME_SIZE_MISMATCH, E.CHECK_LAYER_ATLAS_MISMATCH,
+                E.CHECK_OPAQUE_COVERAGE_LOW, E.CHECK_ANCHOR_OUT_OF_BOUNDS, E.CHECK_ANCHOR_INVALID, E.CHECK_BEHIND_DIRECTION_INVALID}
     assert declared == emitted
 
 

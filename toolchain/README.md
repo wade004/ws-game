@@ -510,6 +510,9 @@ python toolchain/import_assets.py <子命令> ...
   `display.weapon_style` 或 `feel.weapon`（同 id 分表）、`preview_direction` 非声明方向档；警告级（报告写明回落目标）：
   推荐键层剪辑缺失（回落静态层图）、覆盖剪辑无逐层剪辑、`feel.weapon.family` 在姿势集里无键、`sfx_material` 在
   `sfx.def` 无 swing/impact 行（回落 `generic`）、`equip_sfx_ref`/`trail_ref` 悬空、皮肤包缺项（回落 `skin.default`）。
+  第二轮（ADR-0152）新增：错误 `equip_behind_direction_invalid`（`behind_directions` 某项不是声明的方向档）、`equip_anchor_invalid`/
+  `equip_anchor_out_of_bounds`（精灵集 `anchors.json` 的 `grip` 格式不对/落在层图画布之外）；警告 `equip_opaque_coverage_low`（图标或静态层
+  不透明像素占比低于清单阈值，几乎看不见；阈值写在 `skin_manifest.json` 的 `icons.coverage`/`paperdoll.static_layer_coverage`）。
   错误级物品不能进入 validated 数据集：判定接口 `EquipReport.is_validated(item_id)` / `filter_validated(tables, report)`，
   命令行 `--blocked-out <文件>` 写出被阻断物品 id。报告写 `--report-dir`（默认 `bin/_check_artifacts/equip_report/`，
   已在 `.gitignore`，只留本地）的 `equip_completeness.json`/`.txt`；返回码 `0` 零错误（`--strict-warnings` 时还要零警告）

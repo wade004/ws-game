@@ -50,7 +50,7 @@ namespace Tests.PresentationUi
                     "{\"id\":\"item.band\",\"slot\":\"item.slot.ring\"}]}")
                 .Add("display.equip_visual",
                     "{\"table\":\"display.equip_visual\",\"schema_version\":1,\"rows\":[" +
-                    "{\"id\":\"display.equip_visual.sword\",\"item_id\":\"item.sword\",\"mode\":\"slot_mesh\",\"slot_id\":\"slot.hand_main\",\"mesh_ref\":\"paperdoll.item.sword\",\"preview_direction\":\"dir.front_side_r\"}," +
+                    "{\"id\":\"display.equip_visual.sword\",\"item_id\":\"item.sword\",\"mode\":\"slot_mesh\",\"slot_id\":\"slot.hand_main\",\"mesh_ref\":\"paperdoll.item.sword\",\"preview_direction\":\"dir.front_side_r\",\"behind_directions\":[\"dir.back\"]}," +
                     "{\"id\":\"display.equip_visual.plate\",\"item_id\":\"item.plate\",\"mode\":\"socket_attach\",\"socket_id\":\"socket.torso\",\"model_ref\":\"model.plate\"}]}");
             var registry = new DataRegistry(source, world.EventBus, new DataRegistryOptions { FailOnUnknownTable = false });
             var report = registry.LoadAll();
@@ -104,6 +104,7 @@ namespace Tests.PresentationUi
             Assert.Equal("hand_main", vm.PaperdollLayers[0].Layer);
             Assert.Equal(new Id("paperdoll.item.sword"), vm.PaperdollLayers[0].MeshRef);
             Assert.Equal(new Id("dir.front_side_r"), vm.PaperdollLayers[0].PreviewDirection);
+            Assert.Equal(new[] { new Id("dir.back") }, vm.PaperdollLayers[0].BehindDirections.ToArray());   // 逐方向层序随外观行带到预览图层
 
             world.Equipment.Unequip(world.PlayerId, new Id("item.slot.main_hand"));
             vm.Refresh();

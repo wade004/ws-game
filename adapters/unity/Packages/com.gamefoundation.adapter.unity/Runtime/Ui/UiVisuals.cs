@@ -11,6 +11,14 @@
 // 判断记录（图标与纸娃娃层异步取用）：它们走适配器资源加载器（后台读文件、主线程按帧预算解码，由 UnityEngineHost 每帧 Tick），
 // 面板每帧刷新时 <see cref="Icon"/>/<see cref="Layer"/> 首次请求发起加载并返回 null，加载完成后的下一次刷新自然拿到精灵——
 // 不阻塞主线程，也不要求面板知道加载何时完成。加载失败记入 <see cref="FailedCount"/> 且不重试（缺失的资源由导入校验与衣橱报告暴露）。
+//
+// 判断记录（运行期切换皮肤，ADR-0152）：<see cref="SwitchSkin"/> 是换皮肤的唯一入口，一次做完四件事——
+//   1) 本入口发起过的图标/层图加载全部作废：已加载的按 id <c>Unload</c>，在途的记为"待作废"（完成后立刻卸掉，期间同 id 不再发起新请求，
+//      免得并入旧在途请求拿到旧根的图）；加载器按精灵集目录缓存的 anchors.json 解析结果一并清空（新根下同一精灵集的锚点/像素密度可能不同）；
+//   2) 本入口自己的锚点文件缓存清空；
+//   3) 重新装载皮肤包并重装 UiSkin 覆盖（占位皮肤则撤掉覆盖，回到框架原有默认外观）；
+//   4) 发出 <see cref="SkinChanged"/>，面板（背包、装备、提示框、拖拽）订阅后整体重建——它们持有旧皮肤包的精灵，不重建就是旧外观。
+// 旧皮肤包不立即销毁（仍订阅不到事件的面板，如 HUD，持有的是旧包的 UiSkin 精灵，销毁后会变成空白）：挂在退役清单里，随本对象 <see cref="Dispose"/> 一起释放。
 using System;
 using System.Collections.Generic;
 using Adapter.Unity.EngineAdapter;
@@ -18,6 +26,7 @@ using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EngineAdapter;
+using Core.Foundation.Localization;
 using Presentation.Ui;
 using UnityEngine;
 
@@ -53,6 +62,13 @@ namespace Adapter.Unity.Ui
             PreviewBodySet = previewBodySet;
             PreviewDirection = previewDirection;
         }
+
+        /// <summary>
+        /// 格子边长：布局的 <c>cell_size</c> 大于 0 取它，为 0（或负）按契约取皮肤包槽位框的原生宽度（<see cref="CellSize"/> 注释）。
+        /// 装备面板与背包面板共用这一处，避免两个面板对"0"各解各的（背包曾把 0 当成缺省 32 px）。
+        /// </summary>
+        public static float ResolveCellSize(float configured, Sprite defaultFrame) =>
+            configured > 0f ? configured : defaultFrame.rect.width;
 
         /// <summary>读某面板的布局行（没有该面板的行取缺省）；<paramref name="defaults"/> 提供缺省值。</summary>
         public static UiPanelLayout Read(IDataRegistryView? registry, UiPanel panel, UiPanelLayout defaults)
@@ -121,9 +137,23 @@ namespace Adapter.Unity.Ui
     {
         private readonly HashSet<Id> _requested = new HashSet<Id>();
         private readonly HashSet<Id> _failed = new HashSet<Id>();
+        private readonly HashSet<Id> _stalePending = new HashSet<Id>();
+        private readonly List<UiSkinPack> _retiredPacks = new List<UiSkinPack>();
         private UnityResourceLoader? _loader;
+        private int _generation;
+        private bool _overrideInstalledBySwitch;
 
-        public UiSkinPack Pack { get; }
+        /// <summary>当前皮肤包；<see cref="SwitchSkin"/> 会换成新的（订阅 <see cref="SkinChanged"/> 的面板据此重建）。</summary>
+        public UiSkinPack Pack { get; private set; }
+
+        /// <summary>换过几次皮肤（<see cref="SwitchSkin"/> 的累计次数）；面板用它判断自己持有的是不是旧皮肤。</summary>
+        public int SkinGeneration => _generation;
+
+        /// <summary><see cref="SwitchSkin"/> 完成后发出（皮肤包、UiSkin 覆盖、资源缓存都已换好）。</summary>
+        public event Action? SkinChanged;
+
+        /// <summary>本地化宿主（物品名等文案）；为空时物品名退回模板 id 短名。宿主装配时设置。</summary>
+        public IL10nHost? L10n { get; set; }
 
         public IDataRegistryView? Registry { get; }
 
@@ -181,6 +211,19 @@ namespace Adapter.Unity.Ui
             return info != null && !string.IsNullOrEmpty(info.IconId) && Id.TryParse(info.IconId, out var id) ? id : (Id?)null;
         }
 
+        /// <summary>物品显示名：<c>item.template.name_key</c> 经 <see cref="L10n"/> 取文案；没有键、没有 L10n 或取不到时退回模板 id 的短名（如 <c>std_bow</c>）。</summary>
+        public string ItemName(Id template) => ItemTooltipBuilder.ItemName(Registry, template, TextFunc());
+
+        /// <summary>槽位显示名：槽位定义的 <c>name_key</c> 经 <see cref="L10n"/> 取文案；取不到时退回槽位短名（如 <c>std_main_hand</c>）。</summary>
+        public string SlotName(Id slotId) =>
+            Registry == null ? EquipmentViewModel.SlotShortName(slotId) : ItemTooltipBuilder.SlotText(Registry, slotId, TextFunc());
+
+        private Func<Id, string>? TextFunc() => L10n == null ? (Func<Id, string>?)null : key => L10n.Text(key);
+
+        /// <summary>物品提示框内容（名称、品质、属性行）；数据里没有该模板返回 null。</summary>
+        public ItemTooltipContent? TooltipOf(Id template) =>
+            Registry == null ? null : ItemTooltipBuilder.Build(Registry, template, TextFunc());
+
         /// <summary>物品模板的品质短名（<c>item.template.quality</c> 去前缀）；没有为空串。</summary>
         public string QualityNameOf(Id template)
         {
@@ -207,8 +250,97 @@ namespace Adapter.Unity.Ui
             return name.Replace('.', '_');
         }
 
+        private readonly Dictionary<string, Core.Foundation.Common.Json.JsonObject?> _anchorFiles = new Dictionary<string, Core.Foundation.Common.Json.JsonObject?>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// 精灵集 <c>sprites/&lt;集&gt;/anchors.json</c> 里 <c>directions.&lt;方向&gt;.&lt;锚点名&gt;</c> 声明的像素锚点（<c>[x, y]</c>，原点左上，单位是该集图片自己的像素）。
+        /// 文件缺失、没有该方向/锚点或格式不对一律返回 false（调用方回落到画布居中，行为与未声明时逐位一致）；按集缓存，换皮肤时随缓存一起清掉。
+        /// </summary>
+        public bool TryGetAnchor(string spriteSet, string direction, string anchor, out Vector2 pixel)
+        {
+            pixel = default;
+            var set = SetName(spriteSet);
+            if (!_anchorFiles.TryGetValue(set, out var file))
+            {
+                file = null;
+                var path = System.IO.Path.Combine(UnityResourceLoader.ContentRoot, "sprites", set, "anchors.json");
+                if (System.IO.File.Exists(path))
+                {
+                    try
+                    {
+                        file = Core.Foundation.Common.Json.JsonReader.Parse(System.IO.File.ReadAllText(path)) as Core.Foundation.Common.Json.JsonObject;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogWarning($"[UiVisuals] {path} 解析失败：{ex.Message}");
+                    }
+                }
+
+                _anchorFiles[set] = file;
+            }
+
+            if (file != null
+                && file.TryGetValue("directions", out var directions) && directions is Core.Foundation.Common.Json.JsonObject byDirection
+                && byDirection.TryGetValue(direction, out var one) && one is Core.Foundation.Common.Json.JsonObject anchors
+                && anchors.TryGetValue(anchor, out var value) && value is Core.Foundation.Common.Json.JsonArray pair && pair.Count == 2
+                && pair[0] is Core.Foundation.Common.Json.JsonNumber x && pair[1] is Core.Foundation.Common.Json.JsonNumber y)
+            {
+                pixel = new Vector2((float)x.Value, (float)y.Value);
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 运行期切换皮肤（见类型注释"运行期切换皮肤"）。<paramref name="skinRef"/> 为空取占位皮肤；<paramref name="contentRoot"/> 缺省取适配器资源根。
+        /// 本方法接管 UiSkin 覆盖：先撤掉当前的，再按新皮肤包装（占位皮肤不装）。
+        /// </summary>
+        public void SwitchSkin(string? skinRef, string? contentRoot = null)
+        {
+            var loader = Loader;
+            foreach (var id in _requested)
+            {
+                if (loader.GetLoadProgress(id) < 1.0 && loader.GetLoadProgress(id) > 0.0)
+                {
+                    _stalePending.Add(id);      // 在途：完成回调里卸掉，期间不再发起同 id 的新请求
+                }
+                else
+                {
+                    loader.Unload(id);
+                }
+            }
+
+            _requested.Clear();
+            _failed.Clear();
+            _anchorFiles.Clear();
+            loader.InvalidateSpriteSetAnchorsCache();
+            _generation++;
+
+            UiSkin.Reset();
+            _retiredPacks.Add(Pack);
+            Pack = UiSkinPack.Load(skinRef, contentRoot);
+            var skinOverride = Pack.CreateOverride();
+            if (skinOverride != null)
+            {
+                UiSkin.Install(skinOverride);
+                _overrideInstalledBySwitch = true;
+            }
+            else
+            {
+                _overrideInstalledBySwitch = false;
+            }
+
+            SkinChanged?.Invoke();
+        }
+
         private Sprite? Image(Id id)
         {
+            if (_stalePending.Contains(id))
+            {
+                return null;
+            }
+
             var loader = Loader;
             if (loader.TryGetSprite(id, out var sprite) && sprite != null)
             {
@@ -217,10 +349,19 @@ namespace Adapter.Unity.Ui
 
             if (_requested.Add(id))
             {
+                var generation = _generation;
                 try
                 {
                     loader.LoadAsync(id, ResourceKind.Image, (rid, ok) =>
                     {
+                        if (generation != _generation)
+                        {
+                            // 切换皮肤之前发起的请求现在才完成：它读的是旧根，立刻卸掉，下次取用重新请求。
+                            loader.Unload(rid);
+                            _stalePending.Remove(rid);
+                            return;
+                        }
+
                         if (!ok)
                         {
                             _failed.Add(rid);
@@ -237,6 +378,21 @@ namespace Adapter.Unity.Ui
             return null;
         }
 
-        public void Dispose() => Pack.Dispose();
+        public void Dispose()
+        {
+            if (_overrideInstalledBySwitch)
+            {
+                UiSkin.Reset();
+                _overrideInstalledBySwitch = false;
+            }
+
+            foreach (var retired in _retiredPacks)
+            {
+                retired.Dispose();
+            }
+
+            _retiredPacks.Clear();
+            Pack.Dispose();
+        }
     }
 }

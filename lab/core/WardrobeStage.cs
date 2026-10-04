@@ -6,6 +6,7 @@ using Core.Carriers.Item;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
+using Core.Foundation.Localization;
 using Core.Rules.Skill;
 using Core.Sim;
 using Presentation.Ui;
@@ -43,6 +44,14 @@ namespace Lab
         /// <summary>装备面板视图模型（生产类型）。</summary>
         public EquipmentViewModel Panel { get; }
 
+        /// <summary>背包视图模型（生产类型；穿脱与加物品后随事件刷新）。</summary>
+        public InventoryViewModel Bag { get; }
+
+        private IL10nHost? _l10n;
+
+        /// <summary>本地化宿主（物品名、品质名等文案；首次取用时按数据里的 l10n 表建立，数据没有 l10n 表时抛出）。</summary>
+        public IL10nHost L10n => _l10n ??= new L10nHost(_world.Registry, _world.Bus);
+
         private WardrobeStage(HeadlessWorld world, IReadOnlyList<WardrobeEntry> entries, int slotCount)
         {
             _world = world;
@@ -62,6 +71,13 @@ namespace Lab
             };
             Data = new UiDataSource(world.Bus, providers);
             Panel = new EquipmentViewModel(Data, world.Registry, _displayInfo);
+            var slotIds = new List<Id>();
+            foreach (var slot in Panel.Slots)
+            {
+                slotIds.Add(slot.SlotId);
+            }
+
+            Bag = new InventoryViewModel(Data, slotIds);
         }
 
         /// <summary>在模板脚本声明的数据集（基础数据 + 额外数据根）上建舞台，物品清单由数据算出。</summary>
@@ -105,6 +121,43 @@ namespace Lab
             return result.Success;
         }
 
+        /// <summary>往背包里放一件物品（不穿），返回新物品实例 id；背包放不下抛 <see cref="InvalidOperationException"/>。</summary>
+        public Id AddToBag(string itemTemplateId)
+        {
+            var template = new Id(itemTemplateId);
+            var inventory = _world.Gameplay.Carriers.Inventory;
+            var before = new HashSet<Id>();
+            foreach (var item in inventory.ListItems(_player))
+            {
+                before.Add(item.InstanceId);
+            }
+
+            if (!inventory.AddItem(_player, template, 1))
+            {
+                throw new InvalidOperationException($"背包放不下 {itemTemplateId}");
+            }
+
+            _world.Bus.DispatchPending();
+            foreach (var item in inventory.ListItems(_player))
+            {
+                if (!before.Contains(item.InstanceId) && item.TemplateId.Equals(template))
+                {
+                    return item.InstanceId;
+                }
+            }
+
+            throw new InvalidOperationException($"放进背包的 {itemTemplateId} 找不到新实例（可能叠进了已有一堆）");
+        }
+
+        /// <summary>把背包里的一个物品实例穿到指定槽位，返回装备载体的原始结果（失败原因由载体给出）。</summary>
+        public EquipResult EquipInstance(Id instanceId, Id slotId)
+        {
+            var result = _world.Gameplay.Carriers.Equipment.Equip(_player, instanceId, slotId);
+            _world.Bus.DispatchPending();
+            Panel.Refresh();
+            return result;
+        }
+
         /// <summary>卸下一个槽位。</summary>
         public bool Unequip(string slotId)
         {
@@ -135,6 +188,7 @@ namespace Lab
 
         public void Dispose()
         {
+            Bag.Dispose();
             Panel.Dispose();
         }
     }

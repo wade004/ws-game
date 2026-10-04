@@ -293,9 +293,14 @@ def test_icon_rules(real_tables, tmp_path):
     assert _checks(_run(t, assets), "error") == [E.CHECK_ICON_FILE_MISSING]
     Image.new("RGBA", (64, 48), (255, 0, 0, 255)).save(icon)
     assert _checks(_run(t, assets), "error") == [E.CHECK_ICON_SIZE_INVALID]
-    Image.new("RGBA", (64, 64), (255, 0, 0, 255)).save(icon)          # 满铺 = 贴边（疑似含品质框）
+    Image.new("RGBA", (64, 64), (255, 0, 0, 255)).save(icon)          # 满铺 = 不透明底（说清楚是没有透明像素，不误导成"贴边"）
     r = _run(t, assets)
-    assert _checks(r, "error") == [E.CHECK_ICON_ALPHA_INVALID] and "贴边" in r.issues[0].message
+    assert _checks(r, "error") == [E.CHECK_ICON_ALPHA_INVALID] and "没有任何透明像素" in r.issues[0].message
+    edge = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    edge.paste((255, 0, 0, 255), (0, 10, 40, 50))                      # 主体贴左边：报出包围盒
+    edge.save(icon)
+    r = _run(t, assets)
+    assert _checks(r, "error") == [E.CHECK_ICON_ALPHA_INVALID] and "贴边" in r.issues[0].message and "0,10" in r.issues[0].message
     Image.new("RGBA", (64, 64), (0, 0, 0, 0)).save(icon)
     r = _run(t, assets)
     assert _checks(r, "error") == [E.CHECK_ICON_ALPHA_INVALID] and "全透明" in r.issues[0].message
@@ -410,7 +415,8 @@ def test_preview_direction_must_be_declared_direction(real_tables, tmp_path):
 
 def test_direction_count_four_needs_only_four_direction_canonicals(real_tables, tmp_path):
     t = _only_item(real_tables, SWORD)
-    t["display.equip_visual"] = [{k: v for k, v in r.items() if k != "preview_direction"} for r in t["display.equip_visual"]]
+    t["display.equip_visual"] = [{k: v for k, v in r.items() if k not in ("preview_direction", "behind_directions")}
+                                 for r in t["display.equip_visual"]]
     r4 = _run(t, _sword_assets(tmp_path), direction_count=4)     # front/side_r/back 都有，4 方向更宽松
     assert _checks(r4, "error") == []
     # 层剪辑槽 = 键数 × 方向档数：4 方向只要 3 个 canonical 档（front/side_r/back），默认 8 方向要 5 个；键数由姿势集推，不写死

@@ -1,0 +1,317 @@
+{
+  "_comment": "参考皮肤包（通用奇幻风）的出图提示词与种子清单。出图只走本地 ComfyUI（Qwen Image 2.1 bf16，原生 RGBA）；原始 1024 图只留本地（--raw-dir），不入库。每个任务按 variants 个种子各出一张候选，选定的候选记在 chosen.json。",
+  "workflow": {
+    "unet": "qwen_image_2.1_bf16.safetensors",
+    "clip": "qwen3vl_8b_int8_convrot.safetensors",
+    "vae": "qwen_image_2.1_vae_bf16.safetensors",
+    "steps": 25,
+    "cfg": 1,
+    "sampler": "euler",
+    "scheduler": "simple"
+  },
+  "wrapper": {
+    "prefix": "This is an RGBA format image with transparency. ",
+    "suffix": " The image has an alpha channel and a transparent background."
+  },
+  "style": {
+    "ui": "Generic fantasy RPG game user interface asset, hand-painted semi-realistic digital art, burnished dark bronze and antique gold metalwork with deep navy leather and velvet, warm candlelight palette, flat front orthographic view, perfectly symmetric, crisp clean edges, no text, no letters, no watermark.",
+    "icon": "Generic fantasy RPG inventory icon, hand-painted semi-realistic digital art style, three-quarter diagonal view, soft rim light, rich warm palette, centered with generous empty margin around the object, single object only, no text, no letters, no frame, no border, no background."
+  },
+  "jobs": [
+    {
+      "key": "slot_base",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        201,
+        202,
+        203
+      ],
+      "text": "A single square empty inventory equipment slot, rounded corners, a beveled burnished-bronze frame with small gold corner studs around a recessed dark navy velvet interior, nothing inside the slot."
+    },
+    {
+      "key": "glow_frame",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        211,
+        212
+      ],
+      "text": "A square magical rune selection frame, thin glowing white-gold energy outline with small corner brackets, soft outer glow, completely hollow empty center."
+    },
+    {
+      "key": "quality_common",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        221,
+        222,
+        223,
+        224,
+        225
+      ],
+      "text": "A thin square item rarity border for common quality: a plain gray steel frame with a simple bevel and tiny rivets at the corners, no gems, no color accents, completely hollow empty center."
+    },
+    {
+      "key": "quality_uncommon",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        231,
+        232
+      ],
+      "text": "A thin square item rarity border for uncommon quality: green-tinted silver metal frame with tiny leaf notches at the corners, completely hollow empty center."
+    },
+    {
+      "key": "quality_rare",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        241,
+        242
+      ],
+      "text": "A thin square item rarity border for rare quality: blue sapphire-tinted steel frame with a small blue gem in each corner, completely hollow empty center."
+    },
+    {
+      "key": "quality_epic",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        251,
+        252
+      ],
+      "text": "A square item rarity border for epic quality: purple amethyst crystal metal frame with fine arcane filigree and violet glow, completely hollow empty center."
+    },
+    {
+      "key": "quality_legendary",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        261,
+        262
+      ],
+      "text": "A square item rarity border for legendary quality: ornate polished gold frame with orange flame accents and small winged corner ornaments, warm glow, completely hollow empty center."
+    },
+    {
+      "key": "panel_art",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        271,
+        272,
+        273
+      ],
+      "text": "A square window panel background for a game menu: a dark navy leather inner surface with subtle grain, framed by a burnished bronze border with simple straight edges and ornate gold corner brackets, rounded outer corners, the whole panel fills the image."
+    },
+    {
+      "key": "tooltip_art",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        281,
+        282
+      ],
+      "text": "A square tooltip box background: a very dark navy translucent-looking inner surface framed by a thin antique-gold line border with tiny corner studs, simple straight edges, rounded outer corners, the whole box fills the image."
+    },
+    {
+      "key": "button_art",
+      "style": "ui",
+      "w": 1024,
+      "h": 512,
+      "seeds": [
+        291,
+        292,
+        293
+      ],
+      "text": "A single wide rectangular menu button plate with nothing written on it: beveled burnished bronze rim, a smooth dark teal enamel center, small gold rivets near the corners, rounded corners, the button fills the image."
+    },
+    {
+      "key": "divider_art",
+      "style": "ui",
+      "w": 1024,
+      "h": 256,
+      "seeds": [
+        301,
+        302
+      ],
+      "text": "A thin horizontal ornamental divider line: a slim antique-gold line with a small diamond ornament in the center and tapering curled ends, flat, nothing else."
+    },
+    {
+      "key": "preview_bg",
+      "style": "ui",
+      "w": 832,
+      "h": 1248,
+      "seeds": [
+        311,
+        312,
+        313
+      ],
+      "text": "A portrait backdrop for a character preview window: a dark stone alcove niche with a gentle spotlight glow on the floor in the middle, deep navy and bronze tones, soft vignette, empty, no character, the backdrop fills the image."
+    },
+    {
+      "key": "glyph_std_main_hand",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        321
+      ],
+      "text": "A single engraved weapon emblem symbol of a straight sword pointing upward, flat dark-bronze monochrome silhouette icon, centered with generous margin."
+    },
+    {
+      "key": "glyph_std_chest",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        322
+      ],
+      "text": "A single engraved armor emblem symbol of a plate chestplate, flat dark-bronze monochrome silhouette icon, centered with generous margin."
+    },
+    {
+      "key": "glyph_std_head",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        331,
+        332,
+        341,
+        342
+      ],
+      "text": "A medieval knight great helm made of steel, isolated object floating alone, nothing around it, flat dark-bronze monochrome silhouette icon, centered with generous margin."
+    },
+    {
+      "key": "glyph_std_off_hand",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        324
+      ],
+      "text": "A single engraved emblem symbol of a round heater shield, flat dark-bronze monochrome silhouette icon, centered with generous margin."
+    },
+    {
+      "key": "glyph_std_legs",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        325
+      ],
+      "text": "A single engraved emblem symbol of armored leg greaves trousers, flat dark-bronze monochrome silhouette icon, centered with generous margin."
+    },
+    {
+      "key": "glyph_std_feet",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        335,
+        336
+      ],
+      "text": "A single pair of leather armored boots side by side, flat dark-bronze monochrome silhouette icon, centered with generous margin. Only the object itself on a transparent background, no badge, no shield-shaped plaque, no frame, no emblem backdrop."
+    },
+    {
+      "key": "glyph_std_hands",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        333,
+        334,
+        343,
+        344
+      ],
+      "text": "A steel plate gauntlet worn on a clenched fist, isolated object floating alone, nothing around it, flat dark-bronze monochrome silhouette icon, centered with generous margin."
+    },
+    {
+      "key": "glyph_std_neck",
+      "style": "ui",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        328
+      ],
+      "text": "A single engraved emblem symbol of a pendant amulet necklace, flat dark-bronze monochrome silhouette icon, centered with generous margin."
+    },
+    {
+      "key": "icon_std_sword_1h",
+      "style": "icon",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        401,
+        402
+      ],
+      "text": "A one-handed arming sword with a straight steel blade, a golden crossguard and a leather-wrapped grip with a round pommel."
+    },
+    {
+      "key": "icon_std_greatsword",
+      "style": "icon",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        411,
+        412
+      ],
+      "text": "A massive two-handed greatsword with a very long broad steel blade, a dark iron crossguard with small gold inlays and a long leather-wrapped grip."
+    },
+    {
+      "key": "icon_std_dagger",
+      "style": "icon",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        421,
+        422
+      ],
+      "text": "A short fantasy dagger with a slim double-edged steel blade, a small bronze crossguard and a dark leather grip."
+    },
+    {
+      "key": "icon_std_bow",
+      "style": "icon",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        431,
+        432,
+        433,
+        434,
+        435
+      ],
+      "text": "A bold chunky fantasy longbow with a thick wide curved limb of polished dark wood, broad gold-capped limb tips and a thick golden bowstring, large heavy silhouette that fills the frame."
+    },
+    {
+      "key": "icon_std_staff",
+      "style": "icon",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        441,
+        442
+      ],
+      "text": "A wizard's wooden staff with a twisted gnarled head cradling a glowing blue crystal, brass bands along the shaft."
+    },
+    {
+      "key": "icon_std_chestplate",
+      "style": "icon",
+      "w": 1024,
+      "h": 1024,
+      "seeds": [
+        451,
+        452
+      ],
+      "text": "A steel plate armor chestplate cuirass with golden trim, shoulder straps and a leather belt, front view."
+    }
+  ]
+}

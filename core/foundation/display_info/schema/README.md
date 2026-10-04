@@ -73,6 +73,7 @@
 | `socket_id` | Optional\<Id\> | `mode: socket_attach` 时必填 | 目标挂点 id，对应 `display.map` 的 `sockets` |
 | `model_ref` | Optional\<Id\> | `mode: socket_attach` 时必填 | 挂接的独立模型资源引用 |
 | `preview_direction` | Optional\<Id\> | 否 | 装备面板预览区使用的方向档（方向槽位 id，`dir.<裸档位名>`，与 `mirror_pairs.direction_slot` 同一套局部 id 空间，不指向已登记表）；缺省取姿势集正面档。纯新增可选字段，不升 schema 版本（手感设计/08 第 4 节，ADR-0123）；装备完整性校验（`import_assets.py equip`）核对它在该游戏声明的方向档里 |
+| `behind_directions` | Optional\<List\<Id\>\> | 否 | 逐方向层序：该装备层在这些方向档（方向槽位 id，`dir.<裸档位名>`）上画在身体及其余纸娃娃层之后（运行期合成排到层列表最前，预览区排到身体之下）；缺省空 = 所有方向现行顺序；镜像侧按它镜像自的档位判定。纯新增可选字段，不升 schema 版本（手感设计/08 第 5 节，ADR-0152）；装备完整性校验核对每项都在该游戏声明的方向档里（`equip_behind_direction_invalid`） |
 
 校验规则：`mode` 决定哪组字段必填（"装备呈现字段组条件必填"检查项，本模块实现为
 `EquipVisualModeFieldGroupRule`，消费方反馈第 63 条）——该规则只检查"必填"，不检查"另一
