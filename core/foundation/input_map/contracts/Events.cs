@@ -15,6 +15,33 @@ namespace Core.Foundation.InputMap
 
         /// <summary>手感设计/01 第 3.7 节：缓冲记录未被执行即离开缓冲，见 <see cref="InputBufferDroppedEvent"/>。</summary>
         public static readonly Id BufferDropped = new Id("input.buffer_dropped");
+
+        /// <summary>手感设计/01 第 3.3 节：蓄力按住到上限、缓冲自动释放，见 <see cref="InputChargeReadyEvent"/>。</summary>
+        public static readonly Id ChargeReady = new Id("input.charge_ready");
+    }
+
+    /// <summary>
+    /// <c>input.charge_ready</c>（手感设计/01 第 3.3 节，ADR-0143）：蓄力类动作按住满上限（<c>charge.max_ms</c>），输入缓冲把 <c>hold_pending</c> 记录自动转为
+    /// <c>hold_released{max}</c> 并可被消费时发出（表现层据此亮"蓄满"特效）。是输入缓冲侧的信号，不是时间线标记（蓄力期间还没有动作实例）。
+    /// 字段与 <c>found.event_catalog</c> 登记一致：actorId、actionId、heldTicks。
+    /// </summary>
+    public sealed class InputChargeReadyEvent : IEvent
+    {
+        public Id Key => InputMapEventKeys.ChargeReady;
+
+        public Id ActorId { get; }
+
+        public Id ActionId { get; }
+
+        /// <summary>自动释放时记录的按住时长（tick，恒等于蓄力上限）。</summary>
+        public int HeldTicks { get; }
+
+        public InputChargeReadyEvent(Id actorId, Id actionId, int heldTicks)
+        {
+            ActorId = actorId;
+            ActionId = actionId;
+            HeldTicks = heldTicks;
+        }
     }
 
     /// <summary>

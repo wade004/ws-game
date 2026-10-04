@@ -163,6 +163,7 @@ namespace Tests.Presentation.Assembly
                 "Presentation.Ui.ActionBarViewModel",
                 "Presentation.Ui.CharacterStatsViewModel",
                 "Presentation.Ui.DialogViewModel",
+                "Presentation.Ui.EquipmentViewModel",
                 "Presentation.Ui.HudViewModel",
                 "Presentation.Ui.InventoryViewModel",
                 "Presentation.Ui.PauseMenuViewModel",

@@ -144,6 +144,21 @@ namespace Tests.PresentationUi
                     };
                     break;
                 }
+                case "Equipment":
+                {
+                    var vm = new EquipmentViewModel(ds, EquipmentViewModelTests.BuildRegistry(world), null);
+                    c.Vm = vm;
+                    c.Observe = () => Join(vm.OccupiedCount);
+                    c.MutateSilently = () =>
+                    {
+                        var template = new Id("item.sword");
+                        var instance = world.Inventory.AddItemForTest(world.PlayerId, template, 1);
+                        world.Equipment.TemplatesByInstance[instance] = template;
+                        world.Equipment.Equip(world.PlayerId, instance, new Id("item.slot.main_hand"));
+                    };
+                    c.ExpectedKeys = new[] { CarriersEventKeys.ItemEquipped, CarriersEventKeys.ItemUnequipped, SaveEventKeys.SaveLoaded };
+                    break;
+                }
                 case "ActionBar":
                 {
                     world.SkillBindings.Bind(world.PlayerId, ActionBarViewModel.SlotKey(0), Fireball);
@@ -271,7 +286,7 @@ namespace Tests.PresentationUi
         public static IEnumerable<object[]> CaseNames() => new[]
         {
             "Hud", "HudWithoutTurnScheduler", "CharacterStats", "Inventory", "ActionBar", "QuestLog", "SkillBook",
-            "Dialog", "PauseMenu", "SaveSlots", "Settings", "Shop",
+            "Dialog", "PauseMenu", "SaveSlots", "Settings", "Shop", "Equipment",
         }.Select(n => new object[] { n });
 
         /// <summary>(夹具名, 订阅键) 的全部组合：一个键一例，失败信息直接指出是哪个视图模型的哪个键。</summary>
@@ -391,6 +406,7 @@ namespace Tests.PresentationUi
             else if (c.Vm is SaveSlotsViewModel saves) saves.Refresh();
             else if (c.Vm is SettingsViewModel settings) settings.Refresh();
             else if (c.Vm is ShopViewModel shop) shop.Refresh();
+            else if (c.Vm is EquipmentViewModel equipment) equipment.Refresh();
             else throw new InvalidOperationException("未覆盖的视图模型类型：" + c.Vm.GetType().Name);
 
             Assert.NotEqual(before, c.Observe());

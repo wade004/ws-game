@@ -67,6 +67,10 @@ namespace Presentation.FeedbackBinder.Contracts
         /// <paramref name="ticks"/> 个 tick（以 <see cref="ReleasePresentation"/> 为准解冻）。默认空操作（ABI 只加法）。</summary>
         void FreezePresentation(System.Collections.Generic.IReadOnlyList<Id> unitIds, int ticks, ImpactFreezeLayers layers) { }
 
+        /// <summary>手感音画反馈新增（ADR-0148）：手柄震动。<paramref name="strength"/> 0..1，<paramref name="durationMs"/> 毫秒。默认空操作（ABI 只加法）；
+        /// <c>CompositeFeedbackSink</c> 覆盖为经 <c>OnRumble</c> 回调落到宿主的 <c>IRumble</c> 能力。</summary>
+        void Rumble(double strength, double durationMs) { }
+
         /// <summary>手感顿帧表现新增：解冻（<c>feel.hitstop_ended</c>），从冻结点继续。默认空操作。</summary>
         void ReleasePresentation(System.Collections.Generic.IReadOnlyList<Id> unitIds) { }
 

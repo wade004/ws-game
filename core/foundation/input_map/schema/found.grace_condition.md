@@ -27,6 +27,7 @@
 | `input.grace.builtin_aim_in_range` | `event.aim_in_range` | 施法瞄点（请求携带的目标或落点，没有时取缺省目标）在这次施法射程内 |
 | `input.grace.builtin_aim_line_of_sight` | `event.aim_line_of_sight` | 行动者到瞄点之间视线畅通 |
 | `input.grace.builtin_aim_reachable` | `event.aim_in_range and event.aim_line_of_sight` | 射程与视线同时满足，对应步骤 7 的两项 |
+| `input.grace.builtin_grounded` | `event.grounded` | 行动者此刻站在地面上（竖直轴装配了才有意义；ADR-0143）：`jump` 类动作引用它得到土狼时间，不引用瞄点，历史不按瞄点归属 |
 
 `event` 分组字段（`GraceAimContext`，snake_case，camelCase 等价）：`has_aim`、`aim_distance`、`aim_range`、`aim_in_range`、`aim_line_of_sight`、`aim_is_ground`。
 游戏在动作的 `grace_conditions` 里直接引用即可；不引用则不采样，与引入之前逐位一致。游戏自己的条件表达式同样可以读这些字段。

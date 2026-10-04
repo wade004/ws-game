@@ -3,7 +3,7 @@
   "meta": {
     "scriptId": "space.jump",
     "scriptVersion": 1,
-    "description": "空间语义·跳跃（手感设计/06 第 10 节勘误 9）：无靶子，第 10 tick 按跳跃，第 15 tick 空中再按（不允许二段跳，被拒绝），第 100 tick 落地后再跳。横版/体积格子量起跳 tick、整段飞行步数（由重力与跳跃顶点算出）、顶点高度与 tick、落地 tick；平面格子没有竖直轴，三次请求全被拒绝。",
+    "description": "空间语义·跳跃（手感设计/06 第 1.2 节）：无靶子，第 10 tick 按跳跃，第 15 tick 空中再按（不允许二段跳，被拒绝），第 100 tick 落地后再跳。横版/体积格子量起跳 tick、整段飞行步数（由重力与跳跃顶点算出）、顶点高度与 tick、落地 tick；平面格子没有竖直轴，三次请求全被拒绝。",
     "datasetRoot": "data/_lab",
     "presetId": "",
     "calibrationVersion": "none",

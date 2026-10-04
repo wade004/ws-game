@@ -1,0 +1,24 @@
+{
+  "table": "feel.action",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.action.lab_hs_finisher",
+      "description": "实验室分段手感覆盖：该段攻击方顿帧 70 ms、受击方 90 ms（只被 skill.lab_hs_charge 的第 1 段 hit 标记引用）。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "attacker_hitstop_ms",
+          "op": "set",
+          "value": 70
+        },
+        {
+          "field": "target_hitstop_ms",
+          "op": "set",
+          "value": 90
+        }
+      ]
+    }
+  ]
+}

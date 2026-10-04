@@ -69,6 +69,11 @@ namespace Tests.Rules.Skill
             _slots.Add(new Slot { Intent = new BufferedIntent(actionId, cls, now, now + validTicks, priority, direction, hold, heldTicks, consumed: false) });
         }
 
+        /// <summary>此刻被按住的输入动作（<see cref="IInputBufferQuery.IsHeld"/> 的数据来源；按住维持型动作据此决定是否继续维持）。</summary>
+        public readonly HashSet<Id> Held = new HashSet<Id>();
+
+        public bool IsHeld(Id actorId, Id actionId) => Held.Contains(actionId);
+
         public IReadOnlyList<Id> PendingActions => _slots.Where(s => !s.Consumed && !s.Dropped).Select(s => s.Intent.ActionId).ToList();
 
         public int Pending => _slots.Count(s => !s.Consumed && !s.Dropped);

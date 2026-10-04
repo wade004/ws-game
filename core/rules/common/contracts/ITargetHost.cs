@@ -109,6 +109,16 @@ namespace Core.Rules.Common
         }
 
         /// <summary>
+        /// 手感落地 M5-S2a（手感设计/03 第 2.2 节）：目标的命中半径（世界单位，≤ 0 表示按点判定）。时间线命中用它算接触点——形状与目标圆相交的点，
+        /// 不再落在体内；目标半径未启用（缺省）恒为 0，接触点逐位等于此前口径。
+        /// <para>
+        /// C# 8 默认接口成员：默认实现恒返回 0（"按点判定"，等价于本成员引入之前）；生产实现 <see cref="Core.Rules.Targeting.TargetHost"/> 显式覆盖。
+        /// 同 <see cref="TryGetChainShape"/> 判断记录"InterfaceDefaultMemberForwardingTests 门禁"：包装实现方必须显式转发。
+        /// </para>
+        /// </summary>
+        double TargetHitRadius(Id targetId) => 0.0;
+
+        /// <summary>
         /// 手感落地（时间线空间命中）：按 <paramref name="chainId"/> 解析目标，但把形状锚点换成显式给定的位姿
         /// （<paramref name="origin"/> + <paramref name="facing"/>，弧度）。<c>continuous</c> 命中在两个 tick 的攻击方位姿
         /// 之间插值采样时用它；与 <see cref="ResolveAtPoint"/> 的区别是后者朝向固定为 0。不发布 <c>targeting.resolved</c>

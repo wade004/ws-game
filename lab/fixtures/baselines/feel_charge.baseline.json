@@ -6,7 +6,7 @@
       "key": {
         "script": "feel_charge",
         "scriptVersion": 1,
-        "dataset": "ac4242389fde5ddb",
+        "dataset": "29eb0ef3679db274",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -142,7 +142,7 @@
       "key": {
         "script": "feel_charge",
         "scriptVersion": 1,
-        "dataset": "9f95d55ac17abe23",
+        "dataset": "a917a72312c96bf6",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -194,39 +194,39 @@
         },
         "performance": {
           "ticks": 260,
-          "event_count_total": 585,
+          "event_count_total": 586,
           "frames": 260,
           "frame_ms_p50": 0.1,
-          "frame_ms_p95": 0.1,
+          "frame_ms_p95": 1,
           "alloc_bytes_per_frame_p95": 16384
         },
         "inputbuf": {
           "press_ticks": "5:lab_a_charge;60:lab_a_charge;140:lab_a_charge",
           "slot_visible_ticks": "5:lab_a_charge;60:lab_a_charge;140:lab_a_charge",
-          "consume_ticks": "9:skill.lab_a_charge;90:skill.lab_a_charge;200:skill.lab_a_charge",
+          "consume_ticks": "9:skill.lab_a_charge;90:skill.lab_a_charge;191:skill.lab_a_charge",
           "accept_latency_ticks": [
             4,
             30,
-            60
+            51
           ],
-          "accept_latency_max": 60,
+          "accept_latency_max": 51,
           "drop_events": "",
           "drop_counts": "",
           "expire_ticks": "",
           "max_slot_occupancy": 1,
-          "slot_occupied_ticks": 97
+          "slot_occupied_ticks": 88
         },
         "actiontl": {
-          "starts": "player@9:skill.lab_a_charge#0;player@90:skill.lab_a_charge#0;player@200:skill.lab_a_charge#0",
+          "starts": "player@9:skill.lab_a_charge#0;player@90:skill.lab_a_charge#0;player@191:skill.lab_a_charge#0",
           "phase_ticks": "player:skill.lab_a_charge:startup=9/active=8/recovery=18;player:skill.lab_a_charge:startup=9/active=8/recovery=18;player:skill.lab_a_charge:startup=9/active=8/recovery=18",
           "action_total_ticks": [
             35,
             35,
             35
           ],
-          "markers": "player@18:hit;player@99:hit;player@209:hit",
+          "markers": "player@18:hit;player@99:hit;player@200:hit",
           "cancels": "",
-          "finishes": "player@44;player@125;player@235",
+          "finishes": "player@44;player@125;player@226",
           "combo_chain": "",
           "combo_segments": 0,
           "charge_ratios": [
@@ -238,7 +238,7 @@
           "unfinished_at_end": 0
         },
         "hitstop": {
-          "started": "18:player:2;18:stake:3;99:player:2;99:stake:3;209:player:2;209:stake:3",
+          "started": "18:player:2;18:stake:3;99:player:2;99:stake:3;200:player:2;200:stake:3",
           "started_ticks_player": 6,
           "frozen_ticks_player": 6,
           "frozen_ticks_targets": "stake=9",
@@ -249,13 +249,13 @@
         "reaction": {
           "hit_results": "Hit:3",
           "reaction_counts": "Stagger:3",
-          "reactions": "18:stake:Stagger:9;99:stake:Stagger:9;209:stake:Stagger:9",
+          "reactions": "18:stake:Stagger:9;99:stake:Stagger:9;200:stake:Stagger:9",
           "staggered_ticks": "stake=27",
           "kills": 0,
           "hit_classes": "medium,medium,medium"
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex9,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex46,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex75,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex25",
+          "mode_sequence": "Grounded/Nonex9,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex46,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex66,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex34",
           "speed_max": 0,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
@@ -269,15 +269,15 @@
           "hit_confirmed": 3,
           "avoided": 0,
           "hit_sets": "0.0=stake;1.0=stake;2.0=stake",
-          "confirm_ticks": "18:player>stake;99:player>stake;209:player>stake",
+          "confirm_ticks": "18:player>stake;99:player>stake;200:player>stake",
           "duplicate_confirmations": 0,
           "unconfirmed_damage": 0,
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "18:sfx.lab_impact_t2;99:sfx.lab_impact_t2;209:sfx.lab_impact_t2",
+          "sfx_ids": "18:sfx.lab_impact_t2;99:sfx.lab_impact_t2;200:sfx.lab_impact_t2",
           "sfx_count": 3,
-          "camera_cues": "18:1:;99:1:;209:1:",
+          "camera_cues": "18:1:;99:1:;200:1:",
           "camera_magnitudes": [
             0.01,
             0.01,
@@ -288,7 +288,7 @@
             120,
             120
           ],
-          "freeze_ops": "18:freeze:player:2;18:freeze:stake:3;20:release:player:0;21:release:stake:0;99:freeze:player:2;99:freeze:stake:3;101:release:player:0;102:release:stake:0;209:freeze:player:2;209:freeze:stake:3;211:release:player:0;212:release:stake:0",
+          "freeze_ops": "18:freeze:player:2;18:freeze:stake:3;20:release:player:0;21:release:stake:0;99:freeze:player:2;99:freeze:stake:3;101:release:player:0;102:release:stake:0;200:freeze:player:2;200:freeze:stake:3;202:release:player:0;203:release:stake:0",
           "first_feedback_lag_ticks": 0,
           "other_ops": ""
         }
@@ -298,7 +298,7 @@
       "key": {
         "script": "feel_charge",
         "scriptVersion": 1,
-        "dataset": "ac4242389fde5ddb",
+        "dataset": "29eb0ef3679db274",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -434,7 +434,7 @@
       "key": {
         "script": "feel_charge",
         "scriptVersion": 1,
-        "dataset": "9f95d55ac17abe23",
+        "dataset": "a917a72312c96bf6",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -486,7 +486,7 @@
         },
         "performance": {
           "ticks": 260,
-          "event_count_total": 585,
+          "event_count_total": 586,
           "frames": 260,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -495,30 +495,30 @@
         "inputbuf": {
           "press_ticks": "5:lab_a_charge;60:lab_a_charge;140:lab_a_charge",
           "slot_visible_ticks": "5:lab_a_charge;60:lab_a_charge;140:lab_a_charge",
-          "consume_ticks": "9:skill.lab_a_charge;90:skill.lab_a_charge;200:skill.lab_a_charge",
+          "consume_ticks": "9:skill.lab_a_charge;90:skill.lab_a_charge;191:skill.lab_a_charge",
           "accept_latency_ticks": [
             4,
             30,
-            60
+            51
           ],
-          "accept_latency_max": 60,
+          "accept_latency_max": 51,
           "drop_events": "",
           "drop_counts": "",
           "expire_ticks": "",
           "max_slot_occupancy": 1,
-          "slot_occupied_ticks": 97
+          "slot_occupied_ticks": 88
         },
         "actiontl": {
-          "starts": "player@9:skill.lab_a_charge#0;player@90:skill.lab_a_charge#0;player@200:skill.lab_a_charge#0",
+          "starts": "player@9:skill.lab_a_charge#0;player@90:skill.lab_a_charge#0;player@191:skill.lab_a_charge#0",
           "phase_ticks": "player:skill.lab_a_charge:startup=9/active=8/recovery=18;player:skill.lab_a_charge:startup=9/active=8/recovery=18;player:skill.lab_a_charge:startup=9/active=8/recovery=18",
           "action_total_ticks": [
             35,
             35,
             35
           ],
-          "markers": "player@18:hit;player@99:hit;player@209:hit",
+          "markers": "player@18:hit;player@99:hit;player@200:hit",
           "cancels": "",
-          "finishes": "player@44;player@125;player@235",
+          "finishes": "player@44;player@125;player@226",
           "combo_chain": "",
           "combo_segments": 0,
           "charge_ratios": [
@@ -530,7 +530,7 @@
           "unfinished_at_end": 0
         },
         "hitstop": {
-          "started": "18:player:2;18:stake:3;99:player:2;99:stake:3;209:player:2;209:stake:3",
+          "started": "18:player:2;18:stake:3;99:player:2;99:stake:3;200:player:2;200:stake:3",
           "started_ticks_player": 6,
           "frozen_ticks_player": 6,
           "frozen_ticks_targets": "stake=9",
@@ -541,13 +541,13 @@
         "reaction": {
           "hit_results": "Hit:3",
           "reaction_counts": "Stagger:3",
-          "reactions": "18:stake:Stagger:9;99:stake:Stagger:9;209:stake:Stagger:9",
+          "reactions": "18:stake:Stagger:9;99:stake:Stagger:9;200:stake:Stagger:9",
           "staggered_ticks": "stake=27",
           "kills": 0,
           "hit_classes": "medium,medium,medium"
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex9,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex46,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex75,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex25",
+          "mode_sequence": "Grounded/Nonex9,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex46,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex66,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex34",
           "speed_max": 0,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
@@ -561,15 +561,15 @@
           "hit_confirmed": 3,
           "avoided": 0,
           "hit_sets": "0.0=stake;1.0=stake;2.0=stake",
-          "confirm_ticks": "18:player>stake;99:player>stake;209:player>stake",
+          "confirm_ticks": "18:player>stake;99:player>stake;200:player>stake",
           "duplicate_confirmations": 0,
           "unconfirmed_damage": 0,
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "18:sfx.lab_impact_t2;99:sfx.lab_impact_t2;209:sfx.lab_impact_t2",
+          "sfx_ids": "18:sfx.lab_impact_t2;99:sfx.lab_impact_t2;200:sfx.lab_impact_t2",
           "sfx_count": 3,
-          "camera_cues": "18:1:;99:1:;209:1:",
+          "camera_cues": "18:1:;99:1:;200:1:",
           "camera_magnitudes": [
             0.01,
             0.01,
@@ -580,7 +580,7 @@
             120,
             120
           ],
-          "freeze_ops": "18:freeze:player:2;18:freeze:stake:3;20:release:player:0;21:release:stake:0;99:freeze:player:2;99:freeze:stake:3;101:release:player:0;102:release:stake:0;209:freeze:player:2;209:freeze:stake:3;211:release:player:0;212:release:stake:0",
+          "freeze_ops": "18:freeze:player:2;18:freeze:stake:3;20:release:player:0;21:release:stake:0;99:freeze:player:2;99:freeze:stake:3;101:release:player:0;102:release:stake:0;200:freeze:player:2;200:freeze:stake:3;202:release:player:0;203:release:stake:0",
           "first_feedback_lag_ticks": 0,
           "other_ops": ""
         }
@@ -590,7 +590,7 @@
       "key": {
         "script": "feel_charge",
         "scriptVersion": 1,
-        "dataset": "ac4242389fde5ddb",
+        "dataset": "29eb0ef3679db274",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -726,7 +726,7 @@
       "key": {
         "script": "feel_charge",
         "scriptVersion": 1,
-        "dataset": "9f95d55ac17abe23",
+        "dataset": "a917a72312c96bf6",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -778,7 +778,7 @@
         },
         "performance": {
           "ticks": 260,
-          "event_count_total": 585,
+          "event_count_total": 586,
           "frames": 260,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -787,30 +787,30 @@
         "inputbuf": {
           "press_ticks": "5:lab_a_charge;60:lab_a_charge;140:lab_a_charge",
           "slot_visible_ticks": "5:lab_a_charge;60:lab_a_charge;140:lab_a_charge",
-          "consume_ticks": "9:skill.lab_a_charge;90:skill.lab_a_charge;200:skill.lab_a_charge",
+          "consume_ticks": "9:skill.lab_a_charge;90:skill.lab_a_charge;191:skill.lab_a_charge",
           "accept_latency_ticks": [
             4,
             30,
-            60
+            51
           ],
-          "accept_latency_max": 60,
+          "accept_latency_max": 51,
           "drop_events": "",
           "drop_counts": "",
           "expire_ticks": "",
           "max_slot_occupancy": 1,
-          "slot_occupied_ticks": 97
+          "slot_occupied_ticks": 88
         },
         "actiontl": {
-          "starts": "player@9:skill.lab_a_charge#0;player@90:skill.lab_a_charge#0;player@200:skill.lab_a_charge#0",
+          "starts": "player@9:skill.lab_a_charge#0;player@90:skill.lab_a_charge#0;player@191:skill.lab_a_charge#0",
           "phase_ticks": "player:skill.lab_a_charge:startup=9/active=8/recovery=18;player:skill.lab_a_charge:startup=9/active=8/recovery=18;player:skill.lab_a_charge:startup=9/active=8/recovery=18",
           "action_total_ticks": [
             35,
             35,
             35
           ],
-          "markers": "player@18:hit;player@99:hit;player@209:hit",
+          "markers": "player@18:hit;player@99:hit;player@200:hit",
           "cancels": "",
-          "finishes": "player@44;player@125;player@235",
+          "finishes": "player@44;player@125;player@226",
           "combo_chain": "",
           "combo_segments": 0,
           "charge_ratios": [
@@ -822,7 +822,7 @@
           "unfinished_at_end": 0
         },
         "hitstop": {
-          "started": "18:player:2;18:stake:3;99:player:2;99:stake:3;209:player:2;209:stake:3",
+          "started": "18:player:2;18:stake:3;99:player:2;99:stake:3;200:player:2;200:stake:3",
           "started_ticks_player": 6,
           "frozen_ticks_player": 6,
           "frozen_ticks_targets": "stake=9",
@@ -833,13 +833,13 @@
         "reaction": {
           "hit_results": "Hit:3",
           "reaction_counts": "Stagger:3",
-          "reactions": "18:stake:Stagger:9;99:stake:Stagger:9;209:stake:Stagger:9",
+          "reactions": "18:stake:Stagger:9;99:stake:Stagger:9;200:stake:Stagger:9",
           "staggered_ticks": "stake=27",
           "kills": 0,
           "hit_classes": "medium,medium,medium"
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex9,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex46,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex75,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex25",
+          "mode_sequence": "Grounded/Nonex9,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex46,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex66,Action/Nonex10,Frozen/Nonex2,Action/Nonex23,Grounded/Nonex34",
           "speed_max": 0,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
@@ -853,15 +853,15 @@
           "hit_confirmed": 3,
           "avoided": 0,
           "hit_sets": "0.0=stake;1.0=stake;2.0=stake",
-          "confirm_ticks": "18:player>stake;99:player>stake;209:player>stake",
+          "confirm_ticks": "18:player>stake;99:player>stake;200:player>stake",
           "duplicate_confirmations": 0,
           "unconfirmed_damage": 0,
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "18:sfx.lab_impact_t2;99:sfx.lab_impact_t2;209:sfx.lab_impact_t2",
+          "sfx_ids": "18:sfx.lab_impact_t2;99:sfx.lab_impact_t2;200:sfx.lab_impact_t2",
           "sfx_count": 3,
-          "camera_cues": "18:1:;99:1:;209:1:",
+          "camera_cues": "18:1:;99:1:;200:1:",
           "camera_magnitudes": [
             0.01,
             0.01,
@@ -872,7 +872,7 @@
             120,
             120
           ],
-          "freeze_ops": "18:freeze:player:2;18:freeze:stake:3;20:release:player:0;21:release:stake:0;99:freeze:player:2;99:freeze:stake:3;101:release:player:0;102:release:stake:0;209:freeze:player:2;209:freeze:stake:3;211:release:player:0;212:release:stake:0",
+          "freeze_ops": "18:freeze:player:2;18:freeze:stake:3;20:release:player:0;21:release:stake:0;99:freeze:player:2;99:freeze:stake:3;101:release:player:0;102:release:stake:0;200:freeze:player:2;200:freeze:stake:3;202:release:player:0;203:release:stake:0",
           "first_feedback_lag_ticks": 0,
           "other_ops": ""
         }

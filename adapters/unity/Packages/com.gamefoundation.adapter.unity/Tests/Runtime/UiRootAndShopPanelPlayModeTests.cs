@@ -281,6 +281,7 @@ namespace Adapter.Unity.Tests.Runtime
             (UiPanel.QuestLog, "QuestLogPanel"), (UiPanel.Dialog, "DialogPanel"), (UiPanel.SkillBook, "SkillBookPanel"),
             (UiPanel.CharacterStats, "CharacterStatsPanel"), (UiPanel.Settings, "SettingsPanel"),
             (UiPanel.SaveSlots, "SaveSlotsPanel"), (UiPanel.PauseMenu, "PauseMenuPanel"), (UiPanel.Shop, "ShopPanel"),
+            (UiPanel.Equipment, "EquipmentPanel"),
         };
 
         [UnityTest]

@@ -6,12 +6,13 @@ namespace Core.Foundation.InputMap
     /// </summary>
     public static class ActionClassDefaults
     {
-        /// <summary>类别缺省优先级（越大越优先）：dodge 40、attack = skill 30、item 20、interact 10、menu 0；move 不入缓冲，取 0。</summary>
+        /// <summary>类别缺省优先级（越大越优先）：dodge 40、jump 35、attack = skill 30、item 20、interact 10、menu 0；move 不入缓冲，取 0。</summary>
         public static int Priority(ActionClass actionClass)
         {
             switch (actionClass)
             {
                 case ActionClass.Dodge: return 40;
+                case ActionClass.Jump: return 35;
                 case ActionClass.Attack: return 30;
                 case ActionClass.Skill: return 30;
                 case ActionClass.Item: return 20;

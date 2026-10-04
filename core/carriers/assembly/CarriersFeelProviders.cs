@@ -15,9 +15,21 @@ namespace Core.Carriers.Assembly
     // 手感解析器读取实体只读状态的生产提供者（手感落地 S10）。解析器在 L0 不依赖载体层，这些实现读单位模板、装备、光环与动作状态，
     // 由 CarriersFeelAssembly 在装配根注入。全部只读、无副作用；数据缺失一律返回"无"，不抛异常（手感引用本来就是可选能力）。
 
-    /// <summary>体型/角色引用：读单位模板（<c>creature.template</c>）的 <c>feel_archetype_ref</c>/<c>feel_ref</c>（第 2、5 层）。</summary>
+    /// <summary>
+    /// 体型/角色引用（第 2、5 层）：生物单位读单位模板（<c>creature.template</c>）、玩家单位读职业行（<c>arch.class</c>）的
+    /// <c>feel_archetype_ref</c>/<c>feel_ref</c>。
+    /// <para>
+    /// 判断记录（玩家入口，ADR-0146）：玩家是 <see cref="PlayerUnit"/>，没有单位模板，职业才是它的"模板"，所以玩家按
+    /// <see cref="PlayerUnit.ArchetypeId"/> 对应的 <c>arch.class</c> 行取两个引用——两个字段与 <c>creature.template</c> 同名同义，
+    /// 解析路径（第 2 层体型原型、第 5 层角色）完全一致；职业行没有声明、或不在注册表时返回无，与此前玩家恒无体型/角色引用逐位相同。
+    /// 其它实体类型（物件、投射物、召唤物）仍没有这两层。
+    /// </para>
+    /// </summary>
     public sealed class CreatureTemplateFeelBodyProvider : IFeelBodyProvider
     {
+        /// <summary>职业行（<c>arch.class</c>）表名。</summary>
+        public const string ClassTable = "arch.class";
+
         private readonly IWorldSim _world;
         private readonly IDataRegistryView _registry;
 
@@ -31,11 +43,45 @@ namespace Core.Carriers.Assembly
 
         public string? GetCharacterRef(Id unitId) => ReadRef(unitId, "feel_ref");
 
+        /// <summary>注册表里是否有任何职业行声明了手感引用（用于读档后失效判断：没有声明就不必为玩家重算）。</summary>
+        public bool AnyClassDeclaresFeel()
+        {
+            if (!_registry.TryGetAll(ClassTable, out var rows)) return false;
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var record = rows[i];
+                if ((record.TryGetString("feel_archetype_ref", out var a) && a.Length > 0)
+                    || (record.TryGetString("feel_ref", out var c) && c.Length > 0))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private string? ReadRef(Id unitId, string field)
         {
-            var template = _world.GetEntity(unitId)?.TemplateId;
-            if (!template.HasValue) return null;
-            var record = _registry.Get("creature.template", template.Value);
+            var entity = _world.GetEntity(unitId);
+            if (entity == null) return null;
+
+            string table;
+            Id row;
+            if (entity is PlayerUnit player)
+            {
+                if (string.IsNullOrEmpty(player.ArchetypeId.Value)) return null;
+                table = ClassTable;
+                row = player.ArchetypeId;
+            }
+            else
+            {
+                var template = entity.TemplateId;
+                if (!template.HasValue) return null;
+                table = "creature.template";
+                row = template.Value;
+            }
+
+            var record = _registry.Get(table, row);
             return record != null && record.TryGetString(field, out var value) && value.Length > 0 ? value : null;
         }
     }

@@ -230,7 +230,7 @@ namespace Lab
             return builder.Build();
         }
 
-        /// <summary>内置四组：响应、移动、攻击、性能（06 第 3.1 节本期落地的四组），加条件组：换装解析（仅换装场景）、手感七组、空间语义（仅带竖直轴的格子/跳跃脚本/靶子声明了高度的运行）。</summary>
+        /// <summary>内置四组：响应、移动、攻击、性能（06 第 3.1 节本期落地的四组），加条件组：换装解析（仅换装场景）、手感七组、空间语义（仅带竖直轴的格子/跳跃脚本/靶子声明了高度的运行），可选组（脚本 <c>meta.extraMetrics</c> 声明才有：<c>latency</c>、<c>attackx</c>、<c>hitx</c>、<c>crowd</c>、<c>facing</c>，M5-S7）。</summary>
         public static MetricRegistry CreateDefault() =>
             new MetricRegistry()
                 .Register(new ResponseMetricGroup())
@@ -238,6 +238,7 @@ namespace Lab
                 .Register(new AttackMetricGroup())
                 .Register(new PerformanceMetricGroup())
                 .Register(new EquipMetricGroup())
+                .Register(new EquipOffhandMetricGroup())
                 .Register(new InputBufferMetricGroup())
                 .Register(new ActionTimelineMetricGroup())
                 .Register(new HitstopMetricGroup())
@@ -246,11 +247,18 @@ namespace Lab
                 .Register(new SpatialHitMetricGroup())
                 .Register(new ProjectileMetricGroup())
                 .Register(new PoiseMetricGroup())
+                .Register(new ReactionExtMetricGroup())
+                .Register(new PoseExtMetricGroup())
                 .Register(new PresentationTimelineMetricGroup())
                 .Register(new SpaceMetricGroup())
                 .Register(new SpaceExtMetricGroup())
                 .Register(new AirCombatMetricGroup())
-                .Register(new SpaceNavMetricGroup());
+                .Register(new SpaceNavMetricGroup())
+                .Register(new VisibleLatencyMetricGroup())
+                .Register(new AttackExtMetricGroup())
+                .Register(new HitExtMetricGroup())
+                .Register(new CrowdMetricGroup())
+                .Register(new FacingMetricGroup());
 
         /// <summary>默认注册表加引擎宿主度量组（<see cref="EngineMetricGroup"/>，条件组）。无头宿主的指纹仍用 <see cref="CreateDefault"/>，指纹与基线不变。</summary>
         public static MetricRegistry CreateWithEngine() => CreateDefault().Register(new EngineMetricGroup());

@@ -51,6 +51,12 @@ namespace Core.Carriers.Unit
         /// <summary><c>walk</c> 模式目标速度相对移动速度属性的倍数（<c>run</c> 恒为 1）。</summary>
         public double WalkSpeedRatio { get; }
 
+        /// <summary>
+        /// <c>sprint</c> 模式目标速度相对移动速度属性的倍数（<c>sprint_speed_ratio</c>，手感设计/02 第 2 节，ADR-0147）；档案没写（可选字段）为 1，
+        /// 与 <c>run</c> 等速。
+        /// </summary>
+        public double SprintSpeedRatio { get; }
+
         public double ActionMoveSpeedRatio { get; }
 
         public bool ActionTurnLock { get; }
@@ -188,7 +194,24 @@ namespace Core.Carriers.Unit
             bool keepMomentumOnActionEnd, bool keepMomentumOnMotionEnd, bool arrivalDecel, bool wallSlide,
             bool applyToPathFollowing, string? knockbackResistanceStat, double unitBodyRadius, bool dodgeThroughUnits,
             double unitSeparationSpeedRatio, bool avoidUnitsOnPaths, bool forcedPushUnits, double forcedPushRatio, int passKindMask)
+            : this(
+                version, accelMs, decelMs, accelCurve, brakeCurve, reverse, turnRateDegS, walkSpeedRatio, actionMoveSpeedRatio,
+                actionTurnLock, keepMomentumOnActionEnd, keepMomentumOnMotionEnd, arrivalDecel, wallSlide, applyToPathFollowing,
+                knockbackResistanceStat, unitBodyRadius, dodgeThroughUnits, unitSeparationSpeedRatio, avoidUnitsOnPaths,
+                forcedPushUnits, forcedPushRatio, passKindMask, 1.0)
         {
+        }
+
+        /// <summary>完整构造（ADR-0147）：在 23 参数构造之上追加冲刺倍率 <paramref name="sprintSpeedRatio"/>（≤ 0 视为 1）。</summary>
+        public MotionProfile(
+            int version, double accelMs, double decelMs, string accelCurve, string brakeCurve, ReversePolicy reverse,
+            double turnRateDegS, double walkSpeedRatio, double actionMoveSpeedRatio, bool actionTurnLock,
+            bool keepMomentumOnActionEnd, bool keepMomentumOnMotionEnd, bool arrivalDecel, bool wallSlide,
+            bool applyToPathFollowing, string? knockbackResistanceStat, double unitBodyRadius, bool dodgeThroughUnits,
+            double unitSeparationSpeedRatio, bool avoidUnitsOnPaths, bool forcedPushUnits, double forcedPushRatio, int passKindMask,
+            double sprintSpeedRatio)
+        {
+            SprintSpeedRatio = sprintSpeedRatio > 0.0 ? sprintSpeedRatio : 1.0;
             Version = version;
             AccelMs = accelMs;
             DecelMs = decelMs;
@@ -263,7 +286,8 @@ namespace Core.Carriers.Unit
                 OptionalBool(view, FeelFieldNames.PathAvoidUnits, true),
                 OptionalBool(view, FeelFieldNames.ForcedPushUnits),
                 OptionalRaw(view, FeelFieldNames.ForcedPushRatio, DefaultForcedPushRatio),
-                ParsePassKinds(OptionalText(view, FeelFieldNames.PassThroughMotionKinds, DefaultPassThroughKinds)));
+                ParsePassKinds(OptionalText(view, FeelFieldNames.PassThroughMotionKinds, DefaultPassThroughKinds)),
+                OptionalRaw(view, FeelFieldNames.SprintSpeedRatio, 1.0));
         }
 
         private static double Num(JudgingFeelView view, string field)

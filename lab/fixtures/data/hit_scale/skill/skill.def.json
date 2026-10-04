@@ -1,0 +1,64 @@
+{
+  "table": "skill.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.lab_hs_charge",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.65,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 150,
+        "active_ms": 200,
+        "recovery_ms": 300,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 150
+          },
+          {
+            "name": "hit",
+            "at_ms": 250,
+            "args": {
+              "feel_ref": "feel.action.lab_hs_finisher"
+            }
+          }
+        ],
+        "charge": {
+          "min_ms": 250,
+          "max_ms": 850,
+          "feel_scale": {
+            "attacker_hitstop_ms": {
+              "min": 1,
+              "max": 3
+            },
+            "target_hitstop_ms": {
+              "min": 1,
+              "max": 3
+            }
+          }
+        }
+      },
+      "note": "M5-S2a 蓄力手感缩放与分段手感覆盖：蓄力 hit 标记 0 段按蓄力比例缩放顿帧；第 1 段声明 args.feel_ref（终结手感行），覆盖该段的顿帧取值（缩放仍乘在覆盖后的取值上）。"
+    }
+  ]
+}

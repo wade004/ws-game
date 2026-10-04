@@ -132,6 +132,9 @@ namespace Adapter.Unity.EngineAdapter
             /// 记录，与 <see cref="UnityRenderer2D"/> 的 <c>SpriteInstance.Root</c> 同一职责划分。</summary>
             public GameObject Root = null!;
 
+            /// <summary>身体前倾角（度，<see cref="SetLean"/>）；VisualRoot 就位/替换后由 <see cref="SetPlacement"/> 重新应用。</summary>
+            public double LeanDeg;
+
             /// <summary>Root 下的可见内容子物体：承载 height 偏移，实际实例化出来的预制体（真实内容
             /// 或占位模型，见类型顶部"资源缺失降级"判断记录）挂在这里——与
             /// <see cref="UnityRenderer2D"/> 的 <c>SpriteInstance.LayersRoot</c> 同一职责划分。资源
@@ -574,6 +577,7 @@ namespace Adapter.Unity.EngineAdapter
                 var local = instance.VisualRoot.localPosition;
                 instance.VisualRoot.localPosition = new Vector3(local.x, (float)height, local.z);
             }
+            ApplyLean(instance);
 
             // PR140-01 根治：facing 每次都可能变化，Blob 影子必须在每次 SetPlacement 之后重新钉死世界
             // 旋转/位置，不能只在 SetShadow 创建那一刻摆一次就永远不再管，见 ApplyBlobShadowTransform
@@ -912,6 +916,23 @@ namespace Adapter.Unity.EngineAdapter
                 {
                     state.speed = (float)speed;
                 }
+            }
+        }
+
+        /// <summary>身体前倾（见 <see cref="IRenderer3D.SetLean"/>）：写在可见内容子物体（VisualRoot）的局部旋转上，绕局部横轴；
+        /// Root 的朝向/落点不受影响。可见内容尚未就位（资源加载中）时先记下，就位后随下一次 <see cref="SetPlacement"/> 生效。</summary>
+        public void SetLean(ModelHandle handle, double degrees)
+        {
+            var instance = EnsureAlive(handle);
+            instance.LeanDeg = degrees;
+            ApplyLean(instance);
+        }
+
+        private static void ApplyLean(ModelInstance instance)
+        {
+            if (instance.VisualRoot != null)
+            {
+                instance.VisualRoot.localRotation = Quaternion.Euler((float)instance.LeanDeg, 0f, 0f);
             }
         }
 

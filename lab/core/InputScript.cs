@@ -20,6 +20,18 @@ namespace Lab
     /// 与跳跃一样是宿主级请求，直接提交 <c>MoveRequest.ToTarget</c>，不经输入映射——点击移动在引擎侧本来就是点目标意图而不是输入动作）与
     /// <see cref="TerrainSwap"/>（地形热切换：<see cref="ScriptEvent.Action"/> 是 <c>world.map</c> 行 id，把本次运行地图的地形整体换成该行的 <c>terrain</c>，
     /// 并像关卡流送那样重建导航网格——导航阻挡版本 +1，触发移动系统对在途路径的重新校验）。
+    /// 交互式试玩（手感实验室的人手试玩宿主，格式版本 5，ADR-0141）另有四类宿主级事件，让"人手实时输入"落成可无头回放的脚本：
+    /// <see cref="Spawn"/>（<see cref="ScriptEvent.Action"/> 是靶子集条目名，<see cref="ScriptEvent.Value"/> 是出场位置，
+    /// <see cref="ScriptEvent.Actor"/> 是出场标签，空则按"条目名@序号"自动生成；序号按出场先后递增，回放与试玩一致）、
+    /// <see cref="ClearDummies"/>（清掉全部靶子；<see cref="ScriptEvent.Action"/> 只作标签）、
+    /// <see cref="Preset"/>（运行中切基础预设：<see cref="ScriptEvent.Action"/> 是 <c>feel.preset.*</c> 行 id，经标定热换，进行中的动作沿用开始时的快照）、
+    /// <see cref="Loadout"/>（运行中叠加一行装备/体型档案：<see cref="ScriptEvent.Action"/> 是 <c>feel.weapon.*</c> 或 <c>feel.archetype.*</c> 行 id，
+    /// 其 writes 作为玩家单位的第 8 层覆盖；空串 = 清掉全部装备/体型覆盖）、
+    /// <see cref="Override"/>（运行中写一条第 8 层调试覆盖：<see cref="ScriptEvent.Action"/> 是手感字段名，<see cref="ScriptEvent.Actor"/> 是作用单位的出场标签
+    /// （空 = 全局，<c>player</c> = 玩家），<see cref="ScriptEvent.Value"/> 的 X 是数值（布尔字段 0/1）、Y 是操作码 0 = set / 1 = multiply / 2 = add / 3 = remove（列表字段），枚举、引用、文本与列表字段的取值在 <see cref="ScriptEvent.Text"/>，见 <see cref="LabOverrideCodec"/>）、
+    /// <see cref="ClearOverrides"/>（<see cref="ScriptEvent.Action"/> 不是已登记手感字段名时清掉全部由 <see cref="Override"/> 写入的覆盖，是字段名时只清该字段在 <see cref="ScriptEvent.Actor"/> 作用域里的覆盖）、
+    /// <see cref="Marker"/>（纯呈现标记：时间尺度、暂停/单步、单项效果开关、角落闪块——<see cref="ScriptEvent.Action"/> 是标记名，<see cref="ScriptEvent.Value"/> 的 X 是参数；
+    /// 宿主逻辑完全不读，只在重放引擎宿主时让视图复现，所以带标记与不带标记的脚本逻辑组逐字节一致）。
     /// </summary>
     public enum ScriptEventKind
     {
@@ -34,6 +46,13 @@ namespace Lab
         Move,
         MoveTo,
         TerrainSwap,
+        Spawn,
+        ClearDummies,
+        Preset,
+        Loadout,
+        Override,
+        ClearOverrides,
+        Marker,
     }
 
     /// <summary>
@@ -58,7 +77,18 @@ namespace Lab
         /// <summary>事件的行动者：空表示玩家（所有既有事件）；<see cref="ScriptEventKind.Cast"/> 里是靶子的出场标签。</summary>
         public string Actor { get; }
 
+        /// <summary>
+        /// 事件的文本载荷（手感实验室调参面板，ADR-0150）：<see cref="ScriptEventKind.Override"/> 事件里，枚举、引用、文本类字段的取值（列表字段是逗号分隔的元素）
+        /// 放在这里，布尔与数值字段仍用 <see cref="Value"/> 的 X；空表示没有文本载荷（既有全部事件，序列化文本因此不变）。
+        /// </summary>
+        public string Text { get; }
+
         public ScriptEvent(int tick, string action, ScriptEventKind kind, Vec2 value = default, double? realTimestamp = null, string actor = "")
+            : this(tick, action, kind, value, realTimestamp, actor, string.Empty)
+        {
+        }
+
+        public ScriptEvent(int tick, string action, ScriptEventKind kind, Vec2 value, double? realTimestamp, string actor, string text)
         {
             if (tick < 0)
             {
@@ -71,6 +101,7 @@ namespace Lab
             Value = value;
             RealTimestamp = realTimestamp;
             Actor = actor ?? string.Empty;
+            Text = text ?? string.Empty;
         }
     }
 
@@ -169,15 +200,59 @@ namespace Lab
         /// </summary>
         public List<KeyValuePair<string, double>> PoiseImpactScale { get; } = new List<KeyValuePair<string, double>>();
 
+        /// <summary>
+        /// 命中形状按目标受击半径相交（<c>hitRadiusFromFeel</c>，手感落地 M5-S2a，格式版本 3；缺省 false = 命中把目标当点）：
+        /// 经 <c>CarriersFeelOptions.HitRadiusFromFeel</c> 打开，受击半径 = 预设 <c>unit_body_radius</c> × <c>hurt_radius_scale</c>。
+        /// </summary>
+        public bool HitRadiusFromFeel { get; set; }
+
+        /// 姿势与动画观测选项（<c>poseExt</c> 块，M5-S4，ADR-0147，格式版本 3；缺省 null = 不装姿势观测，一切与既有行为逐位一致）：
+        /// 宿主在手感装置里装出与生产装配同一批部件（动画状态机、播放速率、移动呈现参数馈送），把姿势请求序列与剪辑播放速率记成事件，
+        /// 供 <c>poseext</c> 条件度量组使用。
+        /// </summary>
+        public ScriptPoseOptions? PoseExt { get; set; }
+
+        /// <summary>
+        /// 玩家职业行 id（<c>arch.class.*</c>，M5-S7，ADR-0151；缺省空 = 运行入口给的职业，实验室数据集里是 <c>arch.class.lab_hero</c>）。
+        /// 玩家的体型原型/角色手感引用写在职业行上（ADR-0146），所以体型矩阵脚本用它走生产路径选体型，而不是调试覆盖。
+        /// </summary>
+        public string PlayerClass { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 声明启用的可选度量组名（<c>meta.extraMetrics</c>，M5-S7，ADR-0151；缺省空）：这些组都是条件组，只在脚本声明了它们时才出现在指纹里，
+        /// 所以给既有脚本之外的新脚本补度量不改任何既有基线；取值见 <see cref="LabExtraMetrics.Known"/>，未知名字是脚本内容错误。
+        /// </summary>
+        public List<string> ExtraMetrics { get; } = new List<string>();
+
         /// <summary>是否用到了手感场景的格式版本 3 字段。</summary>
         public bool UsesFeelFormat =>
-            Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0 || SpaceExt != null || PoiseImpactScale.Count > 0;
+            Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0 || SpaceExt != null || PoiseImpactScale.Count > 0
+            || HitRadiusFromFeel
+            || PoseExt != null
+            || PlayerClass.Length > 0
+            || ExtraMetrics.Count > 0;
 
         /// <summary>是否用到了格式版本 2 的字段（决定序列化时写的 <c>formatVersion</c>）。</summary>
         public bool UsesExtendedFormat =>
             Scene.Length > 0 || ExtraDataRoots.Count > 0 || ExtraDataExcludeTables.Count > 0 || ExtraDataExcludeRows.Count > 0
             || FeelCalibrationId.Length > 0
             || UnarmedAttackSkill.Length > 0;
+    }
+
+    /// <summary>
+    /// 脚本的姿势与动画观测选项（<c>meta.poseExt</c>，M5-S4，ADR-0147）。
+    /// <para>
+    /// 判断记录：①观测只读——装的是生产部件（<c>AnimStateMachine</c> 的受击反应驱动模式、<c>ClipPlaybackRates</c>、<c>PoseGaitFeeder</c>），
+    /// 不自建平行机制；受击反应驱动模式只在受击裁决装配且未处于离散模式（<c>HitFeelHost.Active</c>）时进入，与生产装配同口径。
+    /// 目标选择式格子剥掉了时间线（瞬发、没有倒地/起身段），各格子的受击反应与姿势请求本来就不同，所以 <c>poseext</c> 度量组是表现类
+    /// （跨格子不比较，每格子各自基线），脚本期望只对动作式格子声明。
+    /// ②<see cref="Sprint"/> 让玩家的移动请求用冲刺模式（<c>MoveMode.Sprint</c>，速度 = 基础速度 × <c>sprint_speed_ratio</c>）；
+    /// 缺省仍是走路模式（判断记录 29）。
+    /// </para>
+    /// </summary>
+    public sealed class ScriptPoseOptions
+    {
+        public bool Sprint { get; set; }
     }
 
     /// <summary>
@@ -273,14 +348,31 @@ namespace Lab
         /// </summary>
         public const int ExpectFormatVersion = 4;
 
+        /// <summary>
+        /// 交互式试玩格式版本：在期望清单格式之上再加 <c>spawn</c>/<c>clear_dummies</c>/<c>preset</c>/<c>loadout</c>/<c>override</c>/<c>clear_overrides</c>/<c>marker</c> 七类宿主级事件。
+        /// 只有脚本含这些事件才写本版本，其余脚本的序列化文本逐字不变；版本 1～4 的旧脚本照常读取。
+        /// </summary>
+        public const int InteractiveFormatVersion = 5;
+
         /// <summary>本内核读取的最高格式版本。</summary>
-        public const int MaxSupportedFormatVersion = ExpectFormatVersion;
+        public const int MaxSupportedFormatVersion = InteractiveFormatVersion;
 
         /// <summary>该脚本序列化时写的格式版本。</summary>
         public int EffectiveFormatVersion
         {
             get
             {
+                foreach (var e in Events)
+                {
+                    if (e.Kind == ScriptEventKind.Spawn || e.Kind == ScriptEventKind.ClearDummies
+                        || e.Kind == ScriptEventKind.Preset || e.Kind == ScriptEventKind.Loadout
+                        || e.Kind == ScriptEventKind.Override || e.Kind == ScriptEventKind.ClearOverrides
+                        || e.Kind == ScriptEventKind.Marker)
+                    {
+                        return InteractiveFormatVersion;
+                    }
+                }
+
                 if (Expectations.Count > 0)
                 {
                     return ExpectFormatVersion;
@@ -388,6 +480,11 @@ namespace Lab
                 meta.SpaceExt = ReadSpaceExt(spaceExtObj, what + ".meta.spaceExt");
             }
 
+            if (metaObj.TryGetValue("poseExt", out var poseExtValue) && poseExtValue is JsonObject poseExtObj)
+            {
+                meta.PoseExt = new ScriptPoseOptions { Sprint = poseExtObj.TryGetValue("sprint", out var sprintValue) && sprintValue is JsonBool sprintBool && sprintBool.Value };
+            }
+
             if (metaObj.TryGetValue("poiseImpactScale", out var scaleValue) && scaleValue is JsonObject scaleObj)
             {
                 for (var i = 0; i < scaleObj.Count; i++)
@@ -398,6 +495,17 @@ namespace Lab
                 }
             }
 
+            meta.PlayerClass = LabJson.OptionalString(metaObj, "playerClass", what + ".meta") ?? string.Empty;
+            ReadStrings(metaObj, "extraMetrics", meta.ExtraMetrics, what + ".meta");
+            foreach (var name in meta.ExtraMetrics)
+            {
+                if (Array.IndexOf(LabExtraMetrics.Known, name) < 0)
+                {
+                    throw new LabFormatException($"{what}.meta.extraMetrics 里的 {name} 不是已知的可选度量组（{string.Join("|", LabExtraMetrics.Known)}）");
+                }
+            }
+
+            meta.HitRadiusFromFeel = metaObj.TryGetValue("hitRadiusFromFeel", out var hitRadiusFlag) && hitRadiusFlag is JsonBool hitRadiusBool && hitRadiusBool.Value;
             meta.Feel = metaObj.TryGetValue("feel", out var feelFlag) && feelFlag is JsonBool feelBool && feelBool.Value;
             ReadStrings(metaObj, "learnSkills", meta.LearnSkills, what + ".meta");
             if (metaObj.TryGetValue("skillSlots", out var slots) && slots is JsonObject slotsObj)
@@ -452,11 +560,19 @@ namespace Lab
                     case "move": kind = ScriptEventKind.Move; break;
                     case "move_to": kind = ScriptEventKind.MoveTo; break;
                     case "terrain_swap": kind = ScriptEventKind.TerrainSwap; break;
-                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast|clear_projectiles|jump|move|move_to|terrain_swap）");
+                    case "spawn": kind = ScriptEventKind.Spawn; break;
+                    case "clear_dummies": kind = ScriptEventKind.ClearDummies; break;
+                    case "preset": kind = ScriptEventKind.Preset; break;
+                    case "loadout": kind = ScriptEventKind.Loadout; break;
+                    case "override": kind = ScriptEventKind.Override; break;
+                    case "clear_overrides": kind = ScriptEventKind.ClearOverrides; break;
+                    case "marker": kind = ScriptEventKind.Marker; break;
+                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast|clear_projectiles|jump|move|move_to|terrain_swap|spawn|clear_dummies|preset|loadout|override|clear_overrides|marker）");
                 }
 
                 var value = Vec2.Zero;
-                if (kind == ScriptEventKind.Axis || kind == ScriptEventKind.Move || kind == ScriptEventKind.MoveTo)
+                if (kind == ScriptEventKind.Axis || kind == ScriptEventKind.Move || kind == ScriptEventKind.MoveTo || kind == ScriptEventKind.Spawn
+                    || kind == ScriptEventKind.Override || kind == ScriptEventKind.Marker)
                 {
                     value = LabJson.ReadVec(
                         eo.TryGetValue("value", out var v) ? v : JsonNull.Instance, what + ".events[].value");
@@ -469,7 +585,8 @@ namespace Lab
                     throw new LabFormatException($"{what}.events[] 的 {kindText} 事件必须带 actor（靶子的出场标签；玩家的跳跃用动作 input.action.lab_jump 的按下事件）");
                 }
 
-                events.Add(new ScriptEvent(tick, action, kind, value, ts, actor));
+                var payload = LabJson.OptionalString(eo, "text", what + ".events[]") ?? string.Empty;
+                events.Add(new ScriptEvent(tick, action, kind, value, ts, actor, payload));
             }
 
             var expectations = root.TryGetValue("expectations", out var ex) && !(ex is JsonNull)
@@ -505,6 +622,13 @@ namespace Lab
                 case ScriptEventKind.Move: return "move";
                 case ScriptEventKind.MoveTo: return "move_to";
                 case ScriptEventKind.TerrainSwap: return "terrain_swap";
+                case ScriptEventKind.Spawn: return "spawn";
+                case ScriptEventKind.ClearDummies: return "clear_dummies";
+                case ScriptEventKind.Preset: return "preset";
+                case ScriptEventKind.Loadout: return "loadout";
+                case ScriptEventKind.Override: return "override";
+                case ScriptEventKind.ClearOverrides: return "clear_overrides";
+                case ScriptEventKind.Marker: return "marker";
                 default: return "unequip";
             }
         }
@@ -596,6 +720,18 @@ namespace Lab
                     meta.Add("spaceExt", extBuilder.Build());
                 }
 
+                if (Meta.HitRadiusFromFeel)
+                {
+                    meta.Add("hitRadiusFromFeel", LabJson.Bool(true));
+                }
+
+                if (Meta.PoseExt != null)
+                {
+                    var poseBuilder = new JsonObjectBuilder();
+                    if (Meta.PoseExt.Sprint) poseBuilder.Add("sprint", LabJson.Bool(true));
+                    meta.Add("poseExt", poseBuilder.Build());
+                }
+
                 if (Meta.PoiseImpactScale.Count > 0)
                 {
                     var scaleBuilder = new JsonObjectBuilder();
@@ -605,6 +741,16 @@ namespace Lab
                     }
 
                     meta.Add("poiseImpactScale", scaleBuilder.Build());
+                }
+
+                if (Meta.PlayerClass.Length > 0)
+                {
+                    meta.Add("playerClass", LabJson.Str(Meta.PlayerClass));
+                }
+
+                if (Meta.ExtraMetrics.Count > 0)
+                {
+                    meta.Add("extraMetrics", new JsonArray(Meta.ExtraMetrics.ConvertAll(g => (JsonValue)LabJson.Str(g))));
                 }
             }
 
@@ -628,7 +774,8 @@ namespace Lab
                     .Add("tick", LabJson.Num(e.Tick))
                     .Add("action", LabJson.Str(e.Action))
                     .Add("kind", LabJson.Str(KindText(e.Kind)));
-                if (e.Kind == ScriptEventKind.Axis || e.Kind == ScriptEventKind.Move || e.Kind == ScriptEventKind.MoveTo)
+                if (e.Kind == ScriptEventKind.Axis || e.Kind == ScriptEventKind.Move || e.Kind == ScriptEventKind.MoveTo || e.Kind == ScriptEventKind.Spawn
+                    || e.Kind == ScriptEventKind.Override || e.Kind == ScriptEventKind.Marker)
                 {
                     b.Add("value", LabJson.Vec(e.Value));
                 }
@@ -636,6 +783,11 @@ namespace Lab
                 if (e.Actor.Length > 0)
                 {
                     b.Add("actor", LabJson.Str(e.Actor));
+                }
+
+                if (e.Text.Length > 0)
+                {
+                    b.Add("text", LabJson.Str(e.Text));
                 }
 
                 if (e.RealTimestamp.HasValue)

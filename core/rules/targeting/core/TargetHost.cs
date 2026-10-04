@@ -68,7 +68,7 @@ namespace Core.Rules.Targeting
         public double? GridSnapCellSize { get; set; }
 
         /// <summary>
-        /// 命中形状的高度判定（体积空间 / 横版二维能力包，手感设计/06 第 10 节勘误 9）：为 <c>true</c> 时，链声明了
+        /// 命中形状的高度判定（体积空间 / 横版二维能力包，手感设计/06 第 1.2 节）：为 <c>true</c> 时，链声明了
         /// <see cref="TargetChainDef.ShapeHeight"/>（<c>shape.height</c>）则候选必须同时满足"脚下高度与施法者脚下高度之差的绝对值
         /// 不超过该高度"才保留（形状按竖直方向拉成一个柱体，空间查询本身仍是平面的，过滤发生在来源收集之后）；未声明高度的链竖直方向不设限。
         /// 默认 <c>false</c>：高度被忽略，行为与引入本字段之前逐位一致（平面世界）。
@@ -95,6 +95,15 @@ namespace Core.Rules.Targeting
         /// 缺省 0 = 不启用目标半径；必须不小于 <see cref="TargetRadius"/> 实际返回的最大值，否则半径更大的单位可能漏判。
         /// </summary>
         public double MaxTargetRadius { get; set; }
+
+        /// <summary>
+        /// <see cref="MaxTargetRadius"/> 的动态来源（手感落地 M5-S2a）：非 null 时每次形状查询取它的返回值作为外扩上界（半径来自手感档案、随单位出生与档案热加载变化时，
+        /// 装配根提供"当前全部单位半径的最大值"）；<see cref="TargetRadius"/> 同时非 null 才启用。默认 null：只看 <see cref="MaxTargetRadius"/>，与引入本选项之前逐位一致。
+        /// </summary>
+        public Func<double>? MaxTargetRadiusProvider { get; set; }
+
+        /// <summary>目标半径是否启用：配了来源且（静态上界大于 0，或配了动态上界）。</summary>
+        internal bool TargetRadiusEnabled => TargetRadius != null && (MaxTargetRadius > 0.0 || MaxTargetRadiusProvider != null);
     }
 
     /// <summary>
@@ -196,6 +205,21 @@ namespace Core.Rules.Targeting
             }
 
             return resolution;
+        }
+
+        /// <summary>本主机使用的选项对象（与构造时传入的是同一个实例）：装配根在手感装配阶段补接 <see cref="TargetingOptions.TargetRadius"/>/<see cref="TargetingOptions.MaxTargetRadiusProvider"/> 用。</summary>
+        public TargetingOptions Options => _options;
+
+        /// <summary>见 <see cref="ITargetHost.TargetHitRadius"/>：目标半径未启用（缺省）恒为 0；启用时取来源返回值（非有限或负数按 0）。</summary>
+        public double TargetHitRadius(Id targetId)
+        {
+            if (!_options.TargetRadiusEnabled)
+            {
+                return 0.0;
+            }
+
+            var radius = _options.TargetRadius!(targetId);
+            return radius > 0.0 && !double.IsInfinity(radius) ? radius : 0.0;
         }
 
         /// <summary>见 <see cref="ITargetHost.TryGetChainShape"/>：直接读链的 <c>shape</c> 字段（形状模板）。</summary>
@@ -306,8 +330,8 @@ namespace Core.Rules.Targeting
             {
                 OriginHeight = anchorHeight,
                 SpatialDistance = _options.SpatialDistance,
-                TargetRadius = _options.MaxTargetRadius > 0.0 ? _options.TargetRadius : null,
-                MaxTargetRadius = _options.MaxTargetRadius,
+                TargetRadius = _options.TargetRadiusEnabled ? _options.TargetRadius : null,
+                MaxTargetRadius = _options.MaxTargetRadiusProvider != null ? _options.MaxTargetRadiusProvider() : _options.MaxTargetRadius,
             };
 
             IReadOnlyList<Id> candidates = strategy.Collect(ctx) ?? Array.Empty<Id>();

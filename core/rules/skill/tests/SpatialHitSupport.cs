@@ -24,6 +24,12 @@ namespace Tests.Rules.Skill
 
         public int PoseResolveCalls { get; private set; }
 
+        /// <summary>真时把 <see cref="SetRadius"/> 登记的半径同时作为 <see cref="ITargetHost.TargetHitRadius"/> 报告（生产命中半径来源的替身）；缺省 false，保持既有用例的接触点口径。</summary>
+        public bool ReportHitRadius { get; set; }
+
+        public double TargetHitRadius(Id targetId) =>
+            ReportHitRadius && _radius.TryGetValue(targetId, out var r) ? r : 0.0;
+
         public ShapeTargetHost(FakeUnitAccess units)
         {
             _units = units;
@@ -102,11 +108,15 @@ namespace Tests.Rules.Skill
     {
         public readonly List<(Id Attacker, Id Target, HitResult Result, double Amount)> Inputs = new List<(Id, Id, HitResult, double)>();
 
+        /// <summary>每次裁决收到的完整输入（M5-S2a：含分段手感覆盖标记与蓄力缩放）。</summary>
+        public readonly List<HitFeelInput> Full = new List<HitFeelInput>();
+
         public HitFeelOutcome ForHit { get; set; } = new HitFeelOutcome("impact.heavy", 5, 4, HitReaction.Flinch, 0);
 
         public HitFeelOutcome Evaluate(in HitFeelInput input)
         {
             Inputs.Add((input.AttackerId, input.TargetId, input.HitResult, input.Amount));
+            Full.Add(input);
             switch (input.HitResult)
             {
                 case HitResult.Miss:

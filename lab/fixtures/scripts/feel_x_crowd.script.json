@@ -1,0 +1,87 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_x_crowd",
+    "scriptVersion": 1,
+    "description": "群体并发度量（M5-S7，ADR-0151）：同 feel_group_hit 的群体命中，量同 tick 发声峰值、反馈指令峰值与总数、按种类分布，以及每次反应后的击退距离。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 130,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "pack"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_slam"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": "",
+    "extraMetrics": [
+      "crowd",
+      "hitx",
+      "attackx"
+    ]
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 70,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 71,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "ops_total_matches_kinds",
+      "metric": "crowd.ops_total",
+      "op": "ge",
+      "versus": {
+        "metric": "crowd.ops_peak"
+      },
+      "note": "总数不小于任一 tick 的峰值"
+    },
+    {
+      "id": "sfx_audible",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "crowd.sfx_peak",
+      "op": "ge",
+      "value": 1
+    }
+  ]
+}

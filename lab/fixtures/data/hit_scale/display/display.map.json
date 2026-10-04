@@ -1,0 +1,14 @@
+{
+  "table": "display.map",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.map.lab_hs_charge",
+      "category": "skill",
+      "logical_id": "skill.lab_hs_charge",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    }
+  ]
+}

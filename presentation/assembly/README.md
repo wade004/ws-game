@@ -670,3 +670,10 @@ ShakePresets` 里的条目 id），字段名与样例数据不改（schema 破�
 - **名单语义同 rig**：只暂停 `feel.hitstop_started` 名单里单位名下的特效；"名下"= 以该单位为宿主 anchor/socket 挂接的特效（见 `presentation/vfx_sfx/README.md` 判断记录 28）。同一冻结区间内再次发起始（延长）只会累加冻结，不会因后来那个反馈包的 `particles` 为假而提前恢复，直到 `feel.hitstop_ended` 统一解冻。
 - **本次一并修了反馈包层声明在生产链路里从不生效的缺陷**：`feel.hitstop_started` 是 tick 末由判定型宿主排队发出，到达时命中自己的打击计划通常已在前一次出批里下发，原 `ImpactPipeline.LayersFor` 只看同批计划，`freeze_layers.particles/trail` 在生产里恒为缺省（单测把命中与顿帧塞进同一批才没暴露）。修法与取舍见 `presentation/feedback_binder/README.md` 判断记录 26。
 - 复现/不变量：`tests/FeelRigFreezeWiringTests.cs` 新增两例（经生产装配：声明 `particles` 的反馈包下，攻击方/被击方名下特效暂停的 tick 数 = 顿帧档案换算值、旁观单位 0、world 挂接的命中闪光从不暂停、暂停连续且结束后无残留；未声明时 rig 照冻、特效 0 次暂停）。
+
+## 手感落地 M5-S5：镜头与音画反馈的装配（[ADR-0148](../../architecture/adr/0148-镜头与音画反馈的合成上限玩家强度脚步材质与动画表现标记.md)）
+
+- **新增装配选项/属性**：`DefaultImpactRule`（缺省 true，见 `feedback_binder` 判断记录 27）、`Rumble`（`IRumble`）、`OnAfterimage`（缺省经 `ViewBinder` 找到实现 `IAfterimageTarget` 的 View 调 `SetAfterimage`）；`FeelIntensity`（`IFeelIntensity`，读设置键 `feel.intensity.*`）、`SurfaceMaterials`（读 `world.map.surface_materials`）、`AnimMarkers`（`AnimMarkerDirector`）。
+- **出口统一缩放**：闪白（系数 0 = 不闪）、震动（乘后夹到 1）、镜头冲击/缩放脉冲/震屏（`CameraHost.Intensity`）；`ImpactPipeline.UserIntensity` 对保留前缀名字取 1，避免重复相乘。引擎侧启动入口（`GameFoundationBootstrap`、`FrameworkResidentHost`、`games/_template` 的 `GameBootstrap`）用 `FlashReceiver` 覆盖了 `OnFlash`，所以闪白系数在 `FlashReceiver.IntensityScale` 里生效，不是在装配根里。
+- **标记装配条件**：仅当存在打击反馈包流水线、手感来源且命中帧来源实现 `IAnimMarkerSource` 时才创建 `AnimMarkerDirector`（否则与此前逐位一致）；`StrideEmitter.Suppress` 在"单位所用动画集声明了 `footstep` 标记且脚步层档位大于 0"时抑制几何步幅事件（标记为唯一来源）；`entity.destroyed` 时 `AnimMarkers.Forget`。每帧的标记门超时推进只在 `AnimMarkers` 存在时跑（不额外增加既有维护步骤的调用次数，`UpdatePlaybackMaintenance` 的既有测试因此不变）。粒子冻结在 `freeze_layers.particles` 或 `trail` 任一为真时触发。
+- 复现/不变量：`tests/DefaultImpactRuleWiringTests.cs`（无游戏规则时一次命中恰好一次镜头冲击且幅度等于规则算出的值；`DefaultImpactRule=false` 时没有；游戏有自己的规则时只有那一次；用户冲击系数 0.5 减半、0 关闭）。

@@ -34,6 +34,14 @@
 //   - 与 Shake 独立叠加：冲击位移单独维护（_impulseOffset），每帧最终写回 Transform 的值是
 //     _basePosition + _shakeOffset + _impulseOffset，不污染跟随基准位置（同 _basePosition 判断记录的理由）。
 //   - 位移的落地时刻：Tick(dt) 先把全部冲击推进 dt 再求和，所以 Tick(0) 得到的就是刚触发时的峰值位移（测试据此确定性取峰值）。
+//
+// 判断记录（缩放脉冲 ICameraZoomPunch，ADR-0148，手感设计/07 第 2 节）：本类型同时实现可选能力接口 ICameraZoomPunch 且恒声明支持。
+//   - 语义：magnitude 是可视范围收窄的比例（0.04 = 峰值时可视半高缩到 96%），从峰值线性衰减回零，历时 decayMs；多次脉冲按比例相加，
+//     合计收窄不超过 50%（防止叠加后画面塌缩）。纯表现、不回流逻辑层。
+//   - 与缩放的关系：SetZoom 的缩放值仍是"基准缩放"（CurrentZoom 不变），脉冲只乘一个 [0.5, 1] 的收窄因子得到实际可视半高
+//     （EffectiveZoom）；脉冲结束后因子恢复 1，实际可视半高逐位回到基准缩放。镜头冲击的"画面高度比例"幅度按基准缩放换算
+//     （VisibleHalfHeight 不含脉冲），所以同时发生的冲击位移不被脉冲改变。
+//   - 不影响 shake_cap：缩放脉冲是缩放量、不是位移，不计入相机侧的合成位移幅度（CameraHost 判断记录）。
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
@@ -42,7 +50,7 @@ using UnityEngine;
 
 namespace Adapter.Unity.EngineAdapter
 {
-    public sealed class UnityCamera : ICamera, ICameraImpulse, ICameraOrientation
+    public sealed class UnityCamera : ICamera, ICameraImpulse, ICameraZoomPunch, ICameraOrientation
     {
         private struct ImpulseState
         {
@@ -58,6 +66,18 @@ namespace Adapter.Unity.EngineAdapter
         private const float ImpulseNoiseSeedX = 71.3f;
         private const float ImpulseNoiseSeedY = 113.9f;
 
+        private struct ZoomPunchState
+        {
+            public double Magnitude;
+            public double DurationSeconds;
+            public double Elapsed;
+        }
+
+        /// <summary>缩放脉冲叠加后的最大合计收窄比例。</summary>
+        private const double MaxZoomPunchTotal = 0.5;
+
+        private readonly List<ZoomPunchState> _zoomPunches = new List<ZoomPunchState>();
+        private double _zoomPunchScale = 1.0;
         private readonly List<ImpulseState> _impulses = new List<ImpulseState>();
         private Vector3 _impulseOffset;
         private readonly Camera _camera;
@@ -224,11 +244,52 @@ namespace Adapter.Unity.EngineAdapter
         /// 焦点处地面的可视半高（世界单位）：正交为 orthographicSize，透视为 <see cref="SetZoom"/> 的缩放值（相机距离按它与视场角算出）。
         /// 镜头冲击的"画面高度比例"幅度按它换算。
         /// </summary>
-        public float VisibleHalfHeight => _perspective ? (float)_zoom : _camera.orthographicSize;
+        public float VisibleHalfHeight => (float)_zoom;
 
         /// <summary>相机到焦点的距离：透视由缩放与视场角决定，正交固定 <see cref="CameraDistanceFromGroundPlane"/>。</summary>
         private double CameraDistance =>
-            _perspective ? _zoom / Math.Tan(_fieldOfViewDegrees * Math.PI / 360.0) : CameraDistanceFromGroundPlane;
+            _perspective ? EffectiveZoom / Math.Tan(_fieldOfViewDegrees * Math.PI / 360.0) : CameraDistanceFromGroundPlane;
+
+        /// <summary>含缩放脉冲收窄的实际可视半高（世界单位）；没有脉冲时等于基准缩放 <see cref="CurrentZoom"/>。</summary>
+        public double EffectiveZoom => _zoom * _zoomPunchScale;
+
+        /// <summary><see cref="ICameraZoomPunch.SupportsCameraZoomPunch"/>：本实现恒支持（见类型顶部判断记录）。</summary>
+        public bool SupportsCameraZoomPunch => true;
+
+        /// <summary>迄今收到的有效缩放脉冲次数（测试/诊断用）。</summary>
+        public int ZoomPunchCount { get; private set; }
+
+        /// <summary><see cref="ICameraZoomPunch.ZoomPunch"/>：见类型顶部判断记录。幅度非正或衰减非正的调用忽略（不计数）。</summary>
+        public void ZoomPunch(double magnitude, double decayMs)
+        {
+            if (!(magnitude > 0) || !(decayMs > 0))
+            {
+                return;
+            }
+
+            _zoomPunches.Add(new ZoomPunchState { Magnitude = magnitude, DurationSeconds = decayMs / 1000.0, Elapsed = 0.0 });
+            ZoomPunchCount++;
+            ApplyZoomPunchScale();
+        }
+
+        private void ApplyZoomPunchScale()
+        {
+            double total = 0;
+            for (var i = 0; i < _zoomPunches.Count; i++)
+            {
+                var punch = _zoomPunches[i];
+                total += punch.Magnitude * (1.0 - punch.Elapsed / punch.DurationSeconds);
+            }
+
+            var scale = 1.0 - Math.Min(total, MaxZoomPunchTotal);
+            if (scale == _zoomPunchScale && !_perspective)
+            {
+                return;
+            }
+
+            _zoomPunchScale = scale;
+            _camera.orthographicSize = (float)EffectiveZoom;
+        }
 
         /// <summary>
         /// 按当前开关写相机姿态与位置。俯仰与透视开关都没开时只处理偏航（与引入俯仰之前的行为逐位一致：偏航开关关闭恢复恒等朝向，
@@ -261,7 +322,7 @@ namespace Adapter.Unity.EngineAdapter
         public void SetZoom(double zoom)
         {
             _zoom = Math.Max(_zoomRange.Min, Math.Min(_zoomRange.Max, zoom));
-            _camera.orthographicSize = (float)_zoom;
+            _camera.orthographicSize = (float)EffectiveZoom;
             if (_perspective)
             {
                 RefreshOrientation(); // 透视下缩放 = 改相机距离
@@ -410,6 +471,25 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             _impulseOffset = impulseSum;
+            if (_zoomPunches.Count > 0)
+            {
+                for (var i = _zoomPunches.Count - 1; i >= 0; i--)
+                {
+                    var punch = _zoomPunches[i];
+                    punch.Elapsed += deltaSeconds;
+                    if (punch.Elapsed >= punch.DurationSeconds)
+                    {
+                        _zoomPunches.RemoveAt(i);
+                    }
+                    else
+                    {
+                        _zoomPunches[i] = punch;
+                    }
+                }
+
+                ApplyZoomPunchScale();
+            }
+
             if (_applyPitch || _perspective)
             {
                 RefreshOrientation();

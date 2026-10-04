@@ -8,7 +8,7 @@
 python toolchain/import_assets.py <子命令> ...
 ```
 
-子命令：``sprite``、``icon``、``vfx``、``sfx``、``check``（各自 ``--help`` 查看参数）。
+子命令：``sprite``、``icon``、``vfx``、``sfx``、``map``、``check``、``equip``、``bake-motion``（各自 ``--help`` 查看参数）。
 """
 
 from __future__ import annotations

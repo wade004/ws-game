@@ -41,6 +41,8 @@ namespace Core.Foundation.Feel
         private readonly Dictionary<Id, ResolvedFeel> _cache = new Dictionary<Id, ResolvedFeel>();
         private readonly Dictionary<Id, int> _versions = new Dictionary<Id, int>();
         private readonly Dictionary<Id, ResolvedFeel> _snapshots = new Dictionary<Id, ResolvedFeel>();
+        private readonly Dictionary<Id, Dictionary<(string?, string?), ResolvedFeel>> _actionViews =
+            new Dictionary<Id, Dictionary<(string?, string?), ResolvedFeel>>();
 
         public FeelFieldSet Fields => _fields;
 
@@ -82,18 +84,45 @@ namespace Core.Foundation.Feel
 
         public JudgingFeelView ResolveJudging(Id unitId) => Resolve(unitId).Judging;
 
+        /// <summary>
+        /// 指定动作层的判定型视图（见 <see cref="IFeelJudgingSource.ResolveJudgingWithAction"/>）：以"在动作中"重算一份独立于单位缓存的结果，
+        /// 缓存在 (单位, 动作引用, 叠加引用) 上，单位缓存失效（<see cref="Invalidate"/>/<see cref="InvalidateAll"/>/<see cref="Reload(FeelProfileSet, FeelCalibration)"/>）时一并清掉。
+        /// 版本号取单位当前版本（不递增单位缓存的版本）。
+        /// </summary>
+        public JudgingFeelView ResolveJudgingWithAction(Id unitId, string? actionFeelRef, string? overlayFeelRef)
+        {
+            var key = (actionFeelRef, overlayFeelRef);
+            if (_actionViews.TryGetValue(unitId, out var perUnit) && perUnit.TryGetValue(key, out var cached))
+            {
+                return cached.Judging;
+            }
+
+            var version = Resolve(unitId).Version;
+            var resolved = Compute(unitId, version, new FeelActionState(true, actionFeelRef), overlayFeelRef);
+            if (perUnit == null)
+            {
+                perUnit = new Dictionary<(string?, string?), ResolvedFeel>();
+                _actionViews[unitId] = perUnit;
+            }
+
+            perUnit[key] = resolved;
+            return resolved.Judging;
+        }
+
         public PresentingFeelView ResolvePresenting(Id unitId) => Resolve(unitId).Presenting;
 
         public void Invalidate(Id unitId, string reason)
         {
             if (string.IsNullOrEmpty(reason)) throw new ArgumentException("失效原因不能为空", nameof(reason));
             _cache.Remove(unitId);
+            _actionViews.Remove(unitId);
         }
 
         public void InvalidateAll(string reason)
         {
             if (string.IsNullOrEmpty(reason)) throw new ArgumentException("失效原因不能为空", nameof(reason));
             _cache.Clear();
+            _actionViews.Clear();
         }
 
         public int GetVersion(Id unitId) => Resolve(unitId).Version;
@@ -124,6 +153,7 @@ namespace Core.Foundation.Feel
             _profiles = profiles;
             _calibration = calibration;
             _cache.Clear();
+            _actionViews.Clear();
         }
 
         // ------------------------------------------------------------------ 动作快照
@@ -173,7 +203,7 @@ namespace Core.Foundation.Feel
 
         private static readonly FeelOp[] OpOrder = { FeelOp.Set, FeelOp.Multiply, FeelOp.Add, FeelOp.Remove };
 
-        private ResolvedFeel Compute(Id unitId, int version, FeelActionState action)
+        private ResolvedFeel Compute(Id unitId, int version, FeelActionState action, string? overlayActionRef = null)
         {
             var n = _fields.Count;
             var work = new Work(n);
@@ -281,11 +311,17 @@ namespace Core.Foundation.Feel
             }
             Flush(work, FeelLayer.Character, layer);
 
-            // 第 6 层：当前动作。
+            // 第 6 层：当前动作（M5-S2a：之后可再叠一个分段覆盖行，同层内后写的覆盖先写的）。
             if (action.ActionFeelRef != null)
             {
                 var row = _profiles.GetAction(action.ActionFeelRef);
                 if (row == null) work.Diagnostics.Add($"动作行 \"{action.ActionFeelRef}\" 不存在");
+                else AddAll(layer, row);
+            }
+            if (overlayActionRef != null)
+            {
+                var row = _profiles.GetAction(overlayActionRef);
+                if (row == null) work.Diagnostics.Add($"动作行 \"{overlayActionRef}\" 不存在");
                 else AddAll(layer, row);
             }
             Flush(work, FeelLayer.Action, layer);

@@ -685,7 +685,7 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 
 时间线技能的致死伤害事件被 `HitFeelOptions.IsTimelineSkill` 早退时，旧实现不消费 `unit.died` 留下的击杀标记（`_killPending`），标记残留到下一个 tick 起点；周期伤害的早退分支同理。现在两个早退分支都消费该目标的标记（时间线击杀的 `isKill` 由时间线路径自己按 `IsAlive` 判，不依赖标记）。用例 `HitFeelHostTests.InstantMode_KillMarkLeftByATimelineKill_IsConsumed_SoALaterInstantHitInTheSameTickIsNotAKill`。接线与重复确认的订正见 `core/rules/assembly/README.md` S11 节。
 
-## 判断记录（击飞：`launch_height` 与 `ILaunchSink`，2026-10-02，M3-E1，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md) 第 4 节、06 第 10 节勘误 9）
+## 判断记录（击飞：`launch_height` 与 `ILaunchSink`，2026-10-02，M3-E1，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md) 第 4 节、06 第 1.2 节）
 
 1. **字段**：手感档案新增可选判定型数值字段 `launch_height`（体型倍数，0..10，缺省无值 = 不击飞；`FeelFieldNames.LaunchHeight`）。可选字段没写时 `TryGetNumber` 返回假，既有档案与既有测试不受影响。
 2. **口径**：反应达到 `knockback`/`knockdown` 时，击飞顶点高度（世界单位）= 攻击方 `launch_height`（标定后）×(1 − 目标击退抗性)×冲击等级倍率（与击退距离同一张倍率表、同一个抗性读数）；与击退同一提交时机（目标顿帧结束那个 tick）。击飞与击退互相独立：`knockback_distance` 为 0 也击飞，`launch_height` 缺省则只击退（`SubmitKnockback` 只在距离 > 0 时提交击退、顶点 > 0 时提交击飞，旧行为不变）。
@@ -727,3 +727,21 @@ M4-L 判断记录第 5 条留下的三项局限逐项实现，全部可选、缺
 6. **`air_stun_until_land`（空中硬直撑到落地）**：受击方声明为真时，硬直类反应时长到点后若目标仍在空中，硬直保持到落地之后的那一个 tick 才结束（不推进已过时长，免得把空中硬直误判成倒地）；每次登记/刷新硬直时按受击方当时的档案取值。缺省（假）与 1.95.0 一致：硬直按时长结束，与是否在空中无关——原局限"不因腾空改变反应时长"据此定案为缺省不改、可选开启。
 7. **落地事件 `unit.landed`（原局限"没有落地事件"）**：见 unit README 的同名节（事件由竖直运动服务发出，载荷 `unitId, height, airSeconds, impactSpeed`；`VerticalAxisOptions.EmitLandedEvent` 缺省关）。
 8. **复现与不变量**：`tests/HitFeelHostTests.cs` 的 `AirReactionCap_*`（目标侧封顶取较低、地面不受限、与攻击方替换组合）、`AirHitReaction_*` 两侧声明合成、`LaunchHeightCap_*`（顶点封在绝对高度、两侧取较小、与叠加上限同时生效、缺省不变）、`LaunchBodyScale_*`、`AirStunUntilLand_*`（硬直在落地后结束、缺省按时长结束）；实验室脚本 `space.air_combo`（三连击高度封顶 + 硬直撑到落地 + 一次落地事件）、`space.launch_body_scale`、`space.air_reaction`，期望由预设值与标定参考身高算出。
+
+## 判断记录（结算第 0 步无敌前置与攻击方手感覆盖，2026-10-04，M5-S2a，ADR-0144，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md) 第 2.3、2.6 节）
+
+1. **结算第 0 步**：`Resolver.InvulnerabilityGate`（`Func<EffectContext,bool>?`，`CombatHost.InvulnerabilityGate` 转发，缺省 null 不检查）在死亡目标预检之后、命中表之前调用：非治疗结算且门返回真时直接返回 `HitResult.Invulnerable`（金额 0），发布 `combat.attack_avoided`，不进命中表、不落地、不进战、不触发战斗通知。`RulesAssembly` 把技能模块的 `SkillHost.BlocksHitByInvulnerability` 接给它（周期性、光环来源、自伤、`ignores_invulnerability` 技能不拦）。对既有结果零影响：只有时间线动作才产生无敌窗口，没有这类动作时门恒为假；实验室 `suite` 全部既有基线逐字不变。复现/不变量：`tests/HitFeelHostGeometryTests.cs`（`InvulnerabilityGate_*`，含"门恒为假与不接门逐位一致"）。
+2. **攻击方手感覆盖与蓄力缩放**：`HitFeelInput` 新增 `AttackInstanceId`/`AttackerFeelOverrides`/`Scale`（9 参数构造重载，旧构造保留）。`HitFeelHost.Evaluate` 在带覆盖或非恒等缩放时按（攻击实例, 目标）暂存（`_attackerHits`），同一 tick 稍后派发的 `combat.hit_confirmed` 落地击退/击飞/击飞叠加时取走并读覆盖视图与缩放；暂存在每个 tick 开头清空（裁决与派发同一 tick 内完成，与击杀标记同口径）。没有覆盖与缩放的命中不进这张表，落地仍读攻击方当前解析结果，逐位不变。顿帧缩放在换算 tick 与上限限幅之前乘。
+3. **instant 路径的技能行 `feel_ref`**：`HitFeelOptions.SkillFeelRef`（`Func<Id?, string?>?`）；`PublishInstantConfirmation` 在技能声明了 `feel_ref` 时以该行为动作层调用 `ResolveJudgingWithAction` 重算攻击方视图并按"覆盖"处理；没有声明或没有装配时与此前逐位一致。
+4. **复现与不变量**：`tests/HitFeelHostGeometryTests.cs`（蓄力缩放逐倍率对 tick 的影响与上限、恒等缩放逐位一致、击退距离按同一倍数缩放、覆盖标志决定落地读哪份视图、instant 声明与未声明）。测试里调试覆盖（`fx.Set`）会盖住动作层的写入，需要观察动作层效果时先 `ClearGlobal`。
+5. **已知限制**：与 skill README 同名判断记录第 8 条一致；另有——第 0 步只拦经结算管线做伤害类结算的效果，光环施加、位移、召唤等不经命中表的效果不受它约束（沿用各自既有的免疫判定）；`HitFeelHost.cs` 与受击反应章节的并行切片会改同一个文件，合并时留意。
+
+## 判断记录（受击反应：硬直保护期、时长公式、命中类别、格挡裁决、倒地起身，2026-10-04，M5-S2b，[ADR-0145](../../../architecture/adr/0145-受击反应的硬直保护期时长公式命中类别与倒地起身阶段.md)）
+
+1. **硬直不是光环**：03 原稿的"硬直落地为内部控制光环、受控制递减约束"从未实现，已删；防"无限硬直锁"改为受击方可选字段 `stagger_grace_ms`（`HitFeelHost.ApplyGrace`/`AdvanceGrace`）：硬直登记起到硬直（含倒地、起身）结束后再过这么久，期间硬直类反应截到 `stagger_grace_cap`（缺省 flinch），击杀不受影响。**已知限制**：同一 tick 内裁决的两次命中在任一方登记硬直之前各自读到"无保护"，都得到完整反应；声明了保护期的单位在硬直进行中被打到的那一击也截到 cap（想允许追击升级成击倒把 cap 设为 knockdown）。
+2. **时长公式**：`StunTicks` = 受击方 `hit_stun_ms` × 攻击方 `hit_stun_scale`（缺省 1）× `HitFeelOptions.HitStunReactionMultipliers`（缺省空表）；倒地段 `downed_ms` 与起身段 `getup_ms` 不乘。裁决时算定，随 `combat.hit_confirmed.ReactionDetail` 带到落地；不经裁决的旧发出方（`ReactionDetail.IsSet = false`）退回按当前档案现算。`feel.weapon` 的 `inflicted_hit_stun_ms` 未删除、仍是不参与解析的参考数据。
+3. **击退时长**：攻击方 `knockback_duration_ms` > 0 才覆盖游戏级选项（`rec.KnockbackDurationSeconds`），缺省逐位不变。
+4. **命中类别**：`Evaluate` 按 `HitResult` 分 Normal/Crit/Block/Glancing/Parry，类别声明的冲击等级与顿帧倍率替换/缩放，`block_reaction_cap` 再封顶，`block_attacker_reaction`/`parry_attacker_reaction` 弹开攻击方（`ApplyBounce`，走攻击方自己的霸体、`reaction_cap`、保护期，不击飞）。未声明 = 与普通命中相同；Parry 未声明任何项仍是"什么都不发生"。
+5. **格挡裁决**：`CombatOptions.DefenseArbiter`（`RulesFeelAssembly` 接 `HitFeelHost`）在命中表之前问 `Judge`：起身无敌 → `Invulnerable`（不掷骰，对全部非周期伤害）；格挡中（`IGuardStateQuery`，缺省回退到 `IActionStateQuery.IsGuarding`，即时间线标记 `guard_start`/`guard_end`）且在 `guard_arc_deg` 内：`guard_parry_window_ms` 内 `Parry`，否则 `Block` 伤害乘 `guard_damage_scale`。只对 `CanMiss` 的非周期伤害生效；格挡命中不再掷弹反/偏斜/格挡/暴击（**偏差**：格挡中的命中不会暴击）。输入层的格挡状态由后续切片实现 `IGuardStateQuery` 接入（`HitFeelHost.Guard`）。
+6. **倒地 → 起身**：`StaggerRec` 记三段，`EmitPhaseEvents` 在硬直段走完发 `unit.knocked_down`、倒地段走完且声明起身段发 `unit.getup_started`、走完发 `unit.getup_finished`；**每次击倒都发事件**（倒地期间被刷新则重发）。`IsDowned` 只含倒地段，`IsStaggered` 含三段。`getup_invuln_ms` 窗口由 `IsGetupInvulnerable` 经防御裁决生效。
+7. **复现与不变量**：`tests/HitFeelHostReactionTests.cs`（`HitFeelHostTests` 的 partial）；时间线格挡标记在 `skill/tests/ActionTimelineTests.cs`、`ActionTimelineValidationTests.cs`；实验室脚本 `feel_react_knockdown`/`feel_react_grace`/`feel_react_guard`（见 `lab/README.md` 判断记录 60）。

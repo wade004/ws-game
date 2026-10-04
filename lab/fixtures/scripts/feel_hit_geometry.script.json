@@ -1,0 +1,53 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_hit_geometry",
+    "scriptVersion": 1,
+    "description": "命中几何（手感设计/03 第 2.2 节，M5-S2a）：预设声明体积半径 0.4，装配打开\"按受击半径相交\"（meta.hitRadiusFromFeel）；玩家在原点朝 +x，一个木桩（edge_near）中心落在 90 度扇形之外、但与扇形边界的距离小于受击半径，另一个（edge_far）离边界远于受击半径；按一次攻击——量命中确认（只有边缘木桩被命中、按受击半径命中、接触点在受击圆面上不在体内）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.hit_geometry",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 90,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "edge_near",
+      "edge_far"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.hit_geometry",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_slash"
+    },
+    "hitRadiusFromFeel": true,
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/hit_geometry"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "table": "display.equip_visual",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.equip_visual.std_offhand_dagger",
+      "item_id": "item.std_offhand_dagger",
+      "mode": "slot_mesh",
+      "slot_id": "slot.hand_off",
+      "mesh_ref": "paperdoll.item.std_offhand_dagger"
+    },
+    {
+      "id": "display.equip_visual.std_lantern",
+      "item_id": "item.std_lantern",
+      "mode": "socket_attach",
+      "socket_id": "socket.off_hand",
+      "model_ref": "model.placeholder_biped"
+    }
+  ]
+}

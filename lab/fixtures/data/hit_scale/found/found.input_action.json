@@ -1,0 +1,18 @@
+{
+  "table": "found.input_action",
+  "schema_version": 1,
+  "rows": [
+    {
+      "key": "input.action.lab_hs_charge",
+      "kind": "button",
+      "default_bindings": [
+        "key:u"
+      ],
+      "rebind_group": "default",
+      "class": "attack",
+      "hold_threshold_ms": 250,
+      "skill_slot": "lab_hs.charge",
+      "description": "实验室命中缩放场景的蓄力输入动作；技能槽位由脚本 meta 的 skillSlots 绑定。"
+    }
+  ]
+}

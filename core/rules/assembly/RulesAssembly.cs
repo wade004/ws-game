@@ -492,6 +492,10 @@ namespace Core.Rules.Assembly
                 weaponDamageQuery: WeaponDamageQuery, factions: Factions, navigation: Navigation);
             skill = Skill; // 回填第 3 步 archAuraApplier 闭包捕获的局部变量。
 
+            // 手感落地 M5-S2a（手感设计/03 第 2.3 节）：无敌窗口前置检查上移为结算第 0 步，目标选择式、范围效果、投射物与时间线路径的伤害类结算统一经过；
+            // 目标没有处于无敌窗口（只有时间线动作的 invuln_start～invuln_end 才产生）时门恒为假，既有结算逐位不变。
+            Combat.InvulnerabilityGate = Skill.BlocksHitByInvulnerability;
+
             // CORE-170-01 根治：AuraHandles 需要真实的 IEffectSink（RemoveAura 出口）与
             // IAuraQuery（订阅 InstanceReplaced 自动迁移换句柄后的计数，见 AuraHandleLedger 判断
             // 记录）——两者都要求 Skill 已经构造完成，因此放在 skill = Skill 回填之后。

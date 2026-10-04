@@ -1,0 +1,61 @@
+{
+  "_comment": "参考皮肤包（skin.reference_fantasy）的规格与出图选择。slots/qualities 是皮肤包要覆盖的完整槽位/品质集合（样例数据只有前两个槽位、前两个品质，其余用于'完整品质阶梯/多槽位'的校验用例）；tokens 是写进 theme.json 的数值令牌，九宫格底图的边框像素与它逐像素一致；chosen 是每个出图任务选定的种子。",
+  "pack": "reference_fantasy",
+  "skin_ref": "skin.reference_fantasy",
+  "cell": 96,
+  "slots": ["std_main_hand", "std_chest", "std_head", "std_off_hand", "std_legs", "std_feet", "std_hands", "std_neck"],
+  "qualities": ["std_common", "std_uncommon", "std_rare", "std_epic", "std_legendary"],
+  "tokens": {"panel_border": 16, "tooltip_border": 10, "button_border": 12},
+  "sizes": {
+    "panel": [128, 128],
+    "tooltip": [96, 96],
+    "button": [96, 48],
+    "divider": [192, 12],
+    "row": [192, 24],
+    "preview": [256, 384]
+  },
+  "icon": {"size": 128, "max_extent": 112},
+  "font": "fonts/noto_sans_cjk_sc.otf",
+  "paperdoll": {
+    "_comment": "运行期合成里各层画布按中心叠放（枢轴相同），所以层图按身体层几何预摆放；同时每个武器集的 anchors.json 声明 directions.<方向>.grip（握点在层图里的像素坐标），预览区据此把握点对到身体的 hand_main 锚点上（两者一致，对位结果与居中叠放相同，锚点声明让别的美术摆位也能对准）：身体画布 64x96、层画布 144x144，身体坐标 +(40,24) = 层画布坐标。torso 是身体躯干包围盒（身体坐标），长度单位像素；hand_main 手握点取占位精灵集 anchors.json 的 hand_main。",
+    "canvas": 144,
+    "body_canvas": [64, 96],
+    "torso": [22, 30, 43, 67],
+    "items": {
+      "std_sword_1h": {"layer": "hand_main", "length": 36, "grip": 0.16},
+      "std_greatsword": {"layer": "hand_main", "length": 62, "grip": 0.12},
+      "std_dagger": {"layer": "hand_main", "length": 26, "grip": 0.2, "thick": 1.5},
+      "std_bow": {"layer": "hand_main", "length": 48, "grip": 0.5, "thick": 1.2},
+      "std_staff": {"layer": "hand_main", "length": 76, "grip": 0.62, "thick": 1.3},
+      "std_chestplate": {"layer": "chest", "size": 32}
+    }
+  },
+  "chosen": {
+    "slot_base": 203,
+    "glow_frame": 211,
+    "quality_common": 225,
+    "quality_uncommon": 231,
+    "quality_rare": 242,
+    "quality_epic": 251,
+    "quality_legendary": 261,
+    "panel_art": 272,
+    "tooltip_art": 281,
+    "button_art": 293,
+    "divider_art": 301,
+    "preview_bg": 312,
+    "glyph_std_main_hand": 321,
+    "glyph_std_chest": 322,
+    "glyph_std_head": 341,
+    "glyph_std_off_hand": 324,
+    "glyph_std_legs": 325,
+    "glyph_std_feet": 335,
+    "glyph_std_hands": 343,
+    "glyph_std_neck": 328,
+    "icon_std_sword_1h": 401,
+    "icon_std_greatsword": 411,
+    "icon_std_dagger": 421,
+    "icon_std_bow": 434,
+    "icon_std_staff": 441,
+    "icon_std_chestplate": 451
+  }
+}

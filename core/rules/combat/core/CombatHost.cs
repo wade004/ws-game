@@ -142,6 +142,13 @@ namespace Core.Rules.Combat
 
         public ResolveResult ResolveEffect(EffectContext context) => _resolver.Resolve(context);
 
+        /// <summary>无敌窗口前置门（结算第 0 步，见 <see cref="Resolver.InvulnerabilityGate"/>）；装配根接线，缺省 null 不检查。</summary>
+        public Func<EffectContext, bool>? InvulnerabilityGate
+        {
+            get => _resolver.InvulnerabilityGate;
+            set => _resolver.InvulnerabilityGate = value;
+        }
+
         public IThreatTable GetThreatTable(Id unitId) => _threatTable;
 
         public bool IsInCombat(Id unitId) => _inCombat.TryGetValue(unitId, out var value) && value;

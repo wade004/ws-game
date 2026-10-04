@@ -35,14 +35,17 @@ namespace Lab
         private readonly Func<Id?, int> _ordinal;
         private readonly Id _playerId;
         private readonly double _step;
-        private readonly List<KeyValuePair<string, Id>> _targets = new List<KeyValuePair<string, Id>>();
+        /// <summary>靶子清单（宿主传入的在场靶子表本身，不复制：交互式试玩运行中出的靶子也进每 tick 的位置样本；脚本开局就有的靶子行为不变）。</summary>
+        private readonly IEnumerable<KeyValuePair<string, Id>> _targets;
         private readonly FeedbackBinderCore? _binder;
         private readonly ImpactPipeline? _pipeline;
+        private readonly PoseRig? _poseRig;
         private int _tick;
+        private readonly Dictionary<Id, Id> _castSkills = new Dictionary<Id, Id>();
 
         public FeelRig(
             HeadlessWorld world, FeelRecording record, Dictionary<Id, string> labels, Func<Id?, int> ordinal, double step,
-            IEnumerable<KeyValuePair<string, Id>> targets, IFeedbackSink? tee = null)
+            IEnumerable<KeyValuePair<string, Id>> targets, IFeedbackSink? tee = null, ScriptPoseOptions? pose = null)
         {
             _world = world;
             _record = record;
@@ -50,7 +53,7 @@ namespace Lab
             _ordinal = ordinal;
             _step = step;
             _playerId = world.Player.EntityId;
-            _targets.AddRange(targets);
+            _targets = targets;
 
             var feel = world.Gameplay.Feel;
             if (feel == null)
@@ -58,12 +61,49 @@ namespace Lab
                 return;
             }
 
+            if (pose != null)
+            {
+                _poseRig = new PoseRig(world, feel, record, labels, step, _playerId, _targets, () => _tick);
+            }
+
             var recordingSink = new RecordingSink(this, tee);
             var profile = LabImpactProfile.Load(world.Registry);
+            var feelSource = new PresentingImpactFeelSource(feel.Resolver);
+
+            // 玩家的手感表声明了反馈包引用（impact_profile_ref，例如框架默认手感模板 feel.preset.tpl_*）时，
+            // 这一套反馈就是该包，而不是实验室缺省包；既有预设没有该字段，行为与此前逐位一致。
+            // 运行中切预设（脚本 preset 事件、试玩宿主的 A/B）后，这一套反馈随新预设的 impact_profile_ref 换：规则里的包 id 固定为开局那一个，
+            // 解析时再看玩家当前的手感表取实际的包（装载过的缓存起来）；没有切换时与此前逐位一致。
+            var profileId = profile.Id;
+            var ownProfile = feelSource.Get(_playerId)?.ProfileRef;
+            if (ownProfile.HasValue && !ownProfile.Value.Equals(profile.Id))
+            {
+                profileId = ownProfile.Value;
+            }
+
+            var loadedProfiles = new Dictionary<Id, ImpactProfile>();
+            ImpactProfile CurrentProfile()
+            {
+                var current = feelSource.Get(_playerId)?.ProfileRef;
+                if (!current.HasValue || current.Value.Equals(profile.Id))
+                {
+                    return profile;
+                }
+
+                if (!loadedProfiles.TryGetValue(current.Value, out var loaded))
+                {
+                    loaded = LabImpactProfile.Load(world.Registry, current.Value);
+                    loadedProfiles[current.Value] = loaded;
+                }
+
+                return loaded;
+            }
+
             var options = new ImpactOptions
             {
-                FeelSource = new PresentingImpactFeelSource(feel.Resolver),
-                ProfileResolver = id => id.Equals(LabImpactProfile.ProfileId) ? profile : null,
+                FeelSource = feelSource,
+                ProfileResolver = id =>
+                    id.Equals(profileId) ? CurrentProfile() : (id.Equals(profile.Id) ? profile : null),
                 SfxLayers = new SfxLayerIndex(LabImpactProfile.LoadSfxRows(world.Registry)),
                 CameraOwnerResolver = () => _playerId,
                 PositionResolver = id => world.World.GetEntity(id)?.Position,
@@ -75,7 +115,7 @@ namespace Lab
             {
                 new FeedbackRule(
                     new Id("feedback.lab_impact"), RulesEventKeys.CombatHitConfirmed, null,
-                    new FeedbackAction[] { new PlayImpactAction(LabImpactProfile.ProfileId) }),
+                    new FeedbackAction[] { new PlayImpactAction(profileId) }),
             };
             _binder = new FeedbackBinderCore(
                 world.Bus, world.Gameplay.ExprHostFactory, rules, recordingSink,
@@ -103,6 +143,7 @@ namespace Lab
             switch (evt)
             {
                 case ActionStartedEvent s:
+                    _castSkills[s.CastInstanceId] = s.SkillId;
                     _record.Events.Add(new FeelEventRecord(
                         tick, "action_started", Label(s.ActorId), string.Empty, s.SkillId.Value, string.Empty, string.Empty,
                         s.ComboIndex, s.DurationTicks, 0, s.ChargeRatio));
@@ -114,6 +155,11 @@ namespace Lab
                 case ActionMarkerEvent m:
                     _record.Events.Add(new FeelEventRecord(
                         tick, "action_marker", Label(m.ActorId), string.Empty, string.Empty, m.Name, string.Empty));
+                    if (string.Equals(m.Name, "hit", StringComparison.Ordinal))
+                    {
+                        NoteHitShape(tick, m);
+                    }
+
                     break;
                 case ActionCancelledEvent c:
                     _record.Events.Add(new FeelEventRecord(
@@ -135,12 +181,35 @@ namespace Lab
                         h.HitResult.ToString(),
                         "reaction=" + h.Reaction + ";class=" + h.ImpactClass + ";kill=" + (h.IsKill ? 1 : 0) + ";crit=" + (h.IsCrit ? 1 : 0)
                         + ";inst=" + _ordinal(h.AttackInstanceId) + ";cast=" + _ordinal(h.CastInstanceId),
-                        h.Segment, h.AttackerHitStopTicks, h.TargetHitStopTicks, h.Amount));
+                        h.Segment, h.AttackerHitStopTicks, h.TargetHitStopTicks, h.Amount)
+                    {
+                        Contact = h.ContactPoint,
+                        Normal = h.ContactNormal,
+                        HasGeometry = true,
+                    });
                     break;
                 case CombatReactionAppliedEvent r:
                     _record.Events.Add(new FeelEventRecord(
-                        tick, "reaction", Label(r.SourceId), Label(r.TargetId), string.Empty, r.Reaction.ToString(), string.Empty,
+                        tick, "reaction", Label(r.SourceId), Label(r.TargetId), string.Empty, r.Reaction.ToString(),
+                        // 硬直/倒地/起身分段只在有倒地段或起身段时才记（既有脚本的记录文本不变）。
+                        r.DownedTicks > 0 || r.GetupTicks > 0
+                            ? "stun=" + r.StunTicks + ";down=" + r.DownedTicks + ";getup=" + r.GetupTicks
+                            : string.Empty,
                         r.DurationTicks));
+                    break;
+                case UnitKnockedDownEvent kd:
+                    _record.Events.Add(new FeelEventRecord(
+                        tick, "knocked_down", string.Empty, Label(kd.UnitId), string.Empty, string.Empty, string.Empty,
+                        kd.DownedTicks, kd.GetupTicks));
+                    break;
+                case UnitGetupStartedEvent gs:
+                    _record.Events.Add(new FeelEventRecord(
+                        tick, "getup_started", string.Empty, Label(gs.UnitId), string.Empty, string.Empty, string.Empty,
+                        gs.GetupTicks, gs.InvulnerableTicks));
+                    break;
+                case UnitGetupFinishedEvent gf:
+                    _record.Events.Add(new FeelEventRecord(
+                        tick, "getup_finished", string.Empty, Label(gf.UnitId), string.Empty, string.Empty, string.Empty));
                     break;
                 case FeelHitstopStartedEvent hs:
                     _record.Events.Add(new FeelEventRecord(
@@ -176,6 +245,43 @@ namespace Lab
                         tick, "buffer_dropped", Label(d.ActorId), string.Empty, string.Empty, d.ActionId.Value, d.Reason.ToString()));
                     break;
             }
+        }
+
+        /// <summary>
+        /// 判定标记到达：按"施法实例 → 技能 → 目标选择链形状"取判定形状并按施法者此刻的位姿锚定，记成 <see cref="HitShapeRecord"/>（只供面板叠层读）。
+        /// 技能没有目标选择链形状（目标选择式结算）、查不到技能或施法者时什么都不记；这是面板的只读辅助记录，不得影响宿主逻辑，所以数据缺口在此静默跳过。
+        /// </summary>
+        private void NoteHitShape(int tick, ActionMarkerEvent marker)
+        {
+            if (!_castSkills.TryGetValue(marker.CastInstanceId, out var skillId))
+            {
+                return;
+            }
+
+            var record = _world.Registry.Get("skill.def", skillId);
+            if (record == null || !record.TryGetId("target_shape_ref", out var chainId))
+            {
+                return;
+            }
+
+            if (!_world.Gameplay.Carriers.Rules.Targeting.TryGetChainShape(chainId, out var template))
+            {
+                return;
+            }
+
+            if (!(_world.World.GetEntity(marker.ActorId) is Unit unit))
+            {
+                return;
+            }
+
+            var segment = 0;
+            if (marker.Args.TryGetValue("segment", out var segText))
+            {
+                int.TryParse(segText, NumberStyles.Integer, CultureInfo.InvariantCulture, out segment);
+            }
+
+            var shape = Core.Foundation.EngineAdapter.ShapeGeometry.RebaseAt(template, unit.Position, unit.Facing);
+            _record.HitShapes.Add(new HitShapeRecord(tick, Label(marker.ActorId), skillId.Value, segment, unit.Position, unit.Facing, shape, template));
         }
 
         /// <summary>阻挡变更（可破坏障碍被打掉后宿主经导航契约的批量替换更新阻挡）。</summary>
@@ -230,6 +336,7 @@ namespace Lab
             }
 
             _binder?.Dispose();
+            _poseRig?.Dispose();
         }
 
         /// <summary>记录型假 sink：反馈流水线出批的每条指令记成表现时间线条目。</summary>
@@ -286,7 +393,19 @@ namespace Lab
             public void ImpactCamera(ImpactCameraCue cue)
             {
                 Add("camera", cue.ShakeProfileId?.Value ?? string.Empty, cue.Magnitude, cue.DecayMs, cue.HitCount);
+                if (cue.ZoomPunch > 0)
+                {
+                    // ADR-0148：缩放脉冲只在变体声明了 zoom_punch 时出批；既有脚本的反馈包没有，表现时间线逐条不变。
+                    Add("zoom_punch", FeelMetricUtil.Num(cue.ZoomPunch), cue.ZoomPunch, cue.DecayMs);
+                }
                 _tee?.ImpactCamera(cue);
+            }
+
+            public void Rumble(double strength, double durationMs)
+            {
+                // ADR-0148：手柄震动只在变体声明了 rumble 时出批；既有脚本的反馈包没有。
+                Add("rumble", FeelMetricUtil.Num(strength) + "@" + FeelMetricUtil.Num(durationMs), strength, durationMs);
+                _tee?.Rumble(strength, durationMs);
             }
 
             public void FreezePresentation(IReadOnlyList<Id> unitIds, int ticks, ImpactFreezeLayers layers)
@@ -324,6 +443,12 @@ namespace Lab
         public static readonly Id ProfileId = new Id("feedback.impact_profile.lab_default");
 
         /// <summary>
+        /// 镜头与音画反馈脚本的变体档案行（ADR-0148，随 <c>lab/fixtures/data/av_feedback</c>）：数据根里有它就用它，否则用缺省行
+        /// （既有数据集里没有它，既有脚本的行为与数据集哈希逐位不变）。
+        /// </summary>
+        public static readonly Id AvProfileId = new Id("feedback.impact_profile.lab_av");
+
+        /// <summary>
         /// 顿帧期间冻结的表现层：骨骼/序列帧恒冻，粒子也冻（引擎宿主据此验证"顿帧期间被冻结单位名下的粒子停推进"）。
         /// 判断记录：该声明只经反馈 sink 的 <c>FreezePresentation</c> 的 layers 参数传出，记录型假 sink 不记它，
         /// 因此无头宿主的表现时间线与指纹不受影响；它由实验室在读入数据档案后统一覆写到每个变体上
@@ -331,13 +456,17 @@ namespace Lab
         /// </summary>
         private static readonly ImpactFreezeLayers LabFreezeLayers = new ImpactFreezeLayers(true, false);
 
-        public static ImpactProfile Load(IDataRegistry registry)
+        public static ImpactProfile Load(IDataRegistry registry) =>
+            Load(registry, registry.Get("feedback.impact_profile", AvProfileId) != null ? AvProfileId : ProfileId);
+
+        /// <summary>按 id 读冲击档案行（实验室缺省包或手感表 <c>impact_profile_ref</c> 指到的包），同样覆写顿帧冻结层。</summary>
+        public static ImpactProfile Load(IDataRegistry registry, Id profileId)
         {
-            var record = registry.Get("feedback.impact_profile", ProfileId);
+            var record = registry.Get("feedback.impact_profile", profileId);
             if (record == null)
             {
                 throw new LabFormatException(
-                    "手感场景需要实验室冲击档案行 " + ProfileId.Value + "（表 feedback.impact_profile，随 data/_lab_action）；数据根里没有它。");
+                    "手感场景需要冲击档案行 " + profileId.Value + "（表 feedback.impact_profile，实验室缺省包随 data/_lab_action）；数据根里没有它。");
             }
 
             var loaded = ImpactProfile.FromRecord(record);
@@ -345,7 +474,7 @@ namespace Lab
             foreach (var v in loaded.Variants)
             {
                 variants.Add(new ImpactVariant(
-                    v.ImpactClass, v.Outcome, v.Flash, v.Vfx, v.Sfx, v.Camera, v.FloatingTextStyle, v.Trail, LabFreezeLayers, v.Intensity));
+                    v.ImpactClass, v.Outcome, v.Flash, v.Vfx, v.Sfx, v.Camera, v.FloatingTextStyle, v.Trail, LabFreezeLayers, v.Intensity, v.Rumble));
             }
 
             return new ImpactProfile(loaded.Id, variants);
@@ -384,6 +513,9 @@ namespace Lab
     public static class LabFeedbackCatalog
     {
         public static Id ProfileId => LabImpactProfile.ProfileId;
+
+        /// <summary>该数据集实际生效的档案行 id（有 <c>lab_av</c> 行用它，否则同 <see cref="ProfileId"/>）。</summary>
+        public static Id EffectiveProfileId(IDataRegistry registry) => LabImpactProfile.Load(registry).Id;
 
         public static ImpactProfile BuildProfile(IDataRegistry registry) => LabImpactProfile.Load(registry);
 

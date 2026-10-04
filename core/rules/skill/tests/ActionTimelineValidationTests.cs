@@ -39,6 +39,46 @@ namespace Tests.Rules.Skill
             Assert.DoesNotContain(report.Issues, i => i.Check.StartsWith("timeline_"));
         }
 
+        private static JsonObject MotionSkill(string id, params (string, JsonValue)[] motion) => J.O(
+            ("id", J.S(id)), ("school", J.S("skill.school_sample")), ("kind", J.S("active")), ("range", J.N(0)),
+            ("cast_time", J.N(0.3)), ("respects_gcd", J.B(true)), ("target_shape_ref", J.S(Chain.Value)),
+            ("effects", J.A(J.O(("kind", J.S("school_damage")), ("params", J.O(("base_value", J.N(7)), ("coefficient", J.N(0))))))),
+            ("timeline", J.O(
+                ("startup_ms", J.N(50)), ("active_ms", J.N(150)), ("recovery_ms", J.N(100)),
+                ("markers", J.A(Marker("motion_start", 50), Marker("motion_end", 150))),
+                ("motion", J.O(motion)))));
+
+        [Fact]
+        public void MotionDriverRootMotion_IsRemoved_LoadFailsWithTheMigrationNote()
+        {
+            // 复现：旧数据 driver: root_motion（ADR-0147 删除）。不变量：加载期阻断且给迁移说明；driver: code 与缺省都无此问题。
+            var old = Validate(MotionSkill("skill.sample_rm", ("driver", J.S("root_motion")), ("kind", J.S("dash")), ("distance", J.N(3))));
+            var issue = Assert.Single(old.Issues, i => i.Check == "timeline_motion_driver_removed");
+            Assert.Equal(ValidationSeverity.Error, issue.Severity);
+            Assert.Contains(Core.Rules.Common.ActionMotion.RootMotionMigrationNote, issue.Message);
+            Assert.True(old.IsBlocking);
+
+            foreach (var drv in new[] { "code", null })
+            {
+                var motion = drv == null
+                    ? new[] { ("kind", (JsonValue)J.S("dash")), ("distance", J.N(3)) }
+                    : new[] { ("driver", (JsonValue)J.S(drv)), ("kind", J.S("dash")), ("distance", J.N(3)) };
+                var ok = Validate(MotionSkill("skill.sample_code", motion));
+                Assert.DoesNotContain(ok.Issues, i => i.Check.StartsWith("timeline_motion"));
+            }
+        }
+
+        [Fact]
+        public void MotionCurveCustomReference_MustExistInBakedCurveTable()
+        {
+            var report = Validate(MotionSkill("skill.sample_curve",
+                ("kind", J.S("dash")), ("distance", J.N(3)), ("curve", J.S("custom:skill.motion_curve.absent"))));
+            Assert.Contains(report.Issues, i => i.Check == "timeline_motion_curve_missing" && i.Severity == ValidationSeverity.Error);
+
+            var builtin = Validate(MotionSkill("skill.sample_curve2", ("kind", J.S("dash")), ("distance", J.N(3)), ("curve", J.S("ease_out"))));
+            Assert.DoesNotContain(builtin.Issues, i => i.Check == "timeline_motion_curve_missing");
+        }
+
         [Fact]
         public void CastTimeMustEqualPhaseSum()
         {
@@ -83,6 +123,22 @@ namespace Tests.Rules.Skill
 
             var ok = Validate(TlSkill("skill.sample_a4", 200, 100, 300, markers: new[] { Marker("armor_start", 50), Marker("armor_end", 150) }));
             Assert.DoesNotContain(ok.Issues, i => i.Check.StartsWith("timeline_armor") || i.Check == "timeline_marker_unknown");
+        }
+
+        [Fact]
+        public void GuardWindowMarkers_FollowTheSameRulesAsArmor()
+        {
+            var unpaired = Validate(TlSkill("skill.sample_g1", 200, 100, 300, markers: new[] { Marker("guard_end", 150) }));
+            Assert.Contains(unpaired.Issues, i => i.Check == "timeline_guard_unpaired" && i.Severity == ValidationSeverity.Error);
+
+            var unterminated = Validate(TlSkill("skill.sample_g2", 200, 100, 300, markers: new[] { Marker("guard_start", 50) }));
+            Assert.Contains(unterminated.Issues, i => i.Check == "timeline_guard_unterminated" && i.Severity == ValidationSeverity.Warning);
+
+            var reversed = Validate(TlSkill("skill.sample_g3", 200, 100, 300, markers: new[] { Marker("guard_start", 150), Marker("guard_end", 50) }));
+            Assert.Contains(reversed.Issues, i => i.Check == "timeline_guard_order" && i.Severity == ValidationSeverity.Error);
+
+            var ok = Validate(TlSkill("skill.sample_g4", 200, 100, 300, markers: new[] { Marker("guard_start", 50), Marker("guard_end", 150) }));
+            Assert.DoesNotContain(ok.Issues, i => i.Check.StartsWith("timeline_guard") || i.Check == "timeline_marker_unknown");
         }
 
         [Fact]

@@ -1,0 +1,108 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_x_facing_boundary",
+    "scriptVersion": 1,
+    "description": "方向量化档位边界（M5-S7，ADR-0151，06 第 1.1 节格子间不变量 4）：8 方向量化的相邻档边界在 22.5 度；先向 22.0 度走一段，停下，再向 23.0 度走一段（跨过边界），量方向档位序列与档位切换数，并核对假 View 的档位与框架量化函数一致。连续朝向格子档数为 0，不切换。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 110,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {},
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": "",
+    "extraMetrics": [
+      "facing"
+    ]
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0.927183855,
+        "y": 0.374606593
+      }
+    },
+    {
+      "tick": 35,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "tick": 50,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0.920504853,
+        "y": 0.390731128
+      }
+    },
+    {
+      "tick": 80,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  ],
+  "expectations": [
+    {
+      "id": "quantize_consistent",
+      "metric": "facing.quantize_mismatch_frames",
+      "op": "eq",
+      "value": 0,
+      "note": "假 View 的档位与框架量化函数一致"
+    },
+    {
+      "id": "quantized_cells_cross_boundary_once",
+      "cells": [
+        "2d_targeted",
+        "2d_action",
+        "2_5d_targeted",
+        "2_5d_action"
+      ],
+      "metric": "facing.direction_changes",
+      "op": "eq",
+      "value": 1,
+      "note": "量化朝向格子：22.0 度与 23.0 度分属 8 方向的相邻两档，序列恰好切换一次"
+    },
+    {
+      "id": "continuous_cells_have_no_directions",
+      "cells": [
+        "3d_targeted",
+        "3d_action"
+      ],
+      "metric": "facing.direction_count",
+      "op": "eq",
+      "value": 0,
+      "note": "连续朝向格子没有方向档"
+    }
+  ]
+}

@@ -38,6 +38,18 @@ namespace Core.Rules.Common
         /// </summary>
         public bool IsAttack { get; }
 
+        /// <summary>
+        /// 前摇相的动画播放速率（ADR-0147）：作者前摇毫秒 ÷ 重映射后实际毫秒。动作被速率重映射（加速、体型/武器分相倍率、时长下限）时，
+        /// 表现层按它缩放该相剪辑的播放速率，动画不与判定时间线脱节。缺省 1（未重映射、或 6/7 参数构造）。
+        /// </summary>
+        public double StartupRate { get; }
+
+        /// <summary>判定相的动画播放速率（语义同 <see cref="StartupRate"/>）。</summary>
+        public double ActiveRate { get; }
+
+        /// <summary>后摇相的动画播放速率（语义同 <see cref="StartupRate"/>）。</summary>
+        public double RecoveryRate { get; }
+
         public ActionStartedEvent(Id actorId, Id skillId, Id castInstanceId, int comboIndex, int durationTicks, double chargeRatio)
             : this(actorId, skillId, castInstanceId, comboIndex, durationTicks, chargeRatio, true)
         {
@@ -45,7 +57,18 @@ namespace Core.Rules.Common
 
         public ActionStartedEvent(
             Id actorId, Id skillId, Id castInstanceId, int comboIndex, int durationTicks, double chargeRatio, bool isAttack)
+            : this(actorId, skillId, castInstanceId, comboIndex, durationTicks, chargeRatio, isAttack, 1.0, 1.0, 1.0)
         {
+        }
+
+        /// <summary>ADR-0147 新增重载：追加三相的动画播放速率。</summary>
+        public ActionStartedEvent(
+            Id actorId, Id skillId, Id castInstanceId, int comboIndex, int durationTicks, double chargeRatio, bool isAttack,
+            double startupRate, double activeRate, double recoveryRate)
+        {
+            StartupRate = startupRate;
+            ActiveRate = activeRate;
+            RecoveryRate = recoveryRate;
             ActorId = actorId;
             SkillId = skillId;
             CastInstanceId = castInstanceId;
@@ -266,6 +289,15 @@ namespace Core.Rules.Common
         /// </summary>
         public Id? CastInstanceId { get; }
 
+        /// <summary>
+        /// 反应时长与附带决定（硬直/倒地/起身分段、击退时长、攻击方被反弹的反应，ADR-0145）。由受击裁决填写；不经裁决的发出方为未设置
+        /// （<see cref="HitReactionDetail.IsSet"/> 为假），落地方退回按受击方当前档案计算。
+        /// </summary>
+        public HitReactionDetail ReactionDetail { get; }
+
+        /// <summary>攻击方被反弹的反应（格挡/弹反类别声明，ADR-0145）；无即 <see cref="HitReaction.None"/>。</summary>
+        public HitReaction AttackerReaction => ReactionDetail.AttackerReaction;
+
         public CombatHitConfirmedEvent(
             Id attackInstanceId, int segment, Id sourceId, Id targetId, Id? skillId, HitResult hitResult,
             double amount, double amountRatio, bool isCrit, bool isKill,
@@ -284,7 +316,22 @@ namespace Core.Rules.Common
             Vec2 contactPoint, Vec2 contactNormal, Vec2 worldDirection,
             string impactClass, int attackerHitStopTicks, int targetHitStopTicks, HitReaction reaction,
             Id? castInstanceId)
+            : this(
+                attackInstanceId, segment, sourceId, targetId, skillId, hitResult, amount, amountRatio, isCrit, isKill,
+                contactPoint, contactNormal, worldDirection, impactClass, attackerHitStopTicks, targetHitStopTicks, reaction,
+                castInstanceId, default(HitReactionDetail))
         {
+        }
+
+        /// <summary>手感设计/03（ADR-0145）新增重载：追加受击裁决的反应时长与附带决定（既有构造的物理签名不变）。</summary>
+        public CombatHitConfirmedEvent(
+            Id attackInstanceId, int segment, Id sourceId, Id targetId, Id? skillId, HitResult hitResult,
+            double amount, double amountRatio, bool isCrit, bool isKill,
+            Vec2 contactPoint, Vec2 contactNormal, Vec2 worldDirection,
+            string impactClass, int attackerHitStopTicks, int targetHitStopTicks, HitReaction reaction,
+            Id? castInstanceId, HitReactionDetail reactionDetail)
+        {
+            ReactionDetail = reactionDetail;
             CastInstanceId = castInstanceId;
             AttackInstanceId = attackInstanceId;
             Segment = segment;
@@ -394,16 +441,93 @@ namespace Core.Rules.Common
 
         public Id AttackInstanceId { get; }
 
-        /// <summary>反应持续时长（tick）：硬直为 <c>hit_stun_ms</c> 换算值，倒地含 <c>downed_ms</c>。</summary>
+        /// <summary>反应持续时长（tick）：硬直段 + 倒地段 + 起身段之和（硬直段含攻击方 <c>hit_stun_scale</c> 与反应类型倍率）。</summary>
         public int DurationTicks { get; }
 
+        /// <summary>硬直段 tick 数（非硬直类反应为 0）。表现层据此知道何时从受击姿势切到倒地姿势（手感设计/03 第 4 节反应→姿势键映射）。</summary>
+        public int StunTicks { get; }
+
+        /// <summary>倒地段 tick 数（只有 <c>knockdown</c> 非零）。</summary>
+        public int DownedTicks { get; }
+
+        /// <summary>起身段 tick 数（只有 <c>knockdown</c> 且受击方声明了 <c>getup_ms</c> 才非零）。</summary>
+        public int GetupTicks { get; }
+
         public CombatReactionAppliedEvent(Id targetId, HitReaction reaction, Id sourceId, Id attackInstanceId, int durationTicks)
+            : this(targetId, reaction, sourceId, attackInstanceId, durationTicks, durationTicks, 0, 0)
+        {
+        }
+
+        /// <summary>手感设计/03（ADR-0145）新增重载：追加硬直/倒地/起身分段。</summary>
+        public CombatReactionAppliedEvent(
+            Id targetId, HitReaction reaction, Id sourceId, Id attackInstanceId, int durationTicks, int stunTicks, int downedTicks, int getupTicks)
         {
             TargetId = targetId;
             Reaction = reaction;
             SourceId = sourceId;
             AttackInstanceId = attackInstanceId;
             DurationTicks = durationTicks;
+            StunTicks = stunTicks;
+            DownedTicks = downedTicks;
+            GetupTicks = getupTicks;
+        }
+    }
+
+    /// <summary>
+    /// <c>unit.knocked_down</c>（手感设计/03 第 4 节，ADR-0145）：<c>knockdown</c> 反应的硬直段结束、倒地段开始。
+    /// <see cref="DownedTicks"/> 是倒地段时长，<see cref="GetupTicks"/> 是随后的起身段时长（缺省声明为 0 即没有起身段）。
+    /// 表现层据此从受击姿势切到倒地姿势（<c>hit.knockdown</c>）。
+    /// </summary>
+    public sealed class UnitKnockedDownEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.UnitKnockedDown;
+
+        public Id UnitId { get; }
+
+        public int DownedTicks { get; }
+
+        public int GetupTicks { get; }
+
+        public UnitKnockedDownEvent(Id unitId, int downedTicks, int getupTicks)
+        {
+            UnitId = unitId;
+            DownedTicks = downedTicks;
+            GetupTicks = getupTicks;
+        }
+    }
+
+    /// <summary>
+    /// <c>unit.getup_started</c>（ADR-0145）：倒地段结束、起身段开始（只有受击方声明了 <c>getup_ms</c> 才发）。
+    /// <see cref="InvulnerableTicks"/> 是起身无敌时长（<c>getup_invuln_ms</c>，缺省 0）；表现层据此切 <c>hit.getup</c> 姿势。
+    /// </summary>
+    public sealed class UnitGetupStartedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.UnitGetupStarted;
+
+        public Id UnitId { get; }
+
+        public int GetupTicks { get; }
+
+        public int InvulnerableTicks { get; }
+
+        public UnitGetupStartedEvent(Id unitId, int getupTicks, int invulnerableTicks)
+        {
+            UnitId = unitId;
+            GetupTicks = getupTicks;
+            InvulnerableTicks = invulnerableTicks;
+        }
+    }
+
+    /// <summary><c>unit.getup_finished</c>（ADR-0145）：起身段结束、硬直状态解除，单位恢复可操控（只有发过 <c>unit.getup_started</c> 的单位才发）。</summary>
+    public sealed class UnitGetupFinishedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.UnitGetupFinished;
+
+        public Id UnitId { get; }
+
+        public UnitGetupFinishedEvent(Id unitId)
+        {
+            UnitId = unitId;
         }
     }
 

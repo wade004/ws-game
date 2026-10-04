@@ -1682,10 +1682,11 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 - **T9 `source: clip`**：运行期永远只读 `skill.def.timeline`（规则层不读表现域）。作者态工具 `TimelineClipImporter` 把剪辑事件
   （`active_start/active_end` 界定判定相；`hit`/`hit:<n>`、`combo_open/close`、`cancel_open:<类>`、`invuln_*`、`armor_*`、`motion_*`、`release` 抄写）
   导入成时间线字段；`TimelineClipConsistencyRule(IClipMarkerSource, toleranceMs)` 比对：`source: clip` 任一偏差（超过 0.5 毫秒抄写取整误差）
-  Error，`source: data` 超过 `marker_tolerance_ms` Warning，取不到剪辑时 `clip` 为 Error、`data` 跳过。**当前数据里没有"技能 → 动画集 →
-  剪辑"的对应关系，没有生产用 `IClipMarkerSource`**，所以该规则没有登记进 `RulesSchemaCatalog`（只登记了不依赖剪辑的
-  `SkillTimelineRule`）；本切片只提供接口 `IClipMarkerSource`、内存替身 `InMemoryClipMarkerSource` 与上述工具/规则，装配方有了真实
-  来源后自行 `RegisterValidationRule`。
+  Error，`source: data` 超过 `marker_tolerance_ms` Warning，取不到剪辑时 `clip` 为 Error、`data` 跳过。**ADR-0147 补上了生产来源**："技能 → 剪辑"的对应来自武器表现数据（`display.weapon_style.cast_anim_override` 与普攻映射，见手感设计/04 第 8 节），
+  规则组装层的 `DisplayClipMarkerSource`（读数据表，不读引擎资源）实现 `IClipMarkerSource`，`SkillClipConsistencyRule` 用它跑 `TimelineClipConsistencyRule` 并已登记进 `RulesSchemaCatalog`；
+  剪辑条目需要可选加法字段 `display.anim_set.clips[*].duration_ms`（事件是百分比，没有总时长无法换算毫秒），没声明的剪辑取不到标记——`source: data` 的技能跳过、`source: clip` 的技能报错。
+  本模块仍只提供接口 `IClipMarkerSource`、内存替身 `InMemoryClipMarkerSource` 与上述工具/规则；运行期规则层依旧只读 `skill.def.timeline`。
+  `timeline.motion.driver: root_motion` 已删除，`SkillTimelineRule` 加载期报错（`timeline_motion_driver_removed`），`custom:<id>` 位移曲线引用解析不到报错（`timeline_motion_curve_missing`）；`ActionStartedEvent` 追加三相动画播放速率（`TimelineSchedule.StartupRate/ActiveRate/RecoveryRate`）。
 - **T10 `IActionStateQuery` 与位移段快照**：本类（`CastPipeline`）实现，经 `SkillHost.ActionStateQuery` 暴露。声明了 `motion` 块的动作在
   被接受时落定 `ActionMotionState`（类型由运动切片 S2 定义，`Core.Rules.Common.ActionMotion.cs`，本切片原样采用、不另建位移类型）并随
   `ActionState.Motion` 提供给运动仲裁器：窗口 = `motion_start`/`motion_end` 标记换算后的 tick（`StartTick` 含、`EndTick` 不含，与
@@ -1834,3 +1835,35 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 3. **取消进入做接受时朝向对齐**：时间线在取消窗口里拉取记录被接受时，记录要求对齐（`FaceOnAccept`）且带按下瞬间方向快照，就在取消进入被接受的那一刻把朝向瞬时对齐到该方向（需要 `IUnitFacingWriter`，没有时记诊断警告），新动作的位姿快照据此取朝向；与缓冲出口 `BufferedActionIntentSink` 同一口径。复现/不变量：`tests/ActionTimelineTests.cs` 的 `CancelInto_WithDirectionSnapshot_AlignsFacingToItAtAcceptance`（朝向 = `atan2(方向)`）与 `CancelInto_WithoutDirectionSnapshot_LeavesFacingUntouched`。
 4. **永远接不了的缓冲记录不挡路**：`IBufferedIntentSink` 新增默认接口成员 `CanHandle(actorId, record)`（缺省真），`IInputBufferQuery` 新增带 `skip` 谓词的 `TryPeek`/`TryConsume` 重载（默认实现忽略 `skip`）；缓冲出口与时间线拉取先把"没有技能映射"的记录剔出候选（`BufferedActionIntentSink.CanHandle` / `CastPipeline.IsNeverAcceptable`：只有带 `combo` 块的动作里的 attack 类记录不需要映射），它们留在缓冲里直到自己的窗口过期。窗口此刻没开不算"永远"，仍按优先级最前的候选处理（既有语义不变）。复现/不变量：`core/foundation/input_map/tests/InputBufferUnhandledSkipTests.cs`（缓冲出口：4 条）、`tests/ActionTimelineTests.cs` 的 `UnmappedHigherPriorityRecord_DoesNotBlockMappedLowerPriorityRecord_InsideCancelWindow`（取消事件 0 → 1，未映射记录仍在缓冲 Pending 1）与 `MappedHigherPriorityRecord_StillWinsOverLowerPriority_PriorityOrderUnchanged`（两条都映射得到时仍按优先级取最前）。
 5. **目标命中半径**：`TargetingOptions.TargetRadius`（`Func<Id, double>?`，单位的命中半径，世界单位）与 `MaxTargetRadius`（广相位上界，必须不小于实际最大半径），缺省 null/0 = 只按目标中心判定。配置后 `nearest_in_shape`/`all_in_shape` 的形状查询在"中心落在形状内"的原始结果之后，追加"形状到目标中心的最近距离不超过该目标半径"的单位（先按上界外扩取候选，再按各自半径精确重判，追加项按 Id 序，确定性）。时间线空间命中（marker 与 continuous 逐 tick 采样）经同一条形状查询，自动按半径判定。来源由游戏供给（体型数据或手感档案的 `unit_body_radius` 换算），框架不在装配里替游戏选。复现/不变量：`core/rules/targeting/tests/TargetHostBodyRadiusTests.cs`（擦边的大个子被命中、擦不到的小个子与够不着的不被命中，期望由 `max(0, 距离 − 形状半径) ≤ 靶子半径` 算出；不配置或上界为 0 时与旧结果逐位一致；不重复收录已在形状内的靶子）。
+
+## 判断记录（命中几何与时序，2026-10-04，M5-S2a，ADR-0144，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md) 第 2.2～2.6 节）
+
+1. **接触点落在目标受击圆面上**：`CastPipeline.ContactFor` 在 `ITargetHost.TargetHitRadius(target) > 0` 且命中带形状时，取目标圆面上朝向形状最近点的点（目标中心在形状内则朝向攻击方），法线为从目标中心指向该点的单位向量；半径为 0 时逐位保持此前口径（`continuous` 取形状最近点，`marker`/instant 取目标登记位置）。`ITargetHost.TargetHitRadius` 是默认接口成员（缺省 0），生产实现 `TargetHost` 已覆盖；自带的替身若不覆盖则接触点口径不变。复现/不变量：`tests/HitGeometryTests.cs`（`Contact_*`，接触点到目标中心的距离恰为受击半径）。
+2. **技能行 `feel_ref` 与 `ignores_invulnerability`**（`skill.def` 纯新增可选字段，schema 版本不动）：`SkillDef.FeelRef`/`IgnoresInvulnerability`（新增 23 参数构造重载，旧构造保留）。`feel_ref` 与 `timeline.feel_ref` 等价（`SkillHost.GetTimelineFeelRef` 先取时间线上的，再取技能行的），同时声明且不同是加载期错误 `skill_feel_ref_conflict`；非时间线技能经 `SkillHost.GetInstantSkillFeelRef` 交给受击裁决宿主（`HitFeelOptions.SkillFeelRef`，`RulesFeelAssembly` 缺省接上）。`ignores_invulnerability` 让技能绕开结算第 0 步与时间线路径的无敌前置过滤。
+3. **分段手感覆盖**：`TimelineDef.SegmentFeelRefs`（`hit`/`release` 标记 `args.feel_ref`，`release` 默认段 0）；`CastPipeline.AttackerFeelFor` 在命中那一刻以"动作层引用 + 分段行"调用 `IFeelJudgingSource.ResolveJudgingWithAction` 重算攻击方视图（不是动作开始快照），并让 `HitFeelInput.AttackerFeelOverrides = true`；没有分段声明时取动作开始快照，与此前逐位一致。非 `hit`/`release` 标记写了 `feel_ref` 给警告 `timeline_marker_feel_ref_ignored`。
+4. **蓄力手感缩放**：`timeline.charge.feel_scale`（`TimelineChargeFeelScale.At(ratio)`），四个字段各为 `{min, max}`，`HitFeelInput.Scale` 带给受击裁决宿主（顿帧换算 tick 与限幅之前乘；击退/击飞在落地阶段乘）；缺省恒等缩放。`HitFeelScale` 的 `default` 值是全 0（不是恒等），只有经构造的输入才带恒等缩放——自写的裁决替身要读 `Scale` 时留意。
+5. **落点技能 `timeline.hit_anchor`**：`TryStartCastAtGround` 在 `def.Timeline.HitAnchor != None` 且不是离散步时进入 `EnterTimeline`（带落点）；`ActionRun.GroundPoint/Anchor/AnchorFacing`，`ground_point` 锚点的位置与朝向在施放时刻定下（朝向取施法者指向落点的方向，重合取施法者朝向），`RunPosition/RunFacing` 取代各处直接读施法者位姿；射程窗口门（`SpatialRangeHitWindow`）仍以施法者为起点。`skill.cast_success.groundPoint` 带落点。伤害类结算管线不消费 `EffectContext.GroundPoint`（`EffectDispatcher` 重建上下文时本就不转发它，沿用）。未声明时保持既有"`timeline` 被忽略 + 警告 `timeline_ground_target_unsupported`"；声明了则不再给该警告；没有 `ground_target` 却写了 `hit_anchor` 给警告 `timeline_hit_anchor_without_ground_target`。
+6. **无敌**：`SkillHost.BlocksHitByInvulnerability(EffectContext)` 是结算第 0 步的门（`RulesAssembly` 接给 `CombatHost.InvulnerabilityGate`）；时间线批次与时间线投射物钩子的前置过滤保留并读 `ignores_invulnerability`。复现/不变量：`tests/HitGeometryTests.cs`（`IgnoresInvulnerability_*`、`BlocksHitByInvulnerability_*`）。
+7. **复现与不变量**：`tests/HitGeometryTests.cs` 覆盖接触点、无敌豁免、分段覆盖与技能行 `feel_ref`、蓄力缩放（含恒等对照）、`hit_anchor` 两种锚点与未声明保持旧路径、四条加载期校验；实验室脚本 `feel_hit_geometry`、`feel_hit_charge_scale`（实验室判断记录 61）。
+8. **已知限制（逐条原样登记）**：
+   - 默认接口成员（`ITargetHost.TargetHitRadius`、`IFeelJudgingSource.ResolveJudgingWithAction`）的缺省实现退回旧口径：自带的实现若不覆盖，新声明被静默忽略；框架内全部生产实现都已覆盖。
+   - 调试覆盖层（第 8 层）高于第 6 层：对某字段写了全局调试覆盖，技能行与分段行对它的写入同样被盖住。
+   - 分段覆盖视图在命中时刻重算，不是动作开始快照；它反映动作开始之后才发生的光环与临时状态变化（只影响声明了分段覆盖的段）。
+   - 分段行与动作行同在第 6 层：先 `set`、再 `multiply`、再 `add`，同一操作按"动作层先、分段行后"的顺序，所以分段行的 `set` 之后动作行的 `multiply` 仍会乘上去。
+   - 投射物碰撞半径与目标受击半径是两条各自的路径，本切片不统一。
+   - 地面落点技能进入时间线后，射程、视线与可行走校验只在施放请求时按落点做一次，动作期间不再校验。
+
+## 手感落地 M5-S1：输入层补全的时间线侧（2026-10-04，[ADR-0143](../../../architecture/adr/0143-输入层补全.md)）
+
+1. **窗口条件 `requires: any|hit|whiff`（评审 B4）**：取消窗口与连招窗口都可带；`ActionRun.HitCount` 在 `PublishHitConfirmed` 里按 `CastInstanceId` 与活动实例配对递增，`TimelineSchedule.IsCancelOpen(class, elapsed, anyHit, target)` / `IsComboOpen(elapsed, anyHit)` 据此判定。缺省 `any` 与改动前逐位一致。校验：`requires` 非 `any` 但技能没有任何可命中的内容给警告 `timeline_window_requires_without_hit`。
+2. **取消窗口 `into` 白名单**：只对取消窗口（连招的目标固定是 `next`）；名单外的记录对该窗口"永远接不了"，经 `IsNeverAcceptable` 的 `IntoNeverAllows` 路径剔出候选，不挡后面的可接受记录（与 M4 清扫第 4 条同口径）。
+3. **按住维持 `active_until_release{max_ms}`（评审 B3）**：判定相最后一个 tick（`StartupTicks + ActiveTicks − 1`）处，若 `TriggerAction` 仍按着就进入维持：`Elapsed` 冻结、`SustainTicks` 累加、发 `sustain_start` 标记；松键或满 `max_ms` 对应的 tick 数后发 `sustain_end{reason: release|max}` 再正常推进，动作结束时刻平移量等于两个标记的 tick 差；冻结点处键已松开则 `SustainDone`，不维持。`IActionStateQuery.IsSustained`（默认接口成员）可查。只对带 `trigger_action` 参数的施放生效：装配层的缓冲出口只对 `SkillHost.IsSustainSkill` 为真的技能加这个参数。校验：`timeline_sustain_max`（`max_ms` 必须为正）、`timeline_sustain_no_active`（`active_ms` 为 0 无意义）、`timeline_sustain_with_charge`（警告，与 `charge` 同时声明）。块只在输入动作触发的施放上生效；格挡的判定归受击裁决，不在本模块。
+4. **`charge.below_min: release|cancel`（评审 A4）**：缺省 `release` 即既有行为（按最低档释放）；`cancel` 在输入缓冲侧丢弃记录。`SkillHost.GetTimelineCharge(skillId)` 给装配层读蓄力规则。`charge_ready` 保留为不可手写的派生标记名（实际是缓冲侧的 `input.charge_ready` 事件，见 input_map README M5-S1 第 3 条）。
+5. **已知边界（设计决定，不是遗漏）**：维持期间不重复采样连续命中、不发新的命中标记；`requires: hit` 把被回避的接触也算命中确认（与挥空窗口同口径）；动作结束之后才落地的投射物命中不计入该动作实例的命中数；没有触发键的施放（AI 的、没有输入动作的技能）没有维持。
+6. **复现与不变量**：`tests/InputCompletionTimelineTests.cs`（`requires` 命中前后开关、`into` 白名单与"不挡路"、连招 `requires`、维持的松键/满上限/冻结点已松键三种结局与结束时刻平移量、校验检查名）；实验室脚本 `feel_cancel_requires_hit`/`feel_cancel_requires_whiff` 在六格里复现同一命中下 `hit`/`whiff` 两种窗口的相反结果。
+
+## 判断记录（按住维持的格挡动作，2026-10-04，M5 合并后接缝，ADR-0143 × ADR-0145）
+
+1. **标签 `skill.tag.guard`**：技能行带该标签且声明了 `timeline.active_until_release`，按住维持期间（`IsSustained` 为真）算在格挡；`SkillHost.GuardStateQuery`（`IGuardStateQuery`）返回"时间线 `guard_start`～`guard_end` 窗口，或带标签的维持动作"，`GuardState.ElapsedTicks` 对维持动作取已累计的维持 tick 数（顿帧期间不增长），弹反窗口 `guard_parry_window_ms` 因此从按住进入维持那一刻起算。`RulesFeelAssembly` 把它接给受击裁决宿主的 `Guard`。没有带标签的技能时与此前逐位一致。
+2. **复现与不变量**：`core/gameplay/assembly/tests/GuardSustainAssemblyTests.cs`——按住带标签的维持动作后正面命中伤害 = 未格挡伤害 × `guard_damage_scale`、松键后恢复；没有标签的维持动作不算格挡。
+3. **已知边界**：前摇与判定相走完之前（尚未进入维持）不算格挡；要在前摇里就格挡的动作用 `guard_start` 标记。

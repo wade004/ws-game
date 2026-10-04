@@ -87,5 +87,16 @@ namespace Core.Foundation.InputMap
         void SetEdgeSink(IInputEdgeSink? sink)
         {
         }
+
+        /// <summary>
+        /// 导出玩家覆盖的模拟轴处理参数（死区、响应曲线、平滑，ADR-0143）；写入设置文件的 <c>input_axis_settings</c> 键（与 <see cref="ExportBindings"/> 同一持久化通道）。
+        /// 默认接口成员（ABI 只新增）：空对象（没有覆盖）；<see cref="InputMapHost"/> 覆盖为真实导出。
+        /// </summary>
+        JsonObject ExportAxisSettings() => new JsonObjectBuilder().Build();
+
+        /// <summary>读回玩家覆盖的模拟轴处理参数（见 <see cref="ExportAxisSettings"/>）。默认接口成员：什么都不做。</summary>
+        void ImportAxisSettings(JsonObject settings)
+        {
+        }
     }
 }

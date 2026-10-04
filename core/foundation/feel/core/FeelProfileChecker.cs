@@ -33,6 +33,15 @@ namespace Core.Foundation.Feel
 
         /// <summary>光环 <c>feel_modifiers</c> 重复表达了已由属性系统承载的字段。</summary>
         public const string ModifierAttributeDuplicate = "feel_modifier_attribute_duplicate";
+
+        /// <summary>档案行标了 <c>maturity: validated</c> 而 <c>feel.validation</c> 里没有覆盖它的记录（档案版本一致、评分各项达标、格子已写明）。</summary>
+        public const string ValidatedWithoutRecord = "feel_validated_without_record";
+
+        /// <summary><c>feel.validation</c> 的 <c>profile_ref</c> 指向不存在的档案行（或不是五张档案表之一）。</summary>
+        public const string ValidationProfileMissing = "feel_validation_profile_missing";
+
+        /// <summary><c>feel.validation</c> 的 <c>date</c> 不是 yyyy-mm-dd。</summary>
+        public const string ValidationDateInvalid = "feel_validation_date_invalid";
     }
 
     /// <summary>一条手感档案校验问题。</summary>

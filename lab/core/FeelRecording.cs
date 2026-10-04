@@ -37,6 +37,15 @@ namespace Lab
 
         public double D { get; }
 
+        /// <summary>
+        /// 命中几何（只在 <c>hit_confirmed</c> 事件上有，只供面板轨迹叠层读，不进任何度量，因此不改既有指纹）：接触点与法线（从目标中心指向接触点的单位向量）。
+        /// </summary>
+        public Core.Foundation.Common.Vec2 Contact { get; internal set; }
+
+        public Core.Foundation.Common.Vec2 Normal { get; internal set; }
+
+        public bool HasGeometry { get; internal set; }
+
         public FeelEventRecord(
             int tick, string kind, string actor, string target, string skillId, string detail, string detail2,
             int a = 0, int b = 0, int c = 0, double d = 0)
@@ -123,6 +132,46 @@ namespace Lab
         }
     }
 
+    /// <summary>
+    /// 一次判定标记（<c>hit</c>）发生时施法者的位姿与该技能目标选择链的形状（调参面板的"判定形状"叠层，ADR-0150）。
+    /// 形状已按位姿锚定（<c>ShapeGeometry.RebaseAt</c>，与时间线命中的锚定规则逐位一致）；没有形状的技能（目标选择式结算）不记。
+    /// 只供面板读，不进任何度量，所以不改既有指纹。位姿是标记事件被总线派发那一刻施法者的位置与朝向。
+    /// </summary>
+    public sealed class HitShapeRecord
+    {
+        public int Tick { get; }
+
+        public string Actor { get; }
+
+        public string SkillId { get; }
+
+        public int Segment { get; }
+
+        public Core.Foundation.Common.Vec2 Position { get; }
+
+        /// <summary>弧度。</summary>
+        public double Facing { get; }
+
+        public Core.Foundation.EngineAdapter.Shape Shape { get; }
+
+        /// <summary>未锚定的形状模板（以施法者局部坐标给出）；扫掠体按各 tick 的位姿重新锚定它。</summary>
+        public Core.Foundation.EngineAdapter.Shape Template { get; }
+
+        public HitShapeRecord(
+            int tick, string actor, string skillId, int segment, Core.Foundation.Common.Vec2 position, double facing,
+            Core.Foundation.EngineAdapter.Shape shape, Core.Foundation.EngineAdapter.Shape template)
+        {
+            Template = template;
+            Tick = tick;
+            Actor = actor;
+            SkillId = skillId;
+            Segment = segment;
+            Position = position;
+            Facing = facing;
+            Shape = shape;
+        }
+    }
+
     /// <summary>手感场景的运行期记录（<see cref="LabRecording.Feel"/>；脚本 meta 的 <c>feel</c> 为真时才有）。</summary>
     public sealed class FeelRecording
     {
@@ -137,9 +186,15 @@ namespace Lab
 
         public List<FeelEventRecord> Events { get; } = new List<FeelEventRecord>();
 
+        /// <summary>输入动作 id → 类别（<c>attack</c>/<c>dodge</c>/<c>skill</c>/<c>move</c>…，取自 <c>found.input_action.class</c>）；可选度量组 <c>latency</c> 给输入分类用，不进任何既有度量。</summary>
+        public Dictionary<string, string> InputClasses { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
         public List<FeelTickSample> Ticks { get; } = new List<FeelTickSample>();
 
         public List<FeelPresentationRecord> Presentation { get; } = new List<FeelPresentationRecord>();
+
+        /// <summary>判定标记发生时的判定形状（面板叠层用，不进度量）。</summary>
+        public List<HitShapeRecord> HitShapes { get; } = new List<HitShapeRecord>();
 
         /// <summary>运行结束时仍未释放的顿帧冻结数（表现层冻结登记，应恒为 0）。</summary>
         public int FrozenAtEnd { get; set; }
@@ -159,6 +214,12 @@ namespace Lab
         public static LabRunVariant Default { get; } = new LabRunVariant();
 
         public bool? StripTimelines { get; set; }
+
+        /// <summary>
+        /// 表现时钟的时间尺度（M5-S7，缺省 1）：每个表现帧推进 <c>脚本帧长 × 尺度</c> 的模拟时间；只缩放表现，固定步序列与逻辑类度量逐位不变
+        /// （见 <see cref="LabSession.RunToEnd(double)"/>）。不影响数据集（<see cref="DatasetKey"/> 不含它）。
+        /// </summary>
+        public double TimeScale { get; set; } = 1.0;
 
         public string? PresetId { get; set; }
 

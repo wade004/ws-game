@@ -147,10 +147,12 @@ namespace Core.Carriers.Assembly
 
             var rangeFromAim = aim.Range;
             var conditionRange = services.ConditionRange;
+            var groundedQuery = services.Grounded;
             return new GraceAimContext(
                 position(actorId), aimPosition, isGround,
                 () => rangeFromAim > 0 ? rangeFromAim : (conditionRange?.Invoke(actorId, conditionId) ?? 0),
-                services.LineOfSight);
+                services.LineOfSight,
+                groundedQuery == null ? (Func<bool>?)null : () => groundedQuery(actorId));
         }
 
         /// <summary>
@@ -196,8 +198,9 @@ namespace Core.Carriers.Assembly
                     var node = ExprParser.Parse(definition.Expr, _schema);
                     var usesTarget = false;
                     var usesEvent = false;
-                    Inspect(node, ref usesTarget, ref usesEvent);
-                    result[definition.ConditionId] = new Parsed(node, usesTarget || usesEvent, usesEvent);
+                    var usesAimEvent = false;
+                    Inspect(node, ref usesTarget, ref usesEvent, ref usesAimEvent);
+                    result[definition.ConditionId] = new Parsed(node, usesTarget || usesAimEvent, usesEvent);
                 }
                 catch (ExprParseException ex)
                 {
@@ -209,8 +212,8 @@ namespace Core.Carriers.Assembly
             return result;
         }
 
-        /// <summary>遍历语法树：引用了 <c>target</c> 分组、<c>self.distance_to_target</c>/<c>self.threat_top</c>（都由"这次求值的目标"决定）记为依赖目标；引用了 <c>event</c> 分组记为需要瞄点上下文。</summary>
-        private static void Inspect(ExprNode node, ref bool usesTarget, ref bool usesEvent)
+        /// <summary>遍历语法树（<c>event.grounded</c> 不算依赖瞄点，见内部注释）：引用了 <c>target</c> 分组、<c>self.distance_to_target</c>/<c>self.threat_top</c>（都由"这次求值的目标"决定）记为依赖目标；引用了 <c>event</c> 分组记为需要瞄点上下文。</summary>
+        private static void Inspect(ExprNode node, ref bool usesTarget, ref bool usesEvent, ref bool usesAimEvent)
         {
             switch (node)
             {
@@ -223,22 +226,25 @@ namespace Core.Carriers.Assembly
                     else if (reference.Group == ExprGroups.Event)
                     {
                         usesEvent = true;
+                        // ADR-0143：event.grounded（框架内置 builtin_grounded 用）读的是行动者此刻是否在地面，与施法瞄点无关——不算依赖瞄点，
+                        // 否则瞄点一变化就会清掉"最近一次在地面"的记录，土狼时间就丢了。
+                        if (reference.Key != "grounded") usesAimEvent = true;
                     }
 
-                    for (var i = 0; i < reference.Args.Count; i++) Inspect(reference.Args[i], ref usesTarget, ref usesEvent);
+                    for (var i = 0; i < reference.Args.Count; i++) Inspect(reference.Args[i], ref usesTarget, ref usesEvent, ref usesAimEvent);
                     break;
                 case ExprNotNode not:
-                    Inspect(not.Operand, ref usesTarget, ref usesEvent);
+                    Inspect(not.Operand, ref usesTarget, ref usesEvent, ref usesAimEvent);
                     break;
                 case ExprCompareNode compare:
-                    Inspect(compare.Left, ref usesTarget, ref usesEvent);
-                    Inspect(compare.Right, ref usesTarget, ref usesEvent);
+                    Inspect(compare.Left, ref usesTarget, ref usesEvent, ref usesAimEvent);
+                    Inspect(compare.Right, ref usesTarget, ref usesEvent, ref usesAimEvent);
                     break;
                 case ExprAndNode and:
-                    for (var i = 0; i < and.Operands.Count; i++) Inspect(and.Operands[i], ref usesTarget, ref usesEvent);
+                    for (var i = 0; i < and.Operands.Count; i++) Inspect(and.Operands[i], ref usesTarget, ref usesEvent, ref usesAimEvent);
                     break;
                 case ExprOrNode or:
-                    for (var i = 0; i < or.Operands.Count; i++) Inspect(or.Operands[i], ref usesTarget, ref usesEvent);
+                    for (var i = 0; i < or.Operands.Count; i++) Inspect(or.Operands[i], ref usesTarget, ref usesEvent, ref usesAimEvent);
                     break;
             }
         }

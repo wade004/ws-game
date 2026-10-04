@@ -43,6 +43,18 @@ namespace Adapter.Unity.Tests.Runtime
         public void DirectionSwitchSetUp()
         {
             _writtenImages.Clear();
+            UnityResourceLoader.DecodeStallMillisecondsForTests = 0;
+            if (DeterministicLoadDriving)
+            {
+                // 确定性推进（见 DeterministicLoadDriving）：取消主线程每帧时间预算，一次 Tick 排空全部就绪项。
+                Loader.MainThreadBudgetMilliseconds = 0.0;
+            }
+        }
+
+        [TearDown]
+        public void DirectionSwitchTearDown()
+        {
+            UnityResourceLoader.DecodeStallMillisecondsForTests = 0;
         }
 
         // ---------------- 朝向 ----------------
@@ -98,13 +110,15 @@ namespace Adapter.Unity.Tests.Runtime
         /// <summary>同步把静态层图加载进缓存（热路径预热），直到 TryGetSprite 命中。</summary>
         protected IEnumerator WarmImage(Id imageId)
         {
+            var stall = BeginWarm();
             Loader.LoadAsync(imageId, ResourceKind.Image, (_, __) => { });
             var deadline = Time.realtimeSinceStartup + 5f;
-            while (!Loader.TryGetSprite(imageId, out _) && Time.realtimeSinceStartup < deadline)
+            for (var frame = 0; !Loader.TryGetSprite(imageId, out _) && (DeterministicLoadDriving ? frame < 50 : Time.realtimeSinceStartup < deadline); frame++)
             {
-                Loader.Tick();
+                TickLoader();
                 yield return null;
             }
+            EndWarm(stall);
             Assert.IsTrue(Loader.TryGetSprite(imageId, out _), $"静态层图 \"{imageId}\" 预热加载超时");
         }
 
@@ -306,7 +320,7 @@ namespace Adapter.Unity.Tests.Runtime
                 beforeFrame?.Invoke(i);
                 if (tickThisFrame == null || tickThisFrame(i))
                 {
-                    Loader.Tick();
+                    TickLoader();
                 }
                 fx.View.SyncPose(Vec2.Zero, facing, 0.0);
                 yield return null;

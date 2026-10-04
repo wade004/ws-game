@@ -641,6 +641,8 @@ namespace Adapter.Unity.Bootstrap
                 // 否则顿帧会持续把传入的毫秒数当秒数用（如 40ms 顿帧变成 40 秒）。
                 OnFreeze = durationMs => Freeze?.Freeze(durationMs / 1000.0),
                 OnFlash = (entityId, profileId) => Flash?.Show(entityId, profileId),
+                // ADR-0148：反馈包变体的 rumble 经手柄震动输出落地（没有手柄时静默忽略）；强度再乘玩家强度 feel.intensity.rumble。
+                Rumble = _host.Rumble,
                 RenderOptions = renderOptions,
                 FeedbackOptions = new global::Presentation.FeedbackBinder.Contracts.FeedbackOptions { HitFrameSync = hitFrameSyncStrategy },
             };
@@ -682,7 +684,11 @@ namespace Adapter.Unity.Bootstrap
             // （见上方注释），构造期本身不会调用，顺序上没有问题。
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
             Freeze = new FreezeFrameReceiver();
-            Flash = new FlashReceiver(presentation.ViewBinder);
+            Flash = new FlashReceiver(presentation.ViewBinder)
+            {
+                // ADR-0148：玩家闪白强度（feel.intensity.flash）在接收器出口生效。
+                IntensityScale = () => presentation.FeelIntensity.Get(global::Presentation.Camera.FeelIntensityKind.Flash),
+            };
 
             // ---------------------------------------------------------
             // 6) 输入：声明动作集（见文件顶部"判断记录 3"）——从 found.input_action 表已加载的
@@ -832,9 +838,9 @@ namespace Adapter.Unity.Bootstrap
         private void HandleFixedInput()
         {
             var moveAxis = Presentation!.InputMap.GetActionAxis(ActionMove);
-            if (moveAxis.SqrLength > 0.0001)
+            if (MoveIntent().TryResolve(PlayerId, moveAxis, out var moveRequest))
             {
-                Gameplay!.Carriers.Movement.Request(MoveRequest.InDirection(PlayerId, moveAxis));
+                Gameplay!.Carriers.Movement.Request(moveRequest);
             }
 
             // 手感落地 M2-A：开启手感且该动作被输入缓冲声明了类别（found.input_action.class）时，按钮边沿已由 PresentationAssembly
@@ -849,6 +855,23 @@ namespace Adapter.Unity.Bootstrap
                 if (!IsBufferedAction(ActionSkill1)) CastSkill(new Id(_skill1Id));
             });
             HandleButtonRisingEdge(ActionInteract, Interact);
+        }
+
+        private PlayerMoveIntentResolver? _moveIntent;
+        private InputBufferHost? _moveIntentBuffer;
+
+        /// <summary>玩家移动意图解析器（ADR-0153）：玩家移动请求（方向 + 步行/冲刺模式）一律经它生成；数据没有声明冲刺动作时与此前逐位一致。
+        /// 输入缓冲实例变化（重新装配）时重建。</summary>
+        private PlayerMoveIntentResolver MoveIntent()
+        {
+            var buffer = Gameplay!.Feel?.InputBuffer;
+            if (_moveIntent == null || !ReferenceEquals(buffer, _moveIntentBuffer))
+            {
+                _moveIntentBuffer = buffer;
+                _moveIntent = new PlayerMoveIntentResolver(buffer);
+            }
+
+            return _moveIntent;
         }
 
         /// <summary>该输入动作是否由手感输入缓冲接管（手感已装配且动作被缓冲声明了类别）。</summary>

@@ -626,6 +626,29 @@ namespace Core.Rules.Skill
                     yDescription: "该等级对应的效果基础值，供 school_damage/heal/periodic_damage/periodic_heal 的 base_curve_ref 引用"),
             }).WithOwnership(SchemaLayer.Rules, "skill");
 
+        /// <summary><c>skill.motion_curve</c>：导入期从动画剪辑烘焙出的位移曲线（ADR-0147，手感设计/02 第 4 节）。
+        /// 动作位移声明 <c>motion.curve: custom:&lt;id&gt;</c> 引用本表；运行期由运动层按固定步求值，逻辑层不读剪辑、不读骨骼。
+        /// 曲线把"位移进度 [0,1]"映到"累计位移占比 [0,1]"（单调不减），形态同 <c>MotionMath.EvalCurve</c> 的 <c>custom:</c> 分支。</summary>
+        public static TableSchema MotionCurve { get; } = new TableSchema(
+            name: "skill.motion_curve",
+            primaryKey: "id",
+            currentSchemaVersion: 1,
+            fields: new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "skill.motion_curve.<name>"),
+                CurveSchema.BreakpointsField("points", CurveAxis.Value, required: true,
+                    description: "断点表 [{x: 时间进度 0..1, y: 累计位移占比 0..1}]，按 x 线性插值（04 第 3.6 节曲线形态）；导入期由 bake-motion 写入",
+                    xDescription: "motion_start..motion_end 之间的时间进度",
+                    yDescription: "该时间进度对应的累计位移占比",
+                    xRange: FieldRange.Range(min: 0, max: 1),
+                    yRange: FieldRange.Range(min: 0, max: 1)),
+                new FieldSchema("source_clip", FieldKind.String, required: false,
+                    description: "烘焙来源剪辑的资源引用（仅溯源，运行期不读）"),
+                new FieldSchema("source_distance", FieldKind.Number, required: false,
+                    description: "烘焙来源剪辑的原始总位移（世界单位，仅溯源；动作的实际位移距离以 motion.distance 为准）")
+                    .WithRange(FieldRange.Range(min: 0)),
+            }).WithOwnership(SchemaLayer.Rules, "skill");
+
         /// <summary><c>skill.budget_rule</c>：技能预算规则表的最小骨架（分阶段落地计划 T-N3-3；
         /// [ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 2"技能预算规则
         /// 表与警告级校验"、决策 10"一拍常数只是记账单位……施放时间当量 = max(动作时长, 一拍
@@ -809,19 +832,23 @@ namespace Core.Rules.Skill
         public static readonly string[] TimelineSourceValues = { "data", "clip" };
         public static readonly string[] TimelineHitPolicyValues = { "marker", "continuous" };
         public static readonly string[] TimelineHitModeValues = { "auto", "spatial", "instant" };
+        public static readonly string[] TimelineHitAnchorValues = { "caster", "ground_point" };
         public static readonly string[] TimelineAssistModeValues = { "face_only", "close_distance" };
         public static readonly string[] TimelineCostAtValues = { "commit", "active", "first_hit" };
+        public static readonly string[] TimelineChargeBelowMinValues = { "release", "cancel" };
+        public static readonly string[] TimelineWindowRequiresValues = { "any", "hit", "whiff" };
         public static readonly string[] TimelineCooldownAtValues = { "commit", "active", "finish" };
         public static readonly string[] TimelineActionClassValues = { "move", "attack", "skill", "dodge", "interact", "item", "menu" };
-        public static readonly string[] MotionDriverValues = { "code", "root_motion" };
+        public static readonly string[] MotionDriverValues = { "code" };
         public static readonly string[] MotionKindValues = { "lunge", "dash", "step_back", "charge" };
         public static readonly string[] MotionDirectionValues = { "facing", "input_snapshot", "toward_target" };
         public static readonly string[] MotionBlockingValues = { "stop", "slide" };
 
         private static readonly FieldSchema[] TimelineMotionFields =
         {
-            new FieldSchema("driver", FieldKind.Enum, required: false, enumValues: MotionDriverValues,
-                description: "code|root_motion，缺省 code；root_motion 需适配层能力 supportsRootMotion（手感设计/02 第 4 节）"),
+            new FieldSchema("driver", FieldKind.String, required: false,
+                description: "已废弃：缺省且唯一取值 code，可不写。写 root_motion 在加载期报错并给迁移说明（ADR-0147，手感设计/02 第 4 节；" +
+                    "带位移的动画改用导入期烘焙的 skill.motion_curve + motion.curve = custom:<id>）"),
             new FieldSchema("kind", FieldKind.Enum, required: true, enumValues: MotionKindValues,
                 description: "lunge|dash|step_back|charge"),
             new FieldSchema("distance", FieldKind.Number, required: true,
@@ -849,6 +876,9 @@ namespace Core.Rules.Skill
                         .WithRange(FieldRange.Range(min: 0)),
                     new FieldSchema("max_ms", FieldKind.Number, required: true, description: "蓄力上限（毫秒），> min_ms")
                         .WithRange(FieldRange.Range(min: 0)),
+                    new FieldSchema("below_min", FieldKind.Enum, required: false, enumValues: TimelineChargeBelowMinValues,
+                        description: "蓄力不足（抬起时按住时长超过按住阈值但不足 min_ms）的处理：release（缺省）按最低档释放（蓄力比例 0，既有行为）；" +
+                            "cancel 取消该次输入（缓冲记录丢弃，input.buffer_dropped{reason: charge_below_min}，不进入动作）。ADR-0143"),
                     new FieldSchema("value_scale", FieldKind.Object, required: false,
                         fields: new[]
                         {
@@ -858,8 +888,17 @@ namespace Core.Rules.Skill
                                 .WithRange(FieldRange.Range(min: 0)),
                         },
                         description: "效果值随蓄力比例线性缩放：倍率 = min + (max-min) × 蓄力比例；乘在伤害/治疗类效果值上（含投射物命中后效果）；缺省不缩放"),
+                    new FieldSchema("feel_scale", FieldKind.Object, required: false,
+                        fields: new[]
+                        {
+                            ChargeScaleField("attacker_hitstop_ms", "攻击方顿帧毫秒"),
+                            ChargeScaleField("target_hitstop_ms", "受击方顿帧毫秒"),
+                            ChargeScaleField("knockback_distance", "击退距离"),
+                            ChargeScaleField("launch_height", "击飞高度"),
+                        },
+                        description: "手感缩放（M5-S2a，手感设计/03 第 2.4 节）：四个可选字段各为 {min, max}，蓄力比例为 0/1 时的倍率，之间线性插值；乘在对应判定型字段的档案取值上（顿帧仍受 *_hitstop_cap_ms 限幅）；缺省不缩放"),
                 },
-                description: "蓄力声明（仅 hold 类动作）：{min_ms, max_ms[, value_scale]}；蓄力比例 (held-min)/(max-min) 随动作开始事件给出"),
+                description: "蓄力声明（仅 hold 类动作）：{min_ms, max_ms[, value_scale][, feel_scale]}；蓄力比例 (held-min)/(max-min) 随动作开始事件给出"),
             new FieldSchema("startup_ms", FieldKind.Number, required: true, description: "前摇（毫秒）")
                 .WithRange(FieldRange.Range(min: 0)),
             new FieldSchema("active_ms", FieldKind.Number, required: true, description: "判定相（毫秒）")
@@ -870,17 +909,20 @@ namespace Core.Rules.Skill
                 item: new FieldSchema("<marker>", FieldKind.Object, required: true, fields: new[]
                 {
                     new FieldSchema("name", FieldKind.String, required: true,
-                        description: "标记名：hit（多段写 hit:<段> 或 args.segment）、invuln_start/invuln_end、armor_start/armor_end、motion_start/motion_end、release"),
+                        description: "标记名：hit（多段写 hit:<段> 或 args.segment）、invuln_start/invuln_end、armor_start/armor_end、guard_start/guard_end（格挡窗口，手感设计/03 第 4 节）、motion_start/motion_end、release"),
                     new FieldSchema("at_ms", FieldKind.Number, required: true, description: "相对动作开始（不含蓄力）的毫秒数")
                         .WithRange(FieldRange.Range(min: 0)),
                     new FieldSchema("args", FieldKind.Object, required: false,
                         fields: new[]
                         {
                             new FieldSchema("segment", FieldKind.Int, required: false, description: "多段命中的段序号（hit 标记；未写按出现顺序 0、1、…）"),
+                            new FieldSchema("feel_ref", FieldKind.Id, required: false,
+                                    description: "该段的手感覆盖行 id（feel.action，M5-S2a，只在 hit/release 标记上有意义）：叠在动作层之上，覆盖该段命中的冲击等级、顿帧、击退等判定型字段")
+                                .WithSoftReference(table: "feel.action"),
                         },
-                        description: "标记参数；运行期只消费 segment（登记为固定子结构而非自由对象，元数据门禁 composite_without_substructure）"),
+                        description: "标记参数；运行期消费 segment 与 feel_ref（登记为固定子结构而非自由对象，元数据门禁 composite_without_substructure）"),
                 }, description: "{name: String, at_ms: Number, args: Object?}"),
-                description: "时间标记列表（手感设计/01 第 3.3 节）；combo_*/cancel_*/cost/charge_ready 由其它块派生，不单独写"),
+                description: "时间标记列表（手感设计/01 第 3.3 节）；combo_*/cancel_*/cost 由其它块派生，不单独写（charge_ready 是输入缓冲侧的 input.charge_ready 事件，不是时间线标记）"),
             new FieldSchema("cancel_windows", FieldKind.Array, required: false,
                 item: new FieldSchema("<cancel_window>", FieldKind.Object, required: true, fields: new[]
                 {
@@ -890,7 +932,12 @@ namespace Core.Rules.Skill
                         .WithRange(FieldRange.Range(min: 0)),
                     new FieldSchema("close_ms", FieldKind.Number, required: false, description: "窗口关闭（毫秒），缺省为动作结束")
                         .WithRange(FieldRange.Range(min: 0)),
-                }, description: "{class, open_ms, close_ms?}"),
+                    new FieldSchema("requires", FieldKind.Enum, required: false, enumValues: TimelineWindowRequiresValues,
+                        description: "窗口生效条件（ADR-0143）：any（缺省，无条件，等于既有行为）| hit（本动作实例已有命中确认——含被回避的接触——才可取消，命中确认取消）| " +
+                            "whiff（本动作实例尚无命中确认才可取消，挥空取消）；判定依据是 combat.hit_confirmed 按动作实例的配对"),
+                    new FieldSchema("into", FieldKind.IdList, required: false, referenceTable: "skill.def",
+                        description: "窗口允许取消进入的目标技能白名单（ADR-0143）：只有输入动作映射到的技能在名单里才可取消进入；缺省不限（既有行为）"),
+                }, description: "{class, open_ms, close_ms?, requires?, into?}"),
                 description: "取消窗口列表（手感设计/01 第 3.4 节），每个窗口按目标类别独立声明"),
             new FieldSchema("combo", FieldKind.Object, required: false,
                 fields: new[]
@@ -901,8 +948,20 @@ namespace Core.Rules.Skill
                         .WithRange(FieldRange.Range(min: 0)),
                     new FieldSchema("close_ms", FieldKind.Number, required: true, description: "接续窗口关闭（毫秒）")
                         .WithRange(FieldRange.Range(min: 0)),
+                    new FieldSchema("requires", FieldKind.Enum, required: false, enumValues: TimelineWindowRequiresValues,
+                        description: "接续条件（ADR-0143）：any（缺省）| hit（命中确认后才可接续，典型的\"打中才能接下一段\"）| whiff（只在挥空时可接续）；" +
+                            "接续的目标固定是 next，所以连招块没有 into 白名单"),
                 },
-                description: "连招接续窗口：{next: Id, open_ms, close_ms}（手感设计/01 第 3.6 节）"),
+                description: "连招接续窗口：{next: Id, open_ms, close_ms, requires?}（手感设计/01 第 3.6 节）"),
+            new FieldSchema("active_until_release", FieldKind.Object, required: false,
+                fields: new[]
+                {
+                    new FieldSchema("max_ms", FieldKind.Number, required: true,
+                            description: "维持上限（毫秒）：判定相结束后最多再维持这么久（按键仍按着时），到上限强制进入后摇")
+                        .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                },
+                description: "按住维持型动作（格挡、按住冲刺、持续引导，ADR-0143）：判定相走完后，若触发该动作的输入键仍按着，动作停在判定相末尾继续维持（直到松键或到 max_ms），" +
+                    "之后进入后摇；松键早于判定相结束则 active_ms 即最短判定时长。只对由输入动作触发的动作生效；维持期间受击打断、取消窗口照常"),
             new FieldSchema("hit_policy", FieldKind.Enum, required: false, enumValues: TimelineHitPolicyValues,
                 description: "marker|continuous，缺省 marker：命中解析方式（手感设计/03 第 2.2 节）。marker 在每个 hit 标记解析一次；continuous 在判定相逐 tick 解析（两 tick 位姿之间插值采样，高速形状不漏目标）"),
             new FieldSchema("is_attack", FieldKind.Bool, required: false,
@@ -937,7 +996,21 @@ namespace Core.Rules.Skill
             new FieldSchema("feel_ref", FieldKind.Id, required: false,
                     description: "当前动作层的手感覆盖行 id（feel.action，手感设计/05 第 3 节）")
                 .WithSoftReference(table: "feel.action"),
+            new FieldSchema("hit_anchor", FieldKind.Enum, required: false, enumValues: TimelineHitAnchorValues,
+                description: "caster|ground_point，缺省不声明（M5-S2a，手感设计/03 第 2.2 节）：只对 ground_target 技能有意义——声明后经 CastSkillAtGround 施放时时间线生效：caster = 命中形状以施法者位姿为锚点，ground_point = 以落点为锚点（朝向指向落点）；不声明时地面落点施放忽略 timeline（校验给警告）"),
         };
+
+        /// <summary>蓄力手感缩放的一个字段：<c>{min, max}</c> 两个非负倍率。</summary>
+        private static FieldSchema ChargeScaleField(string name, string label) =>
+            new FieldSchema(name, FieldKind.Object, required: false,
+                fields: new[]
+                {
+                    new FieldSchema("min", FieldKind.Number, required: true, description: "蓄力比例为 0 时的" + label + "倍率")
+                        .WithRange(FieldRange.Range(min: 0)),
+                    new FieldSchema("max", FieldKind.Number, required: true, description: "蓄力比例为 1 时的" + label + "倍率")
+                        .WithRange(FieldRange.Range(min: 0)),
+                },
+                description: label + "的蓄力倍率区间 {min, max}");
 
         public static TableSchema Def { get; } = new TableSchema(
             name: "skill.def",
@@ -1011,6 +1084,12 @@ namespace Core.Rules.Skill
                 // 落点施放，缺省 false（见 SkillDef.AllowGroundTarget 判断记录，保持既有技能行为不变）。
                 new FieldSchema("ground_target", FieldKind.Bool, required: false,
                     description: "是否允许地面坐标施法请求（ISkillHost.CastSkillAtGround），缺省 false"),
+                // 手感落地 M5-S2a（手感设计/03 第 2.3 节、05 第 3 节）：纯新增可选字段，不提 schema_version。
+                new FieldSchema("feel_ref", FieldKind.Id, required: false,
+                        description: "技能行的手感引用（feel.action 行 id，M5-S2a）：进入手感解析第 6 层（当前动作）；时间线技能与 timeline.feel_ref 等价（同时声明且不同为错误），没有时间线的技能命中时受击裁决据此重算攻击方手感；缺省保持按武器")
+                    .WithSoftReference(table: "feel.action"),
+                new FieldSchema("ignores_invulnerability", FieldKind.Bool, required: false,
+                    description: "是否无视无敌窗口（M5-S2a）：真时本技能的伤害类结算不经结算第 0 步的无敌前置检查（环境伤害、斩杀等），缺省 false"),
                 // 修订（2026-09-14，ADR-0031 决策 10；06 第 3.1 节 2026-09-14 修订段）：字段名
                 // 保留，语义由"是否受公共冷却影响"扩展为"是否受节拍锁约束"——开公共冷却的游戏里
                 // 节拍锁是公共冷却，关公共冷却（13 第 8 节口味配置项默认关闭）的游戏里节拍锁是当前

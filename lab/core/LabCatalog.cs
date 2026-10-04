@@ -195,7 +195,7 @@ namespace Lab
         /// <summary>
         /// 该格子在给定能力集合上的可运行状态（06 第 1.2 节"可运行 / 不可运行（缺能力 X）"显式状态）：
         /// 缺少必需适配能力标"不可运行"并给出原因，不静默跳过。三个空间取值（<c>plane</c>/<c>side_2d</c>/<c>volume</c>）在无头宿主上
-        /// 都有真实语义，不再有"预留"（手感设计/06 第 10 节勘误 9）；空间语义靠核心层的竖直轴能力实现，不是宿主能力，所以不进能力集合。
+        /// 都有真实语义，不再有"预留"（手感设计/06 第 1.2 节）；空间语义靠核心层的竖直轴能力实现，不是宿主能力，所以不进能力集合。
         /// </summary>
         public CellRunnability CheckRunnable(IReadOnlyCollection<string> availableCapabilities)
         {

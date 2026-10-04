@@ -34,6 +34,23 @@ namespace Tests.PresentationRender
         }
 
         [Fact]
+        public void SetSpeed_ChangesTheAdvanceRateOnly_WithoutRestartingTheClip()
+        {
+            // 4 帧、4fps → 每帧 0.25 秒；播到第 1 帧后把速率翻倍：同样 0.25 秒推进 2 帧，不回到第 0 帧。
+            var player = CreatePlayer(frameCount: 8, frameRate: 4.0);
+            player.Play(ClipId, loop: true, speed: 1.0);
+            player.Update(0.25);
+            Assert.Equal(1, player.CurrentFrame);
+
+            player.SetSpeed(2.0);
+            Assert.Equal(2.0, player.Speed);
+            player.Update(0.25);
+            Assert.Equal(1 + (int)(0.25 * 4.0 * 2.0), player.CurrentFrame);
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => player.SetSpeed(0.0));
+        }
+
+        [Fact]
         public void Play_FiresFrameChangedAtFrameZero()
         {
             var player = CreatePlayer();

@@ -107,6 +107,13 @@ namespace Core.Rules.Assembly
                 hitOptions.IsTimelineSkill = skillId => skillId.HasValue && skill.IsTimelineSkill(skillId.Value);
             }
 
+            // 手感落地 M5-S2a：技能行声明的 feel_ref（无时间线的技能）经它进入 instant 命中的攻击方视图；时间线技能的手感引用走动作开始快照。
+            if (hitOptions.SkillFeelRef == null)
+            {
+                var skillForFeel = rules.Skill;
+                hitOptions.SkillFeelRef = skillId => skillId.HasValue ? skillForFeel.GetInstantSkillFeelRef(skillId.Value) : null;
+            }
+
             var hitFeel = HitFeelAssembly.Attach(
                 rules.Bus, rules.Units, resolver, rules.Stats, stepSeconds, hitOptions, rules.Powers,
                 rules.Skill.ActionStateQuery, rules.Skill.AuraQuery, rules.Skill);
@@ -114,6 +121,12 @@ namespace Core.Rules.Assembly
             // 手感落地 M4-W3：韧性回复模式 out_of_combat 的脱战判定复用战斗宿主的进出战状态（CombatHost.IsInCombat）。
             var combatHost = rules.Combat;
             hitFeel.Host.InCombat = unitId => combatHost.IsInCombat(unitId);
+
+            // ADR-0145：受击方防御裁决（起身无敌 / 格挡 / 弹反）接进结算管线；没有任何单位处于这些状态时 Judge 恒返回 None，命中表逐位不变。
+            rules.CombatOptions.DefenseArbiter = hitFeel.Host;
+
+            // 格挡状态：时间线格挡窗口，或带 skill.tag.guard 标签的按住维持动作（M5-S1 的按住维持 × S2b 的防御裁决）。
+            hitFeel.Host.Guard = rules.Skill.GuardStateQuery;
 
             var timeline = new TimelineServices
             {
@@ -159,6 +172,9 @@ namespace Core.Rules.Assembly
         public FeelCalibration Calibration => _inner.Calibration;
 
         public JudgingFeelView ResolveJudging(Id unitId) => _inner.ResolveJudging(unitId);
+
+        public JudgingFeelView ResolveJudgingWithAction(Id unitId, string? actionFeelRef, string? overlayFeelRef) =>
+            _inner.ResolveJudgingWithAction(unitId, actionFeelRef, overlayFeelRef);
 
         public PresentingFeelView ResolvePresenting(Id unitId) => _inner.ResolvePresenting(unitId);
 

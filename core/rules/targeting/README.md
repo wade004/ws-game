@@ -181,7 +181,7 @@ T-N3-8（ADR-0031 决策 6、拍板 7）补充：`TargetOverflowPolicy` 枚举�
   （`ResolveAtPoint` 的朝向固定为 0，本方法朝向可指定）。逐 tick 多次采样，**不发布** `targeting.resolved`。默认接口成员退化为 `ResolveWithCoefficients`（忽略给定位姿），本类显式覆盖。
 - 复现/不变量：`tests/TargetHostResolveAtPoseTests.cs`（模板形态、位姿锚定与施法者自身位姿无关、矩形随朝向旋转、与 `ResolveWithCoefficients` 在自身位姿处一致、不发布事件）。
 
-## 判断记录（命中形状高度窗口与三维距离，2026-10-02，M3-E1，[手感设计/06](../../../architecture/手感设计/06_手感实验室与验收.md) 第 10 节勘误 9）
+## 判断记录（命中形状高度窗口与三维距离，2026-10-02，M3-E1，[手感设计/06](../../../architecture/手感设计/06_手感实验室与验收.md) 第 1.2 节）
 
 1. **数据**：四种形状（circle/cone/line/rect）都可选 `height`（正数、有限，世界单位）；`TargetChainDef.ShapeHeight` 为空表示竖直方向不设限（无限高的柱体）。非正数/非数值抛 `DataFieldException`（字段 `shape.height`），schema 同步声明范围。
 2. **两个选项，缺省都关**：`TargetingOptions.VerticalHit` 打开后，链声明了高度才过滤——候选脚下高度与锚点高度之差的绝对值 ≤ `height` 才保留（边缘含）；过滤发生在来源收集之后、过滤器之前，空间查询本身仍是平面的。`TargetingOptions.SpatialDistance` 打开后 `sort_by.distance` 与 `nearest_in_shape` 的"最近"按三维欧氏距离（`TargetContext.DistanceTo`）。两者都关时路径与改动之前逐位一致（不读高度）。
@@ -200,3 +200,10 @@ T-N3-8（ADR-0031 决策 6、拍板 7）补充：`TargetOverflowPolicy` 枚举�
 1. **选项**：`TargetingOptions.TargetRadius`（`Func<Id, double>?`，单位命中半径，世界单位，≤ 0 视为点）与 `MaxTargetRadius`（广相位上界）。缺省 null/0 时形状查询只按目标中心判定，路径与改动前逐位一致。
 2. **口径**：`nearest_in_shape`/`all_in_shape` 在"中心落在形状内"的原始结果之后，追加"形状到目标中心的最近距离（`ShapeGeometry.ClosestPoint`）不超过该目标半径"的单位：先用外扩 `MaxTargetRadius` 的形状（`Shape.Expand`）取宁多勿少的候选，再按各自半径精确重判；追加项按 Id 序排在原始结果之后（确定性）；施法者自己不经半径追加。格子吸附（离散步 `grid_snap`）路径不参与（格子中心采样本来就以格为单位）。时间线空间命中的 marker 与 continuous 逐 tick 采样都经同一条形状查询。
 3. **取舍**：半径来源由游戏供给（按体型数据，或把手感档案的 `unit_body_radius` 换算成世界单位），框架不替游戏选；`MaxTargetRadius` 必须不小于实际最大半径，否则半径更大的单位在广相位被漏掉（文档约束，测试里有反例）。接触点口径不变：marker/instant 取目标登记位置，continuous 取形状上离目标中心最近的点（命中时它必落在目标身体内）。测试：`tests/TargetHostBodyRadiusTests.cs`。
+
+## 判断记录（受击半径的动态上界提供者，2026-10-04，M5-S2a，ADR-0144，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md) 第 2.2 节）
+
+1. **`TargetingOptions.MaxTargetRadiusProvider`**（`Func<double>?`）：广相位上界的动态来源，每次解析时重新读取，优先于静态 `MaxTargetRadius`。理由：受击半径来自手感档案（`unit_body_radius × hurt_radius_scale`），换装与光环会改变它，装配时算一次的静态上界会漏判。只给提供者、不给静态上界也启用目标半径；提供者返回 0 等同未启用，行为与此前逐位一致。
+2. **`ITargetHost.TargetHitRadius(Id)`**（默认接口成员，缺省 0）：`TargetHost` 覆盖为 `TargetRadius` 的当前值（选项未启用时 0），供命中接触几何（skill README M5-S2a 第 1 条）读取。
+3. **复现与不变量**：`tests/TargetHostBodyRadiusTests.cs`（`MaxTargetRadiusProvider_*`：上界升高后同一宿主立刻命中；提供者为 0 与不配置逐位一致；`TargetHitRadius_*`）。
+4. **已知限制**：打开后每次解析都由生产提供者对全部单位取一遍受击半径，单位很多时有成本（装配选项缺省关闭）；提供者的结果不缓存。

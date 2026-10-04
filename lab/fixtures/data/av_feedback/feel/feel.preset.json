@@ -1,0 +1,16 @@
+{
+  "table": "feel.preset",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.preset.av_feedback",
+      "description": "实验室镜头与音画反馈预设（ADR-0148）：响应型动作预设（arpg_responsive）加镜头距离衰减 linear:6（命中点离跟随目标 6 个身高线性衰减到 0）。只被脚本 feel_av_feedback 经 extraDataRoots 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.arpg_responsive",
+      "values": {
+        "camera_distance_attenuation": "linear:6"
+      }
+    }
+  ]
+}

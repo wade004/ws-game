@@ -63,5 +63,20 @@ namespace Adapter.Unity.LabHost
 
         /// <summary>引擎侧驱动出错时是否让运行失败：缺省 false，错误记入 <c>engine.engine_errors</c>，逻辑运行不受影响。</summary>
         public bool ThrowOnEngineError { get; set; }
+
+        /// <summary>
+        /// 人手试玩模式（缺省 false，关着时舞台与此前逐位一致）：舞台相机真正渲染到屏幕并跟随玩家、带音频监听器与地面网格、
+        /// 震屏与闪白落到引擎（缺省它们是空实现）；不再测 GPU 帧耗时。逻辑不受影响（表现不回流逻辑）。
+        /// </summary>
+        public bool Interactive { get; set; }
+
+        /// <summary>试玩模式的镜头缩放（正交半高 / 透视下的取景半高，世界单位；缺省 2.8：占位精灵里的人只有画幅三分之一高，取景要近才看得清）。</summary>
+        public double InteractiveZoom { get; set; } = 2.8;
+
+        /// <summary>试玩模式的相机跟随平滑时间常数（秒，缺省 0.12；0 = 硬跟随）。</summary>
+        public double InteractiveFollowSmoothing { get; set; } = 0.12;
+
+        /// <summary>呈现通道开关（震屏/闪白/音效/镜头冲击）；<c>null</c> = 全部放行且不计数。试玩宿主传入同一个对象，面板读写它。</summary>
+        public LabEffectFilter? Effects { get; set; }
     }
 }

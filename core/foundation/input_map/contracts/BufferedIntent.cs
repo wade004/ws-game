@@ -32,6 +32,12 @@ namespace Core.Foundation.InputMap
 
         /// <summary>管线拒绝且原因不是"时间可解"（资源不足、条件不满足、无目标、死亡等），原因码见事件。</summary>
         Rejected,
+
+        /// <summary>
+        /// 蓄力不足：抬起时按住时长超过按住阈值但不足蓄力下限（<c>charge.min_ms</c>），且技能声明了 <c>charge.below_min: cancel</c>，记录被取消
+        /// （ADR-0143；缺省 <c>release</c> 按最低档释放，不产生本原因）。枚举值追加在末尾（ABI 只加不改）。
+        /// </summary>
+        ChargeBelowMin,
     }
 
     /// <summary>
@@ -71,6 +77,17 @@ namespace Core.Foundation.InputMap
         /// </summary>
         public bool FaceOnAccept { get; }
 
+        /// <summary>
+        /// 显式指定的技能（ADR-0143：AI 经输入缓冲提交意图时携带"要施放哪个技能"，不经输入动作 → 技能映射）；玩家按键产生的记录恒为 null。
+        /// 映射来源（<c>IActionSkillBinding</c>）遇到非空值直接采用它。
+        /// </summary>
+        public Id? SkillOverride { get; }
+
+        /// <summary>
+        /// 随记录携带的额外意图参数（ADR-0143：AI 提交的 <c>cast</c> 意图里的 <c>targets</c>/<c>point</c> 等，接受时原样并入生成的意图参数）；玩家按键产生的记录恒为 null。
+        /// </summary>
+        public Core.Foundation.Common.Json.JsonObject? ExtraArgs { get; }
+
         /// <summary>九参数构造（S0 契约，原样保留）：<see cref="FaceOnAccept"/> 取类别缺省。</summary>
         public BufferedIntent(
             Id actionId,
@@ -99,7 +116,28 @@ namespace Core.Foundation.InputMap
             int heldTicks,
             bool consumed,
             bool faceOnAccept)
+            : this(actionId, actionClass, submittedTick, expiresAtActionTime, priority, directionSnapshot, holdState, heldTicks,
+                consumed, faceOnAccept, null, null)
         {
+        }
+
+        /// <summary>带 <see cref="SkillOverride"/> 与 <see cref="ExtraArgs"/> 的构造（ADR-0143，纯加法重载；十参数构造原样保留并转调本重载）。</summary>
+        public BufferedIntent(
+            Id actionId,
+            ActionClass actionClass,
+            long submittedTick,
+            long expiresAtActionTime,
+            int priority,
+            Vec2? directionSnapshot,
+            BufferHoldState holdState,
+            int heldTicks,
+            bool consumed,
+            bool faceOnAccept,
+            Id? skillOverride,
+            Core.Foundation.Common.Json.JsonObject? extraArgs)
+        {
+            SkillOverride = skillOverride;
+            ExtraArgs = extraArgs;
             ActionId = actionId;
             Class = actionClass;
             SubmittedTick = submittedTick;

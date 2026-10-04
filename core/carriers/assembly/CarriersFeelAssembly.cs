@@ -9,6 +9,7 @@ using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.Feel;
 using Core.Foundation.InputMap;
+using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Rules.Assembly;
 using Core.Rules.Common;
@@ -25,6 +26,12 @@ namespace Core.Carriers.Assembly
     {
         /// <summary>要用的 <c>feel.calibration</c> 行 id；数据里恰有一行（如框架缺省标定）时可为空，多行（如游戏自带标定 + 框架缺省）必须指定。</summary>
         public string? CalibrationId { get; set; }
+
+        /// <summary>
+        /// 手感字段登记；缺省 null 取框架默认登记。游戏自有字段（<c>game.</c> 前缀，手感设计/05 第 4 节）经 <see cref="FeelFields.Extend"/> 得到扩展后的登记赋在这里，
+        /// 同一份登记还要交给 <see cref="FeelSchemas.RegisterAll"/>（数据校验），数据里才能合法地写这些字段。框架的判定与表现消费方不读取游戏自有字段。
+        /// </summary>
+        public FeelFieldSet? Fields { get; set; }
 
         /// <summary>主手武器槽位覆盖；<c>null</c> 取武器槽（<c>is_weapon</c>）按 id 序数的第 1 个。见 <see cref="EquippedWeaponFeelProvider"/> 判断记录。</summary>
         public Id? MainHandSlot { get; set; }
@@ -62,10 +69,18 @@ namespace Core.Carriers.Assembly
         /// </summary>
         public bool AutoRegisterGraceActors { get; set; } = true;
 
+        /// <summary>
+        /// AI 施法是否经输入缓冲（ADR-0143，手感设计/01 第 2.3 节）。缺省 false：AI 仍直接施法（既有基线逐位不变）。
+        /// 打开后 AI 的施法决策提交进行动者的输入缓冲（合成动作 <see cref="BufferedAiCastRouter.ActionId"/>），与玩家共用优先级、过期与取消窗口规则，
+        /// 在后摇里"提前决定下一个技能"也能在动作一结束就接上。代价：AI 出手比直接施法晚一个 tick（步骤 2 决策、下一 tick 步骤 1 取用），所以缺省关闭。
+        /// </summary>
+        public bool AiIntentsThroughBuffer { get; set; }
+
         /// <summary>本地玩家的移动轴动作名（如 <c>input.action.move</c>）：<c>PresentationAssembly</c> 把本地输入映射接给缓冲时用来采集按下瞬间的方向快照；缺省 null 即不采集。</summary>
         public string? LocalMoveActionName { get; set; }
 
-        /// <summary>剪辑根运动来源（运动层 <see cref="MotionServices.RootMotion"/>）；缺省 null。</summary>
+        /// <summary>已删除（ADR-0147）：赋值被忽略（根运动由导入期烘焙的位移曲线取代）。</summary>
+        [System.Obsolete("根运动已删除（ADR-0147）；赋值被忽略")]
         public IRootMotionSource? RootMotion { get; set; }
 
         /// <summary>自定义曲线解析（<see cref="MotionServices.Curves"/>）；缺省 null。</summary>
@@ -76,6 +91,14 @@ namespace Core.Carriers.Assembly
         /// 缺省 null：运动层目标辅助关闭；时间线侧缺省用 <see cref="TargetChainAssistResolver"/>（目标选择链），但技能不声明 <c>target_assist</c> 就不生效。
         /// </summary>
         public ITargetAssistResolver? TargetAssist { get; set; }
+
+        /// <summary>
+        /// 命中几何是否使用受击半径（手感落地 M5-S2a，手感设计/03 第 2.2 节）：开启后目标命中半径 = <c>unit_body_radius</c>（标定后世界单位）× <c>hurt_radius_scale</c>（缺省 1），
+        /// 形状与目标圆相交即算命中、接触点取身体圆面上的点；没有声明 <c>unit_body_radius</c> 的单位半径为 0，仍按点判定。
+        /// <b>缺省 false</b>——开启会改变既有命中结果（擦边的单位多算命中、接触点移出体内），由游戏决定翻不翻；关闭时与本选项引入之前逐位一致。
+        /// 游戏已经自行配置了 <see cref="Core.Rules.Targeting.TargetingOptions.TargetRadius"/> 时，本选项不覆盖它。
+        /// </summary>
+        public bool HitRadiusFromFeel { get; set; }
 
         /// <summary>运动模式规则覆盖；缺省 null 取 <see cref="MotionModeRuleSet.FromProfiles"/>（框架数据 <c>feel.motion_mode_rules</c> 的消费结果）。</summary>
         public MotionModeRuleSet? ModeRules { get; set; }
@@ -211,11 +234,12 @@ namespace Core.Carriers.Assembly
             if (options == null) throw new ArgumentNullException(nameof(options));
 
             var rules = carriers.Rules;
-            var fields = FeelFields.Default;
+            var fields = options.Fields ?? FeelFields.Default;
 
+            var bodyProvider = new CreatureTemplateFeelBodyProvider(world, registry);
             var providers = new FeelProviders
             {
-                Body = new CreatureTemplateFeelBodyProvider(world, registry),
+                Body = bodyProvider,
                 Tags = new UnitTagFeelProvider(carriers.Units),
                 Equipment = new EquippedWeaponFeelProvider(carriers.Equipment, registry, options.MainHandSlot, options.OffhandSlot),
                 Action = new ActionStateFeelProvider(rules.Skill),
@@ -240,6 +264,26 @@ namespace Core.Carriers.Assembly
             var resolver = new InvalidatingActionFeelResolver(feel.Resolver);
             var rulesFeel = RulesFeelAssembly.Attach(rules, resolver, options, stepSeconds);
 
+            // 受击半径（M5-S2a，缺省关闭）：形状查询与接触点共用同一个半径来源（TargetHost.Options 是装配根传入的同一个实例）。
+            if (options.HitRadiusFromFeel && rules.Targeting.Options.TargetRadius == null)
+            {
+                var targetingOptions = rules.Targeting.Options;
+                var units = carriers.Units;
+                targetingOptions.TargetRadius = id => HurtRadius(resolver, id);
+                targetingOptions.MaxTargetRadiusProvider = () =>
+                {
+                    var max = 0.0;
+                    var all = units.AllUnits;
+                    for (var i = 0; i < all.Count; i++)
+                    {
+                        var radius = HurtRadius(resolver, all[i]);
+                        if (radius > max) max = radius;
+                    }
+
+                    return max;
+                };
+            }
+
             var subscriptions = new List<SubscriptionHandle>();
 
             // ---- 输入缓冲：声明动作、映射、出口、tick 步骤 1、时间线拉取口。
@@ -249,7 +293,7 @@ namespace Core.Carriers.Assembly
                 Feel = resolver,
                 ActionClock = rulesFeel.Clock,
             });
-            DeclareActions(buffer, registry, options.ExtraActions);
+            DeclareActions(buffer, registry, options.ExtraActions, options.AiIntentsThroughBuffer);
 
             // 输入动作 → 技能：普通攻击动作优先取当前主手武器的普攻技能（换装后自动切换），没有则回落到 skill_slot 槽位绑定；缓冲出口与时间线取消进入共用同一份。
             var slotBinding = new ActionSlotSkillBinding(buffer, carriers.SkillBindings);
@@ -260,6 +304,10 @@ namespace Core.Carriers.Assembly
                 buffer, actionBinding, rules.Skill, world, bus, rulesFeel.HitFeel.Host, stepSeconds);
             rulesFeel.Timeline.Input = buffer;
             rulesFeel.Timeline.Binding = actionBinding;
+            // ADR-0143：蓄力规则（技能 timeline.charge → 输入缓冲的自动释放上限与抬起门槛）、跳跃类输入动作的竖直运动。
+            buffer.ChargeRules = new ActionChargeRuleSource(slotBinding, rules.Skill, stepSeconds);
+            sink.Vertical = carriers.VerticalMotion;
+            if (options.AiIntentsThroughBuffer) rules.Ai.CastRouter = new BufferedAiCastRouter(buffer);
 
             // 换装链：装备变化时对账武器引用与武器族，变化则发布 feel.weapon_changed（表现层姿势族、反馈变体、界面订阅它）。读档在事件抑制作用域内重放装备，
             // 链额外订阅 save.loaded 对账；已知单位取世界里的全部实体（对账只读装备宿主，没有装备的实体对账结果等于初值，不发事件）。
@@ -279,11 +327,14 @@ namespace Core.Carriers.Assembly
                 Position = id => world.GetEntity(id)?.Position,
                 LineOfSight = (from, to) => rules.Spatial.HasLineOfSight(from, to),
                 ConditionRange = (actor, condition) => GraceConditionRange(buffer, actionBinding, rules.Skill, actor, condition),
+                // ADR-0143：event.grounded（框架内置 builtin_grounded，土狼时间）；没有竖直轴的世界恒在地面。
+                Grounded = carriers.VerticalMotion == null ? (Func<Id, bool>?)null : id => !carriers.VerticalMotion.IsAirborne(id),
             };
             var graceEvaluator = options.GraceEvaluator ?? new ExprGraceConditionEvaluator(
                 registry, rules.ExprHostFactory, rules.ExprSchema, options.GraceTargetResolver,
                 id => rules.AutoAttack.GetTarget(id), aimServices);
             var grace = new GraceTracker(graceEvaluator, resolver);
+            sink.Grace = grace;
             InputBufferTickHandler.Register(world, buffer, sink, grace);
             // 手感落地 M2-B（手感设计/01 第 2.4 节）：施法管线步骤 7 经它判断"条件刚刚失效、仍在宽限内"。
             rulesFeel.Timeline.Grace = grace;
@@ -301,6 +352,16 @@ namespace Core.Carriers.Assembly
                 RulesEventKeys.AuraStackChanged, e => resolver.Invalidate(e.TargetId, "aura_changed")));
             subscriptions.Add(bus.Subscribe<UnitDiedEvent>(
                 RulesEventKeys.UnitDied, e => buffer.Clear(e.UnitId)));
+            // 玩家的体型/角色引用来自职业行（ADR-0146），读档会改写 PlayerUnit.ArchetypeId 而不经任何手感事件：读档完成后让玩家单位缓存失效重算。
+            // 只在有职业行声明了手感引用时才做（没有声明就没有可能变化的东西，不为此多递增版本号，缺省行为与改动前逐位一致）。
+            subscriptions.Add(bus.Subscribe(SaveEventKeys.SaveLoaded, _ =>
+            {
+                if (!bodyProvider.AnyClassDeclaresFeel()) return;
+                foreach (var entity in world.QueryEntities(default))
+                {
+                    if (entity.Kind == EntityKinds.Player) resolver.Invalidate(entity.EntityId, "player_class_reloaded");
+                }
+            }));
             // 手感落地 M3-B：单位从登记起就开始采样宽限条件（装配时已有的单位现在登记，之后出生的在 entity.created 派发时登记），第一次按键之前就有历史可查。
             // 手感落地 M4-G：惰性分配——没有任何动作声明宽限条件时不为任何单位建缓冲（单位很多时省下每个单位一份空缓冲）；条件声明出现的那一刻
             // （InputBufferHost.GraceConditionsDeclared）才为已有的单位补登记，之后出生的单位在出生时登记。
@@ -337,8 +398,7 @@ namespace Core.Carriers.Assembly
             {
                 Feel = resolver,
                 Actions = rules.Skill.ActionStateQuery,
-                RootMotion = options.RootMotion,
-                Curves = options.Curves,
+                Curves = options.Curves ?? new DataMotionCurveSource(registry),
                 TargetAssist = options.TargetAssist,
                 ModeRules = options.ModeRules ?? MotionModeRuleSet.FromProfiles(feel.Profiles),
             };
@@ -368,6 +428,17 @@ namespace Core.Carriers.Assembly
             return system;
         }
 
+        /// <summary>单位的受击半径（世界单位）：<c>unit_body_radius</c>（标定后）× <c>hurt_radius_scale</c>（缺省 1）；没有体积半径恒为 0。</summary>
+        private static double HurtRadius(IFeelResolver resolver, Id unitId)
+        {
+            var view = resolver.ResolveJudging(unitId);
+            var body = view.GetAbsolute(FeelFieldNames.UnitBodyRadius);
+            if (body.Kind != FeelValueKind.Number || !(body.AsNumber() > 0.0)) return 0.0;
+
+            var scale = view.GetRaw(FeelFieldNames.HurtRadiusScale);
+            return body.AsNumber() * (scale.Kind == FeelValueKind.Number ? scale.AsNumber() : 1.0);
+        }
+
         private static bool IsGraceActorKind(string kind) => kind == EntityKinds.Player || kind == EntityKinds.Creature;
 
         /// <summary>
@@ -395,7 +466,8 @@ namespace Core.Carriers.Assembly
             return min;
         }
 
-        private static void DeclareActions(InputBufferHost buffer, IDataRegistryView registry, IReadOnlyList<ActionDefinition>? extra)
+        private static void DeclareActions(
+            InputBufferHost buffer, IDataRegistryView registry, IReadOnlyList<ActionDefinition>? extra, bool aiThroughBuffer)
         {
             var definitions = new List<ActionDefinition>();
             var tables = registry.Tables;
@@ -407,6 +479,7 @@ namespace Core.Carriers.Assembly
             }
 
             if (extra != null) definitions.AddRange(extra);
+            if (aiThroughBuffer) definitions.Add(BufferedAiCastRouter.CreateDefinition());
             buffer.DeclareActions(definitions);
         }
     }

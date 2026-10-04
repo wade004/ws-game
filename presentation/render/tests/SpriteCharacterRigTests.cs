@@ -350,6 +350,30 @@ namespace Tests.PresentationRender
             Assert.Equal(new Id("unit.hero_1"), firedFor);
         }
 
+        [Fact]
+        public void ClipMarkers_ArePublishedOutward_InFrameOrder_UnderTheDefaultLogicDrivenStrategy()
+        {
+            var renderer = new StubRenderer2D();
+            var handle = renderer.CreateSpriteInstance(new Id("sprite.creature.hero"));
+            var clipId = new Id("anim.sample_run");
+            // 4 帧、4fps：脚步标记在第 0、2 帧；期望序列由标记帧位置算出。
+            var keyframes = new Dictionary<string, int> { ["footstep"] = 2, ["footstep_start"] = 0 };
+            var player = new FrameAnimPlayer(new Dictionary<Id, FrameAnimClip> { [clipId] = new FrameAnimClip(clipId, 4, 4.0, keyframes) });
+            var rig = MakeRig(renderer, handle, frameAnimPlayer: player);
+            var seen = new List<string>();
+            rig.AnimMarker += (id, name) =>
+            {
+                Assert.Equal(new Id("unit.hero_1"), id);
+                seen.Add(name);
+            };
+
+            rig.PlayClip(clipId, loop: true);
+            player.Update(0.25);
+            player.Update(0.25);
+
+            Assert.Equal(new[] { "footstep_start", "footstep" }, seen);
+        }
+
         /// <summary>W3b 判断记录 2 收口配套用例：<see cref="SpriteCharacterRig.AttachFrameAnimPlayer"/>
         /// 允许在构造之后再补一个 <see cref="IFrameAnimPlayer"/>，验证 <see cref="ICharacterRig.PlayClip"/>
         /// 不再要求构造期就拿到具体实现（见该方法判断记录"精灵根节点天然晚于 rig 构造"）。</summary>

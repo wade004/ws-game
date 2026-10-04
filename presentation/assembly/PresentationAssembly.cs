@@ -152,6 +152,19 @@ namespace Presentation.Assembly
         /// <c>PositionResolver</c>/<c>ReferenceHeight</c>），调用方显式给出的字段原样保留。</summary>
         public ImpactOptions? ImpactOptions { get; set; }
 
+        /// <summary>手柄震动输出能力（手感设计/07 第 1 节 <c>rumble</c>，ADR-0148）：宿主/平台适配层实现并注入；null（缺省）或
+        /// <see cref="IRumble.SupportsRumble"/> 为假时变体的 <c>rumble</c> 静默忽略。注入后震动强度还要乘玩家强度 <c>feel.intensity.rumble</c>。</summary>
+        public IRumble? Rumble { get; set; }
+
+        /// <summary>残影开关回调（<c>trail_start/trail_end</c> 标记在手感字段 <c>afterimage_enabled</c> 为真时驱动）：显式提供时覆盖默认行为；
+        /// 默认（null）经 <see cref="ViewBinder.TryGetView"/> 找到 View，其实现 <see cref="IAfterimageTarget"/> 则调用 <c>SetAfterimage</c>，否则静默跳过。</summary>
+        public Action<Id, bool>? OnAfterimage { get; set; }
+
+        /// <summary>框架缺省打击反馈规则（手感设计/07 第 1 节、ADR-0148）：注入 <see cref="FeelResolver"/> 且游戏数据里没有任何 <c>play_impact</c> 动作的规则时，
+        /// 装配根内置一条 <c>combat.hit_confirmed → PlayImpact(from_feel)</c>（反馈包取手感表 <c>impact_profile_ref</c>，攻击方优先、缺则受击方）；
+        /// 游戏自己写了 <c>play_impact</c> 规则就用游戏的，不再叠加内置规则。设为 false 完全关闭内置规则（缺省 true）。</summary>
+        public bool DefaultImpactRule { get; set; } = true;
+
         /// <summary>顿帧表现冻结回调（<c>feel.hitstop_started</c> 的呈现侧落地，手感设计/07 第 5 节）：渲染 rig/粒子宿主接入点；
         /// 默认 null（忽略，冻结状态仍可经 <c>Feedback.Impact.Freezes</c> 查询）。</summary>
         public Action<IReadOnlyList<Id>, int, ImpactFreezeLayers>? OnFreezePresentation { get; set; }
@@ -191,6 +204,9 @@ namespace Presentation.Assembly
     /// </summary>
     public sealed class PresentationAssembly : IDisposable
     {
+        /// <summary>框架内置缺省打击反馈规则的 id（见 <see cref="PresentationAssemblyOptions.DefaultImpactRule"/>）。</summary>
+        public static readonly Id DefaultImpactRuleId = new Id("feedback.binding.framework_default_impact");
+
         private static readonly Id UnknownMapPlaceholder = new Id("world.unknown");
         private static readonly Id EmptyShellMenuId = new Id("shell_menu_definition.none");
 
@@ -296,6 +312,10 @@ namespace Presentation.Assembly
 
         public InventoryViewModel Inventory { get; }
 
+        /// <summary>装备面板视图模型（手感设计/08 第 3 节、ADR-0149）：槽位清单与纸娃娃预览图层全部取自数据，
+        /// 不依赖 <see cref="PresentationAssemblyOptions.EquipmentSlotIds"/>（见 <see cref="Presentation.Ui.EquipmentViewModel"/> 类型注释）。</summary>
+        public EquipmentViewModel Equipment { get; }
+
         public QuestLogViewModel QuestLog { get; }
 
         public DialogViewModel DialogView { get; }
@@ -322,6 +342,21 @@ namespace Presentation.Assembly
 
         public ISettingsStore SettingsStore { get; }
 
+        /// <summary>玩家手感强度宿主（ADR-0148）：震屏、镜头冲击、闪白、手柄震动四个 0..1 系数（设置文件键 <c>feel.intensity.*</c>，缺省 1）。
+        /// 镜头与默认闪白、震动出口已按它缩放；自定义 <see cref="PresentationAssemblyOptions.OnFlash"/> 需自己读 <see cref="FeelIntensityHost.Get"/>。</summary>
+        public FeelIntensityHost FeelIntensity { get; }
+
+        /// <summary>地图地面材质查询（<c>world.map.surface_materials</c>，ADR-0148）：脚步材质来源。</summary>
+        public MapSurfaceMaterials SurfaceMaterials { get; }
+
+        /// <summary>动画表现标记消费方（脚步、拖尾/残影、<c>fx:</c> 特效挂点、<c>impact</c> 闪白对齐，ADR-0148）。仅在手感启用且
+        /// <c>hitFrameSource</c> 同时是 <see cref="IAnimMarkerSource"/>（框架自带的 <c>CharacterRigHitFrameSource</c> 是）时装配，否则为 null。</summary>
+        public AnimMarkerDirector? AnimMarkers { get; private set; }
+
+        /// <summary>装备/卸装音效（手感设计/08 第 4 节 <c>item.template.equip_sfx_ref</c>，ADR-0153）。仅当至少一个物品模板声明了
+        /// <c>equip_sfx_ref</c> 时装配，否则为 null（总线上不新增订阅，行为与此前逐位一致）。</summary>
+        public EquipSfxDirector? EquipSfx { get; private set; }
+
         public ShellHost Shell { get; }
 
         public ShellViewModel ShellViewModel { get; }
@@ -333,6 +368,11 @@ namespace Presentation.Assembly
         /// 构造早期即收到本实例（Unity 工厂据此解析武器族姿势）。步态维度由 <see cref="PoseGaitFeeder"/> 按运动状态的速度比喂入（<see cref="PoseSelector.Observe"/>）。
         /// </summary>
         public PoseSelector? Pose { get; }
+
+        /// <summary>
+        /// 移动呈现参数（ADR-0147）：手感启用时有，由步态喂入器输出（移动剪辑播放速率与身体前倾角）；手感未启用为 null。
+        /// </summary>
+        public LocomotionPresentation? Locomotion { get; }
 
         private readonly EquipmentPoseBridge? _poseBridge;
         private readonly PoseGaitFeeder? _gaitFeeder;
@@ -416,7 +456,13 @@ namespace Presentation.Assembly
                 Pose = new PoseSelector();
                 _poseBridge = new EquipmentPoseBridge(bus, Pose);
                 // 手感落地 M2-B：步态由运动状态的速度比派生并喂给选择器（此前无人调用 Observe，移动姿势恒按 walk 解析）。
-                _gaitFeeder = new PoseGaitFeeder(bus, world, Pose, feelResolver);
+                // ADR-0147：同一次观测还输出移动呈现参数（stride_scale 匹配播放速率、lean_deg_per_accel 身体前倾），交给实现了
+                // ILocomotionPresentationReceiver 的视图工厂；固定步长取手感系统的（显式注入的解析器是 FeelResolver 时取它自己的）。
+                var locomotionStep = (feelResolver as FeelResolver)?.StepSeconds ?? gameplay.Feel?.Feel.StepSeconds ?? 0.0;
+                Locomotion = new LocomotionPresentation();
+                _gaitFeeder = new PoseGaitFeeder(bus, world, Pose, feelResolver, Locomotion, locomotionStep);
+                (viewFactory as ILocomotionPresentationReceiver)?.SetLocomotionPresentation(Locomotion);
+                (viewFactory as ILocomotionBlendsReceiver)?.SetLocomotionBlends(new LocomotionBlends(feelResolver));
                 // ADR-0130 追加决定（空中姿势）：世界装配了竖直运动服务时，空中阶段（rise/fall/land）由竖直速度派生并喂给选择器。
                 var verticalMotion = gameplay.Carriers.VerticalMotion;
                 if (verticalMotion != null)
@@ -428,6 +474,14 @@ namespace Presentation.Assembly
                         : new AirPoseFeeder(bus, verticalMotion, Pose);
                 }
                 (viewFactory as IPoseContextReceiver)?.SetPoseContextSource(Pose);
+            }
+
+            // ADR-0147：世界装配了手感受击裁决（且不是离散模式）时，把只读的受击反应查询交给视图工厂，动画状态机据此进入
+            // 反应驱动模式（受击姿势由裁决事件驱动、霸体/反应为 none 不播受击动画）；没有装配时不交付，受击仍由伤害落地驱动。
+            var hitReactions = gameplay.Feel?.Rules.HitFeel.Host;
+            if (hitReactions != null && hitReactions.Active)
+            {
+                (viewFactory as IHitReactionQueryReceiver)?.SetHitReactionQuery(hitReactions);
             }
 
             // 缺口 12：SettingsStore 提前到最前面构造（原在第 4 步 ui 小节内），本装配根第 2 步
@@ -481,6 +535,10 @@ namespace Presentation.Assembly
             // 来源前缀，如 "CameraHost："/"ShellHost.LoadGame："/"shake_camera"）。
             var sharedPresentationDiagnostics = new Presentation.VfxSfx.Contracts.PresentationDiagnosticsRecorder();
             Camera = new CameraHost(camera, followTarget, bus, cameraHostOptions, sharedPresentationDiagnostics);
+            // ADR-0148：玩家强度系数统一在表现层出口生效（镜头震屏/冲击/缩放脉冲、默认闪白、手柄震动）。
+            FeelIntensity = new FeelIntensityHost(SettingsStore, sharedPresentationDiagnostics);
+            Camera.Intensity = FeelIntensity;
+            SurfaceMaterials = new MapSurfaceMaterials(registry);
             if (opts.AutoConfigureCameraFromFirstProfile)
             {
                 var firstProfileRecord = registry.GetAll(CameraSchemas.Profile.Name).FirstOrDefault();
@@ -583,6 +641,7 @@ namespace Presentation.Assembly
             // 手感打击反馈包流水线（手感设计/07 第 1/4/5/6 节）：注入手感解析器才构造；音效分层索引取
             // sfx.def 里声明了 feel_layer 的行，反馈包取 feedback.impact_profile 表。
             ImpactPipeline? impactPipeline = null;
+            IImpactFeelSource? impactFeelSource = null;
             if (feelResolver != null)
             {
                 var feel = feelResolver;
@@ -594,6 +653,9 @@ namespace Presentation.Assembly
                 impactOptions.SfxLayers ??= new SfxLayerIndex(sfxCatalog.Values, sharedPresentationDiagnostics);
                 impactOptions.CameraOwnerResolver ??= () => Camera.FollowEntityId;
                 impactOptions.PositionResolver ??= id => entityPositionResolver(id);
+                // 命名强度设置（camera_user_intensity_setting）读设置文件；保留的 feel.intensity.* 四个系数已在出口统一缩放，这里恒 1，避免重复乘。
+                impactOptions.UserIntensity ??= name => FeelIntensityKeys.IsReserved(name) ? 1.0 : FeelIntensity.GetSetting(name);
+                impactFeelSource = impactOptions.FeelSource;
                 if (opts.ImpactOptions == null)
                 {
                     impactOptions.ReferenceHeight = feel.Calibration.ReferenceHeight;
@@ -613,7 +675,15 @@ namespace Presentation.Assembly
                     // 判断记录——ViewBinder 在装配根第 1 步已经构造好，这里按需查询，不缓存。
                     if (ViewBinder.TryGetView(entityId, out var view) && view is IHasCharacterRig hasRig)
                     {
-                        hasRig.Rig.ProceduralAnim.Flash(flashProfileResolver(profileId));
+                        var flashParams = flashProfileResolver(profileId);
+                        var flashScale = FeelIntensity.Get(FeelIntensityKind.Flash);
+                        if (flashScale != 1.0)
+                        {
+                            // ADR-0148：玩家闪白强度（0 = 关闭，光敏类无障碍）。
+                            if (!(flashScale > 0)) return;
+                            flashParams = new FlashParams(flashParams.Intensity * flashScale, flashParams.DurationSeconds);
+                        }
+                        hasRig.Rig.ProceduralAnim.Flash(flashParams);
                     }
                 }),
                 entityPositionResolver: entityPositionResolver, diagnostics: feedbackSinkDiagnostics);
@@ -624,7 +694,22 @@ namespace Presentation.Assembly
             FeedbackSinkDiagnostics = feedbackSink.Diagnostics;
             if (impactPipeline != null)
             {
-                feedbackSink.OnImpactCamera = cue => Camera.Impulse(cue.Direction, cue.Magnitude, cue.DecayMs);
+                feedbackSink.OnImpactCamera = cue =>
+                {
+                    Camera.Impulse(cue.Direction, cue.Magnitude, cue.DecayMs);
+                    if (cue.ZoomPunch > 0)
+                    {
+                        Camera.ZoomPunch(cue.ZoomPunch, cue.DecayMs);
+                    }
+                };
+                var rumbleDevice = opts.Rumble;
+                feedbackSink.OnRumble = (strength, durationMs) =>
+                {
+                    if (rumbleDevice == null || !rumbleDevice.SupportsRumble) return;
+                    var scaled = strength * FeelIntensity.Get(FeelIntensityKind.Rumble);
+                    if (scaled > 1.0) scaled = 1.0;
+                    if (scaled > 0 && durationMs > 0) rumbleDevice.Rumble(scaled, durationMs);
+                };
                 // 手感落地 M2-A（手感设计/07 第 5 节）：顿帧表现冻结默认落到被冻结单位的渲染 rig（sprite/model 两类都实现
                 // IPresentationFreezable），其它单位不受影响；调用方显式给的回调在 rig 冻结之后照常调用（用于粒子宿主等额外接入点）。
                 feedbackSink.OnFreezePresentation = (unitIds, ticks, layers) =>
@@ -632,7 +717,8 @@ namespace Presentation.Assembly
                     SetRigsFrozen(unitIds, true, layers.Trail);
                     // 手感落地 M3-C：反馈包 freeze_layers.particles 为真时，挂在这些单位身上的特效（anchor/socket 挂接）一并暂停；
                     // 为假（缺省）时粒子照常推进。同一冻结区间内再次发起始（延长）只会累加冻结、不会因新包的 particles 为假而提前恢复。
-                    if (layers.Particles)
+                    // ADR-0148：拖尾是以单位为宿主挂接的特效，freeze_layers.trail 与 particles 走同一套按宿主冻结的机制。
+                    if (layers.Particles || layers.Trail)
                     {
                         SetParticlesFrozen(unitIds, true);
                     }
@@ -647,6 +733,12 @@ namespace Presentation.Assembly
                 };
             }
 
+            if (impactPipeline != null && opts.DefaultImpactRule && !feedbackRules.Any(r => r.Actions.Any(act => act is PlayImpactAction)))
+            {
+                feedbackRules.Add(new FeedbackRule(
+                    DefaultImpactRuleId, RulesEventKeys.CombatHitConfirmed, null, new FeedbackAction[] { new PlayImpactAction(null) }));
+            }
+
             Feedback = new FeedbackBinderCore(
                 bus, gameplay.ExprHostFactory, feedbackRules, feedbackSink,
                 displayInfoResolver: VfxSfxDisplayInfoResolver, entityLogicalIdResolver: null,
@@ -654,6 +746,83 @@ namespace Presentation.Assembly
                 exprDiagnostics: null, diagnostics: null,
                 textResolver: key => L10n.Text(key), hitFrameSource: hitFrameSource,
                 impactPipeline: impactPipeline);
+
+            // ADR-0148：动画表现标记（脚步/拖尾/残影/fx 挂点/impact 闪白对齐）。需要手感（来源取手感字段）与标记来源（框架自带的
+            // CharacterRigHitFrameSource 登记了全部 rig 并转发标记）；两者缺一则不装配，行为与此前逐位一致。
+            if (impactPipeline != null && impactFeelSource != null && hitFrameSource is IAnimMarkerSource markerSource)
+            {
+                var markerOptions = new AnimMarkerOptions
+                {
+                    FeelSource = impactFeelSource,
+                    SfxLayers = new SfxLayerIndex(sfxCatalog.Values, sharedPresentationDiagnostics),
+                    PositionResolver = id => entityPositionResolver(id),
+                    MaterialResolver = id =>
+                    {
+                        var map = sceneRouter.GetCurrentScene();
+                        var at = entityPositionResolver(id);
+                        return map.HasValue && at.HasValue ? SurfaceMaterials.GetMaterial(map.Value, at.Value) : null;
+                    },
+                    VfxAttachModeOf = id => vfxCatalog.TryGetValue(id, out var def) ? (VfxAttachMode?)def.AttachMode : null,
+                    OnAfterimage = opts.OnAfterimage ?? ((entityId, on) =>
+                    {
+                        if (ViewBinder.TryGetView(entityId, out var view) && view is IAfterimageTarget target)
+                        {
+                            target.SetAfterimage(on);
+                        }
+                    }),
+                };
+                AnimMarkers = new AnimMarkerDirector(markerSource, feedbackSink, markerOptions, sharedPresentationDiagnostics);
+                Feedback.MarkerGate = AnimMarkers;
+                var footstepFeel = impactFeelSource;
+                var footstepDeclared = new Dictionary<Id, bool>();
+                // 剪辑声明了 footstep 标记、且单位的脚步层档位大于 0（标记路径确实会出声）时，以标记为唯一来源，抑制该单位的几何步幅事件。
+                Stride.Suppress = unitId =>
+                {
+                    var feel = footstepFeel.Get(unitId);
+                    if (feel == null || feel.TierOf(SfxFeelLayer.Footstep) <= 0) return false;
+                    var displayId = world.GetEntity(unitId)?.TemplateId ?? unitId;
+                    if (!footstepDeclared.TryGetValue(displayId, out var declared))
+                    {
+                        declared = AnimSetDeclaresMarker(registry, DisplayInfo.Lookup(displayId), AnimMarkerNames.Footstep);
+                        footstepDeclared[displayId] = declared;
+                    }
+                    return declared;
+                };
+                _subscriptions.Add(bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, e => AnimMarkers.Forget(e.EntityId)));
+            }
+
+            // ADR-0153：装备/卸装音效。复用同一个出声通路（feedbackSink.PlaySfx，同脚步/打击）；目录里没有模板声明 equip_sfx_ref 时不装配。
+            {
+                var equipSfxByTemplate = new Dictionary<Id, Id>();
+                if (registry.TryGetAll("item.template", out var itemTemplates))
+                {
+                    foreach (var template in itemTemplates)
+                    {
+                        if (template.TryGetId("equip_sfx_ref", out var equipSfxRef))
+                        {
+                            equipSfxByTemplate[template.GetId("id")] = equipSfxRef;
+                        }
+                    }
+                }
+                if (equipSfxByTemplate.Count > 0)
+                {
+                    var carriersInventory = gameplay.Carriers.Inventory;
+                    var carriersEquipment = gameplay.Carriers.Equipment;
+                    EquipSfx = new EquipSfxDirector(
+                        bus, feedbackSink, equipSfxByTemplate,
+                        (unitId, instanceId) =>
+                        {
+                            var inBag = carriersInventory.FindInstance(unitId, instanceId);
+                            if (inBag.HasValue) return inBag.Value.TemplateId;
+                            foreach (var kv in carriersEquipment.GetAllEquippedInstances(unitId))
+                            {
+                                if (kv.Value.InstanceId.Equals(instanceId)) return kv.Value.TemplateId;
+                            }
+                            return null;
+                        },
+                        id => entityPositionResolver(id));
+                }
+            }
 
             // 根治修复（W5c，第三轮审计"离散回放门‘零事件步骤’无自动通知"仍保留项收口）：
             // Feedback（播放队列 Queue 随之就绪）已构造完成，把"当前是否存在尚未回放完的表现动作"
@@ -791,6 +960,7 @@ namespace Presentation.Assembly
             // 复用同一实例——本模块唯一的诊断出口，取不到完整就绪数据时经它告警，不新增第二套诊断。
             ActionBar = new ActionBarViewModel(UiData, _playerId, actionBarSlots, gameplay.Carriers.SkillBindings, skillBookQuery, UiDiagnostics);
             Inventory = new InventoryViewModel(UiData, opts.EquipmentSlotIds);
+            Equipment = new EquipmentViewModel(UiData, registry, DisplayInfo);
             QuestLog = new QuestLogViewModel(UiData, gameplay.Quest, _playerId);
             DialogView = new DialogViewModel(UiData, gameplay.Dialog, _playerId);
             SkillBook = new SkillBookViewModel(UiData, skillBookQuery, _playerId);
@@ -927,6 +1097,49 @@ namespace Presentation.Assembly
             return fallback;
         }
 
+        /// <summary>
+        /// 该外形的姿势集（<c>display.anim_set</c>）里有没有剪辑声明了 <paramref name="marker"/> 事件（ADR-0148，脚步来源判定用）。
+        /// sprite 型姿势集按约定 id <c>display.anim_set.&lt;display.map 末段&gt;</c> 取（同 Unity 视图工厂的解析）；model 型取
+        /// <c>display.map.anim_set_ref</c>。查不到姿势集按"没有声明"处理。
+        /// </summary>
+        private static bool AnimSetDeclaresMarker(IDataRegistryView registry, Core.Foundation.DisplayInfo.DisplayInfo? info, string marker)
+        {
+            if (info == null)
+            {
+                return false;
+            }
+
+            Id animSetId;
+            if (info.Kind == Core.Foundation.DisplayInfo.DisplayKind.Model && info.Model != null)
+            {
+                animSetId = info.Model.AnimSetRef;
+            }
+            else
+            {
+                var dot = info.Id.Value.LastIndexOf('.');
+                animSetId = new Id("display.anim_set." + (dot < 0 ? info.Id.Value : info.Id.Value.Substring(dot + 1)));
+            }
+
+            var record = registry.Get("display.anim_set", animSetId);
+            if (record == null)
+            {
+                return false;
+            }
+
+            var animSet = Core.Foundation.DisplayInfo.AnimSetDef.FromRecord(record, registry);
+            foreach (var clip in animSet.Clips.Values)
+            {
+                foreach (var evt in clip.Events)
+                {
+                    if (string.Equals(evt.Name, marker, StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         private static ISettingsStore ResolveSettingsStore(IFileSystem fileSystem) =>
             new SettingsStore(fileSystem);
 
@@ -957,6 +1170,11 @@ namespace Presentation.Assembly
             var run = stepRunner ?? (step => step());
 
             run(() => Feedback.Update(unscaledDeltaSeconds));
+            if (AnimMarkers != null)
+            {
+                var markers = AnimMarkers;
+                run(() => markers.Update(unscaledDeltaSeconds));
+            }
             run(() => Vfx.Update(unscaledDeltaSeconds));
             run(() => Sfx.Update(unscaledDeltaSeconds));
         }
@@ -1016,12 +1234,21 @@ namespace Presentation.Assembly
             Release(nameof(Stride), Stride.Dispose);
             Release(nameof(MapLayers), MapLayers.Dispose);
             Release(nameof(Camera), Camera.Dispose);
+            if (AnimMarkers != null)
+            {
+                Release(nameof(AnimMarkers), AnimMarkers.Dispose);
+            }
+            if (EquipSfx != null)
+            {
+                Release(nameof(EquipSfx), EquipSfx.Dispose);
+            }
             Release(nameof(Feedback), Feedback.Dispose);
             Release(nameof(Shell), Shell.Dispose);
             Release(nameof(ShellViewModel), ShellViewModel.Dispose);
             Release(nameof(Hud), Hud.Dispose);
             Release(nameof(ActionBar), ActionBar.Dispose);
             Release(nameof(Inventory), Inventory.Dispose);
+            Release(nameof(Equipment), Equipment.Dispose);
             Release(nameof(QuestLog), QuestLog.Dispose);
             Release(nameof(DialogView), DialogView.Dispose);
             Release(nameof(SkillBook), SkillBook.Dispose);

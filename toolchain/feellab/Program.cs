@@ -16,6 +16,8 @@ namespace Toolchain.FeelLab
     /// <item><c>list</c>：列出格子及其在无头宿主上的可运行状态；</item>
     /// <item><c>invariants</c>：跨格子不变量（ADR-0122 决定 4）：平面组合逻辑组一致、动作式（剥 timeline + 经典预设）= 目标选择式、
     /// 经典预设下手感装配透明；不比较基线，不改任何文件。</item>
+    /// <item><c>fields</c>：由字段登记生成手感设计的字段目录片段（<c>architecture/手感设计/05a_字段登记表.md</c>，ADR-0146）；
+    /// <c>--check</c> 只比较不写，不一致退出码 1。</item>
     /// </list>
     /// <para>
     /// 退出码：0 全部通过；1 至少一个格子基线比较有差异；2 命令行参数错误；3 缺基线（无差异但有格子没有基线）；
@@ -65,6 +67,8 @@ namespace Toolchain.FeelLab
                     case "export-test": return ExportTest(options);
                     case "list": return List(options);
                     case "invariants": return Invariants(options);
+                    case "fields": return Fields(options);
+                    case "matrix": return Matrix(options);
                     default:
                         Console.Error.WriteLine($"未知命令：{command}");
                         Console.Error.WriteLine(Usage());
@@ -96,11 +100,12 @@ namespace Toolchain.FeelLab
 
         private static string Usage() =>
             "用法：\n" +
-            "  feellab run --script <file> --cell <格子> [--out <dir>] [--record] [--baseline <fixtures dir>]\n" +
+            "  feellab run --script <file> --cell <格子> [--out <dir>] [--record] [--baseline <fixtures dir>] [--time-scale <倍率>]\n" +
             "  feellab suite [--fixtures <dir>] [--script <id>] [--cell <格子>] [--update-baseline]\n" +
             "  feellab export-test --script <file> [--fixtures <dir>] [--cell <格子>]\n" +
             "  feellab list\n" +
             "  feellab invariants [--fixtures <dir>] [--script <id>]\n" +
+            "  feellab matrix [--fixtures <dir>] [--check]   体型 x 武器矩阵脚本与职业行（按数据枚举，--check 只比较）\n" +
             "公共参数：--framework-root <dir>（默认 data/_framework）  --data-root <dir>（可重复，默认 data/_lab）\n" +
             "默认夹具目录 lab/fixtures，默认输出目录 lab/out。";
 
@@ -130,10 +135,24 @@ namespace Toolchain.FeelLab
             var runner = CreateRunner(o);
             var script = InputScript.Parse(File.ReadAllText(scriptPath, Encoding.UTF8), scriptPath);
 
+            // 慢放/快放重放（M5-S7）：只缩放表现时钟，固定步序列与逻辑类度量逐位不变；缺省 1。
+            var variant = new LabRunVariant();
+            var timeScaleText = o.Get("time-scale");
+            if (timeScaleText != null)
+            {
+                if (!double.TryParse(timeScaleText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var timeScale)
+                    || !(timeScale > 0.0) || double.IsInfinity(timeScale))
+                {
+                    throw new ArgException($"--time-scale 必须是大于 0 的有限数：{timeScaleText}");
+                }
+
+                variant.TimeScale = timeScale;
+            }
+
             LabRecording recording;
             try
             {
-                recording = runner.Record(script, cell);
+                recording = runner.Record(script, cell, variant);
             }
             catch (LabCellNotRunnableException ex)
             {
@@ -142,7 +161,7 @@ namespace Toolchain.FeelLab
             }
 
             // 格子经脚本解析（空间格子在脚本声明的额外数据根里，不在基础数据集的目录里）。
-            var fingerprint = runner.FingerprintOf(script, cell, recording);
+            var fingerprint = runner.FingerprintOf(script, cell, recording, variant);
             var outDir = o.Get("out") ?? Path.Combine("lab", "out");
             Directory.CreateDirectory(outDir);
             var fpPath = Path.Combine(outDir, $"{script.Meta.ScriptId}.{cell}.fingerprint.json");
@@ -376,6 +395,88 @@ namespace Toolchain.FeelLab
             return fail > 0 ? ExitDiff : ExitOk;
         }
 
+        /// <summary>
+        /// 字段目录片段：把字段登记渲染成设计文档引用的 markdown 片段（<see cref="Core.Foundation.Feel.FeelFieldCatalogDoc"/>），
+        /// 默认写到 <c>architecture/手感设计/05a_字段登记表.md</c>（相对当前目录，应在仓库根运行）；<c>--check</c> 只比较，不一致退出码 1。
+        /// </summary>
+        private static int Fields(Options o)
+        {
+            var text = Core.Foundation.Feel.FeelFieldCatalogDoc.Render(Core.Foundation.Feel.FeelFields.Default);
+            var path = o.Get("out") ?? Core.Foundation.Feel.FeelFieldCatalogDoc.RelativePath;
+            if (o.Has("check"))
+            {
+                var current = File.Exists(path) ? File.ReadAllText(path).Replace("\r\n", "\n") : null;
+                if (current == text)
+                {
+                    Console.WriteLine($"RESULT fields same={path}");
+                    return ExitOk;
+                }
+
+                Console.WriteLine($"RESULT fields differs={path}（用 feellab fields 重新生成）");
+                return ExitDiff;
+            }
+
+            var dir = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(path, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            Console.WriteLine($"RESULT fields written={path}");
+            return ExitOk;
+        }
+
+        /// <summary>
+        /// 体型 x 武器矩阵（M5-S7，ADR-0151）：按数据枚举每个体型原型与每个武器原型，生成每个组合的脚本和体型职业行表；
+        /// 默认写进夹具目录（<c>scripts/</c> 与 <c>data/matrix/arch/arch.class.json</c>），<c>--check</c> 只比较，不一致退出码 1。基线用 <c>suite --update-baseline</c> 另行生成。
+        /// </summary>
+        private static int Matrix(Options o)
+        {
+            var fixtures = o.Get("fixtures") ?? Path.Combine("lab", "fixtures");
+            var sources = new List<IDataSource> { LabDataSources.FromDirectory(o.FrameworkRoot) };
+            foreach (var root in o.DataRoots)
+            {
+                sources.Add(LabDataSources.FromDirectory(root));
+            }
+
+            foreach (var root in LabMatrix.EnumerationRoots)
+            {
+                sources.Add(LabDataSources.FromDirectory(root));
+            }
+
+            var plan = LabMatrix.BuildPlan(sources);
+            var classPath = Path.Combine(fixtures, "data", "matrix", "arch", "arch.class.json");
+            var files = new SortedDictionary<string, string>(StringComparer.Ordinal) { [classPath] = plan.ClassTable };
+            foreach (var pair in plan.Scripts)
+            {
+                files[LabFixtures.ScriptPath(fixtures, pair.Key)] = pair.Value;
+            }
+
+            var different = 0;
+            foreach (var pair in files)
+            {
+                var current = File.Exists(pair.Key) ? File.ReadAllText(pair.Key, Encoding.UTF8).Replace("\r\n", "\n") : null;
+                var same = current == pair.Value || current == pair.Value + "\n";
+                if (o.Has("check"))
+                {
+                    if (!same)
+                    {
+                        different++;
+                        Console.WriteLine($"差异 {pair.Key}");
+                    }
+
+                    continue;
+                }
+
+                if (!same)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(pair.Key))!);
+                    File.WriteAllText(pair.Key, pair.Value, new UTF8Encoding(false));
+                    Console.WriteLine($"已写 {pair.Key}");
+                }
+            }
+
+            Console.WriteLine($"RESULT matrix archetypes={plan.Archetypes.Count} weapons={plan.Weapons.Count} scripts={plan.Scripts.Count} differing={different}");
+            return different == 0 ? ExitOk : ExitDiff;
+        }
+
         private static int List(Options o)
         {
             var runner = CreateRunner(o);
@@ -402,7 +503,7 @@ namespace Toolchain.FeelLab
         {
             private static readonly HashSet<string> Flags = new HashSet<string>(StringComparer.Ordinal)
             {
-                "record", "update-baseline", "no-expect", "expect-realtime",
+                "record", "update-baseline", "no-expect", "expect-realtime", "check",
             };
 
             private readonly Dictionary<string, string> _values = new Dictionary<string, string>(StringComparer.Ordinal);

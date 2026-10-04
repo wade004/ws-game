@@ -4,7 +4,7 @@ using Core.Foundation.Common;
 namespace Core.Carriers.Unit
 {
     /// <summary>
-    /// 竖直轴（体积空间 / 横版二维能力包）的口味配置（手感设计/06 第 10 节勘误 9、<c>core/carriers/unit/README.md</c> 判断记录）。
+    /// 竖直轴（体积空间 / 横版二维能力包）的口味配置（手感设计/06 第 1.2 节、<c>core/carriers/unit/README.md</c> 判断记录）。
     /// 挂在 <see cref="MovementOptions.Vertical"/> 上：<b>为 <c>null</c>（缺省）时世界没有竖直运动轴</b>，
     /// <see cref="Unit.HeightOffset"/> 只是表现参数（05 第 3.3 节），行为与引入本类型之前逐位一致。
     /// <para>
@@ -168,5 +168,23 @@ namespace Core.Carriers.Unit
         /// 此刻全部在空中的单位（快照，供表现层观测空中阶段）。默认接口成员：空列表。
         /// </summary>
         System.Collections.Generic.IReadOnlyList<Id> AirborneUnits() => System.Array.Empty<Id>();
+
+        /// <summary>
+        /// 当前这次空中飞行是不是"走出平台边缘的自然下落"（没有被跳跃/击飞抛起过；ADR-0143 土狼时间的前提）。默认接口成员：恒 false。
+        /// </summary>
+        bool IsLedgeFall(Id unitId) => false;
+
+        /// <summary>
+        /// 离开平台边缘后的宽限起跳（土狼时间，ADR-0143）：单位处于 <see cref="IsLedgeFall"/> 的自然下落中时，按地面起跳处理——
+        /// 以 <see cref="VerticalAxisOptions.JumpHeight"/> 起跳，<b>不</b>占用空中跳跃次数。不在边缘下落（地面上、被抛起的飞行中）返回 false，不改变状态。
+        /// 默认接口成员：恒 false。
+        /// </summary>
+        bool JumpFromLedge(Id unitId) => false;
+
+        /// <summary>
+        /// 可变跳跃高度（ADR-0143）：单位正在上升时把竖直速度截断为当前速度的 <paramref name="ratio"/> 倍（0 &lt; ratio &lt; 1），保持当前高度、
+        /// 空中跳跃次数与空中时间。不在空中或已在下降返回 false，不改变状态。默认接口成员：恒 false。
+        /// </summary>
+        bool CutAscent(Id unitId, double ratio) => false;
     }
 }

@@ -71,6 +71,45 @@ namespace Core.Rules.Skill
         Instant,
     }
 
+    /// <summary>
+    /// 地面落点技能的命中锚点（<c>skill.def.timeline.hit_anchor</c>，手感落地 M5-S2a，手感设计/03 第 2.2 节）：只对声明了 <c>ground_target</c> 的技能有意义，
+    /// 经 <c>CastSkillAtGround</c> 施放时让技能的 <c>timeline</c> 生效。缺省 <see cref="None"/> 保持既有行为（时间线被忽略、校验给警告）。
+    /// </summary>
+    public enum TimelineHitAnchor
+    {
+        /// <summary>缺省：不声明，地面落点技能忽略 <c>timeline</c>（既有行为）。</summary>
+        None,
+
+        /// <summary>命中形状以施法者的位姿为锚点（同单位目标的时间线动作），落点只随效果上下文带给效果原语（召唤、传送、投射物落点等）。</summary>
+        Caster,
+
+        /// <summary>命中形状以落点为锚点，朝向取施法时刻施法者指向落点的方向（落点与施法者重合时取施法者朝向）；落点同样随效果上下文带给效果原语。</summary>
+        GroundPoint,
+    }
+
+    /// <summary>蓄力不足（抬起时按住时长超过按住阈值但不足 <c>charge.min_ms</c>）的处理（<c>charge.below_min</c>，ADR-0143）。</summary>
+    public enum TimelineChargeBelowMin
+    {
+        /// <summary>缺省：按最低档释放（蓄力比例 0，既有行为）。</summary>
+        Release,
+
+        /// <summary>取消这次输入：缓冲记录丢弃（<c>charge_below_min</c>），不进入动作。</summary>
+        Cancel,
+    }
+
+    /// <summary>取消窗口/连招窗口的生效条件（<c>requires</c>，ADR-0143）。判定依据是本动作实例的命中确认（<c>combat.hit_confirmed</c> 按动作实例配对，被回避的接触同样算接触）。</summary>
+    public enum TimelineWindowRequires
+    {
+        /// <summary>缺省：无条件（既有行为）。</summary>
+        Any,
+
+        /// <summary>命中确认后才生效（本动作实例已有至少一次命中确认）。</summary>
+        Hit,
+
+        /// <summary>挥空时才生效（本动作实例尚无命中确认）。</summary>
+        Whiff,
+    }
+
     /// <summary>目标辅助的模式（手感设计/02 第 5 节 <c>target_assist.mode</c>）。</summary>
     public enum TimelineAssistMode
     {
@@ -104,6 +143,53 @@ namespace Core.Rules.Skill
         }
     }
 
+    /// <summary>一个字段的蓄力倍率区间：蓄力比例为 0 / 1 时的倍率，之间线性插值。</summary>
+    public readonly struct ChargeScaleRange
+    {
+        public double Min { get; }
+
+        public double Max { get; }
+
+        public ChargeScaleRange(double min, double max)
+        {
+            Min = min;
+            Max = max;
+        }
+
+        public static ChargeScaleRange Identity => new ChargeScaleRange(1.0, 1.0);
+
+        public double At(double ratio) => Min + (Max - Min) * ratio;
+    }
+
+    /// <summary>
+    /// 蓄力对手感的缩放（<c>timeline.charge.feel_scale</c>，手感落地 M5-S2a，手感设计/03 第 2.4 节）：按蓄力比例线性缩放命中的顿帧与击退/击飞，
+    /// 只列四个判定型字段（<c>attacker_hitstop_ms</c>/<c>target_hitstop_ms</c>/<c>knockback_distance</c>/<c>launch_height</c>），没有声明的字段倍率为 1。
+    /// 缩放发生在档案取值之后、限幅之前（顿帧仍受 <c>*_hitstop_cap_ms</c> 限幅），不改解析后的手感表本身。
+    /// </summary>
+    public sealed class TimelineChargeFeelScale
+    {
+        public ChargeScaleRange AttackerHitstop { get; }
+
+        public ChargeScaleRange TargetHitstop { get; }
+
+        public ChargeScaleRange KnockbackDistance { get; }
+
+        public ChargeScaleRange LaunchHeight { get; }
+
+        public TimelineChargeFeelScale(
+            ChargeScaleRange attackerHitstop, ChargeScaleRange targetHitstop, ChargeScaleRange knockbackDistance, ChargeScaleRange launchHeight)
+        {
+            AttackerHitstop = attackerHitstop;
+            TargetHitstop = targetHitstop;
+            KnockbackDistance = knockbackDistance;
+            LaunchHeight = launchHeight;
+        }
+
+        /// <summary>给定蓄力比例（0～1）的四个倍率。</summary>
+        public HitFeelScale At(double ratio) =>
+            new HitFeelScale(AttackerHitstop.At(ratio), TargetHitstop.At(ratio), KnockbackDistance.At(ratio), LaunchHeight.At(ratio));
+    }
+
     /// <summary>蓄力相声明（手感设计/01 第 3.1 节 <c>charge</c>）。</summary>
     public sealed class TimelineCharge
     {
@@ -119,17 +205,43 @@ namespace Core.Rules.Skill
 
         public double ValueScaleMax { get; }
 
+        /// <summary>蓄力对手感（顿帧、击退、击飞）的缩放（<c>feel_scale</c>）；null = 未声明，不缩放。</summary>
+        public TimelineChargeFeelScale? FeelScale { get; }
+
         public TimelineCharge(double minMs, double maxMs)
             : this(minMs, maxMs, 1.0, 1.0)
         {
         }
 
+        /// <summary>蓄力不足的处理（缺省 <see cref="TimelineChargeBelowMin.Release"/>，ADR-0143）。</summary>
+        public TimelineChargeBelowMin BelowMin { get; }
+
         public TimelineCharge(double minMs, double maxMs, double valueScaleMin, double valueScaleMax)
+            : this(minMs, maxMs, valueScaleMin, valueScaleMax, TimelineChargeBelowMin.Release)
+        {
+        }
+
+        public TimelineCharge(double minMs, double maxMs, double valueScaleMin, double valueScaleMax, TimelineChargeBelowMin belowMin)
         {
             MinMs = minMs;
             MaxMs = maxMs;
             ValueScaleMin = valueScaleMin;
             ValueScaleMax = valueScaleMax;
+            BelowMin = belowMin;
+        }
+
+        /// <summary>携带 <see cref="FeelScale"/> 的重载（新增重载，不改既有物理签名）。</summary>
+        public TimelineCharge(double minMs, double maxMs, double valueScaleMin, double valueScaleMax, TimelineChargeFeelScale? feelScale)
+            : this(minMs, maxMs, valueScaleMin, valueScaleMax)
+        {
+            FeelScale = feelScale;
+        }
+
+        /// <summary>同时携带蓄力不足处理与 <see cref="FeelScale"/> 的重载（解析用）。</summary>
+        public TimelineCharge(double minMs, double maxMs, double valueScaleMin, double valueScaleMax, TimelineChargeBelowMin belowMin, TimelineChargeFeelScale? feelScale)
+            : this(minMs, maxMs, valueScaleMin, valueScaleMax, belowMin)
+        {
+            FeelScale = feelScale;
         }
 
         /// <summary>给定蓄力比例（0～1）的效果值倍率。</summary>
@@ -164,11 +276,25 @@ namespace Core.Rules.Skill
         /// <summary>关闭时刻；null 表示到动作结束。</summary>
         public double? CloseMs { get; }
 
+        /// <summary>窗口生效条件（缺省 <see cref="TimelineWindowRequires.Any"/>，ADR-0143）。</summary>
+        public TimelineWindowRequires Requires { get; }
+
+        /// <summary>允许取消进入的目标技能白名单；null 即不限（既有行为，ADR-0143）。</summary>
+        public IReadOnlyList<Id>? Into { get; }
+
         public TimelineCancelWindow(ActionClass actionClass, double openMs, double? closeMs)
+            : this(actionClass, openMs, closeMs, TimelineWindowRequires.Any, null)
+        {
+        }
+
+        public TimelineCancelWindow(
+            ActionClass actionClass, double openMs, double? closeMs, TimelineWindowRequires requires, IReadOnlyList<Id>? into)
         {
             Class = actionClass;
             OpenMs = openMs;
             CloseMs = closeMs;
+            Requires = requires;
+            Into = into != null && into.Count > 0 ? into : null;
         }
     }
 
@@ -181,11 +307,35 @@ namespace Core.Rules.Skill
 
         public double CloseMs { get; }
 
+        /// <summary>接续条件（缺省 <see cref="TimelineWindowRequires.Any"/>，ADR-0143）。</summary>
+        public TimelineWindowRequires Requires { get; }
+
         public TimelineCombo(Id next, double openMs, double closeMs)
+            : this(next, openMs, closeMs, TimelineWindowRequires.Any)
+        {
+        }
+
+        public TimelineCombo(Id next, double openMs, double closeMs, TimelineWindowRequires requires)
         {
             Next = next;
             OpenMs = openMs;
             CloseMs = closeMs;
+            Requires = requires;
+        }
+    }
+
+    /// <summary>
+    /// 按住维持型动作声明（<c>active_until_release</c>，ADR-0143）：判定相走完后，触发该动作的输入键仍按着，动作停在判定相末尾继续维持，
+    /// 直到松键或到 <see cref="MaxMs"/>，之后进入后摇。
+    /// </summary>
+    public sealed class TimelineSustain
+    {
+        /// <summary>判定相结束后最多再维持的毫秒数。</summary>
+        public double MaxMs { get; }
+
+        public TimelineSustain(double maxMs)
+        {
+            MaxMs = maxMs;
         }
     }
 
@@ -246,6 +396,46 @@ namespace Core.Rules.Skill
         /// 真/假直接覆盖推断——例如发射治疗投射物的动作写 false，使反馈侧不为它开挥空窗口。
         /// </summary>
         public bool? IsAttack { get; }
+
+        /// <summary>地面落点技能的命中锚点（缺省 <see cref="TimelineHitAnchor.None"/>：不声明，地面落点施放时时间线被忽略）。</summary>
+        public TimelineHitAnchor HitAnchor { get; }
+
+        private IReadOnlyDictionary<int, string>? _segmentFeelRefs;
+
+        /// <summary>
+        /// 分段手感覆盖（手感落地 M5-S2a）：键为段序号，值为该段 <c>hit</c>/<c>release</c> 标记 <c>args.feel_ref</c> 声明的 <c>feel.action</c> 行 id。
+        /// 同一段多个标记声明时取时间线上最早的一个；<c>release</c> 标记没有写 <c>segment</c> 时按第 0 段。没有任何分段覆盖时为空字典。
+        /// </summary>
+        public IReadOnlyDictionary<int, string> SegmentFeelRefs => _segmentFeelRefs ??= BuildSegmentFeelRefs(Markers);
+
+        private static IReadOnlyDictionary<int, string> BuildSegmentFeelRefs(IReadOnlyList<TimelineMarker> markers)
+        {
+            var map = new Dictionary<int, string>();
+            for (var i = 0; i < markers.Count; i++)
+            {
+                var marker = markers[i];
+                if ((marker.Name != HitMarker && marker.Name != "release") || !marker.Args.TryGetValue("feel_ref", out var feelRef) || string.IsNullOrEmpty(feelRef))
+                {
+                    continue;
+                }
+
+                var segment = 0;
+                if (marker.Args.TryGetValue("segment", out var segmentText))
+                {
+                    int.TryParse(segmentText, NumberStyles.Integer, CultureInfo.InvariantCulture, out segment);
+                }
+
+                if (!map.ContainsKey(segment))
+                {
+                    map[segment] = feelRef;
+                }
+            }
+
+            return map;
+        }
+
+        /// <summary>按住维持型动作声明（<c>active_until_release</c>）；null 即定长动作（既有行为，ADR-0143）。</summary>
+        public TimelineSustain? ActiveUntilRelease { get; }
 
         /// <summary>三相之和（毫秒，不含蓄力）。</summary>
         public double TotalMs => StartupMs + ActiveMs + RecoveryMs;
@@ -313,7 +503,90 @@ namespace Core.Rules.Skill
             double rehitIntervalMs,
             TimelineTargetAssist? targetAssist,
             bool? isAttack)
+            : this(
+                source, charge, startupMs, activeMs, recoveryMs, markers, cancelWindows, combo, hitPolicy, costAt, cooldownAt,
+                motion, feelRef, hitMode, sampleStepMs, rehitIntervalMs, targetAssist, isAttack, TimelineHitAnchor.None, null)
         {
+        }
+
+        /// <summary>手感落地 M5-S2a 新增重载：携带 <see cref="HitAnchor"/>（新增重载，不改既有物理签名）。</summary>
+        public TimelineDef(
+            TimelineSource source,
+            TimelineCharge? charge,
+            double startupMs,
+            double activeMs,
+            double recoveryMs,
+            IReadOnlyList<TimelineMarker> markers,
+            IReadOnlyList<TimelineCancelWindow> cancelWindows,
+            TimelineCombo? combo,
+            TimelineHitPolicy hitPolicy,
+            TimelineCostAt costAt,
+            TimelineCooldownAt cooldownAt,
+            ActionMotion? motion,
+            string? feelRef,
+            TimelineHitMode hitMode,
+            double sampleStepMs,
+            double rehitIntervalMs,
+            TimelineTargetAssist? targetAssist,
+            bool? isAttack,
+            TimelineHitAnchor hitAnchor)
+            : this(
+                source, charge, startupMs, activeMs, recoveryMs, markers, cancelWindows, combo, hitPolicy, costAt, cooldownAt,
+                motion, feelRef, hitMode, sampleStepMs, rehitIntervalMs, targetAssist, isAttack, hitAnchor, null)
+        {
+        }
+
+        /// <summary>输入层补全（ADR-0143）重载：携带 <see cref="ActiveUntilRelease"/>（新增重载，不改既有物理签名）。</summary>
+        public TimelineDef(
+            TimelineSource source,
+            TimelineCharge? charge,
+            double startupMs,
+            double activeMs,
+            double recoveryMs,
+            IReadOnlyList<TimelineMarker> markers,
+            IReadOnlyList<TimelineCancelWindow> cancelWindows,
+            TimelineCombo? combo,
+            TimelineHitPolicy hitPolicy,
+            TimelineCostAt costAt,
+            TimelineCooldownAt cooldownAt,
+            ActionMotion? motion,
+            string? feelRef,
+            TimelineHitMode hitMode,
+            double sampleStepMs,
+            double rehitIntervalMs,
+            TimelineTargetAssist? targetAssist,
+            bool? isAttack,
+            TimelineSustain? activeUntilRelease)
+            : this(
+                source, charge, startupMs, activeMs, recoveryMs, markers, cancelWindows, combo, hitPolicy, costAt, cooldownAt,
+                motion, feelRef, hitMode, sampleStepMs, rehitIntervalMs, targetAssist, isAttack, TimelineHitAnchor.None, activeUntilRelease)
+        {
+        }
+
+        public TimelineDef(
+            TimelineSource source,
+            TimelineCharge? charge,
+            double startupMs,
+            double activeMs,
+            double recoveryMs,
+            IReadOnlyList<TimelineMarker> markers,
+            IReadOnlyList<TimelineCancelWindow> cancelWindows,
+            TimelineCombo? combo,
+            TimelineHitPolicy hitPolicy,
+            TimelineCostAt costAt,
+            TimelineCooldownAt cooldownAt,
+            ActionMotion? motion,
+            string? feelRef,
+            TimelineHitMode hitMode,
+            double sampleStepMs,
+            double rehitIntervalMs,
+            TimelineTargetAssist? targetAssist,
+            bool? isAttack,
+            TimelineHitAnchor hitAnchor,
+            TimelineSustain? activeUntilRelease)
+        {
+            HitAnchor = hitAnchor;
+            ActiveUntilRelease = activeUntilRelease;
             IsAttack = isAttack;
             HitMode = hitMode;
             SampleStepMs = sampleStepMs;
@@ -355,7 +628,16 @@ namespace Core.Rules.Skill
                     scaleMax = Num(scaleObj, "max");
                 }
 
-                charge = new TimelineCharge(Num(chargeObj, "min_ms"), Num(chargeObj, "max_ms"), scaleMin, scaleMax);
+                TimelineChargeFeelScale? feelScale = null;
+                if (chargeObj.TryGetValue("feel_scale", out var feelScaleVal) && feelScaleVal is JsonObject feelScaleObj)
+                {
+                    feelScale = new TimelineChargeFeelScale(
+                        ScaleRange(feelScaleObj, "attacker_hitstop_ms"), ScaleRange(feelScaleObj, "target_hitstop_ms"),
+                        ScaleRange(feelScaleObj, "knockback_distance"), ScaleRange(feelScaleObj, "launch_height"));
+                }
+
+                var belowMin = Str(chargeObj, "below_min") == "cancel" ? TimelineChargeBelowMin.Cancel : TimelineChargeBelowMin.Release;
+                charge = new TimelineCharge(Num(chargeObj, "min_ms"), Num(chargeObj, "max_ms"), scaleMin, scaleMax, belowMin, feelScale);
             }
 
             var markers = new List<TimelineMarker>();
@@ -406,14 +688,25 @@ namespace Core.Rules.Skill
                     var w = (JsonObject)winArr[i];
                     var cls = ParseActionClass(Str(w, "class")!);
                     double? close = w.TryGetValue("close_ms", out var cv) && cv is JsonNumber cn ? cn.Value : (double?)null;
-                    windows.Add(new TimelineCancelWindow(cls, Num(w, "open_ms"), close));
+                    List<Id>? into = null;
+                    if (w.TryGetValue("into", out var intoVal) && intoVal is JsonArray intoArr)
+                    {
+                        into = new List<Id>(intoArr.Count);
+                        for (var k = 0; k < intoArr.Count; k++)
+                        {
+                            if (intoArr[k] is JsonString intoStr) into.Add(new Id(intoStr.Value));
+                        }
+                    }
+
+                    windows.Add(new TimelineCancelWindow(cls, Num(w, "open_ms"), close, ParseRequires(Str(w, "requires")), into));
                 }
             }
 
             TimelineCombo? combo = null;
             if (obj.TryGetValue("combo", out var comboVal) && comboVal is JsonObject comboObj)
             {
-                combo = new TimelineCombo(new Id(Str(comboObj, "next")!), Num(comboObj, "open_ms"), Num(comboObj, "close_ms"));
+                combo = new TimelineCombo(
+                    new Id(Str(comboObj, "next")!), Num(comboObj, "open_ms"), Num(comboObj, "close_ms"), ParseRequires(Str(comboObj, "requires")));
             }
 
             var hitPolicy = Str(obj, "hit_policy") == "continuous" ? TimelineHitPolicy.Continuous : TimelineHitPolicy.Marker;
@@ -453,16 +746,43 @@ namespace Core.Rules.Skill
                     new Id(Str(assistObj, "chain_ref")!), Num(assistObj, "max_distance"), Num(assistObj, "max_angle_deg"), assistMode);
             }
 
+            var hitAnchor = Str(obj, "hit_anchor") switch
+            {
+                "caster" => TimelineHitAnchor.Caster,
+                "ground_point" => TimelineHitAnchor.GroundPoint,
+                _ => TimelineHitAnchor.None,
+            };
+
+            TimelineSustain? sustain = null;
+            if (obj.TryGetValue("active_until_release", out var sustainVal) && sustainVal is JsonObject sustainObj)
+            {
+                sustain = new TimelineSustain(Num(sustainObj, "max_ms"));
+            }
+
             return new TimelineDef(
                 source, charge, Num(obj, "startup_ms"), Num(obj, "active_ms"), Num(obj, "recovery_ms"),
                 markers, windows, combo, hitPolicy, costAt, cooldownAt, motion, string.IsNullOrEmpty(feelRef) ? null : feelRef,
                 hitMode, Num(obj, "sample_step_ms"), Num(obj, "rehit_interval_ms"), assist,
-                obj.TryGetValue("is_attack", out var isAttackVal) && isAttackVal is JsonBool isAttackBool ? isAttackBool.Value : (bool?)null);
+                obj.TryGetValue("is_attack", out var isAttackVal) && isAttackVal is JsonBool isAttackBool ? isAttackBool.Value : (bool?)null,
+                hitAnchor,
+                sustain);
         }
+
+        private static TimelineWindowRequires ParseRequires(string? text) => text switch
+        {
+            "hit" => TimelineWindowRequires.Hit,
+            "whiff" => TimelineWindowRequires.Whiff,
+            _ => TimelineWindowRequires.Any,
+        };
 
         private static ActionMotion ParseMotion(JsonObject m)
         {
-            var driver = Str(m, "driver") == "root_motion" ? ActionMotionDriver.RootMotion : ActionMotionDriver.Code;
+            if (Str(m, "driver") == "root_motion")
+            {
+                throw new InvalidOperationException("timeline.motion.driver: " + ActionMotion.RootMotionMigrationNote);
+            }
+
+            var driver = ActionMotionDriver.Code;
             var kind = Str(m, "kind") switch
             {
                 "dash" => ActionMotionKind.Dash,
@@ -496,6 +816,7 @@ namespace Core.Rules.Skill
                 case "interact": return ActionClass.Interact;
                 case "item": return ActionClass.Item;
                 case "menu": return ActionClass.Menu;
+                case "jump": return ActionClass.Jump;
                 default: throw new ArgumentException("未知输入类别：" + name, nameof(name));
             }
         }
@@ -511,12 +832,18 @@ namespace Core.Rules.Skill
                 case ActionClass.Dodge: return "dodge";
                 case ActionClass.Interact: return "interact";
                 case ActionClass.Item: return "item";
+                case ActionClass.Jump: return "jump";
                 default: return "menu";
             }
         }
 
         private static string? Str(JsonObject o, string key) =>
             o.TryGetValue(key, out var v) && v is JsonString s ? s.Value : null;
+
+        private static ChargeScaleRange ScaleRange(JsonObject o, string key) =>
+            o.TryGetValue(key, out var v) && v is JsonObject range
+                ? new ChargeScaleRange(Num(range, "min"), Num(range, "max"))
+                : ChargeScaleRange.Identity;
 
         private static double Num(JsonObject o, string key) =>
             o.TryGetValue(key, out var v) && v is JsonNumber n ? n.Value : 0.0;

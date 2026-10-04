@@ -110,7 +110,7 @@ namespace Tests.Lab
         /// <summary>旧标准脚本（十个，不开手感装配）：既有基线与既有测试的口径。</summary>
         public static List<InputScript> StandardScripts() => AllScripts().FindAll(s => !s.Meta.Feel);
 
-        /// <summary>空间语义脚本的 id 前缀（手感设计/06 第 10 节勘误 9）：这些脚本除六个平面格子外还适用四个空间格子，由 <c>SpaceSemanticsTests</c> 专门验收。</summary>
+        /// <summary>空间语义脚本的 id 前缀（手感设计/06 第 1.2 节）：这些脚本除六个平面格子外还适用四个空间格子，由 <c>SpaceSemanticsTests</c> 专门验收。</summary>
         public const string SpaceScriptPrefix = "space.";
 
         /// <summary>手感场景脚本（<c>meta.feel</c> 为真，格式版本 3），不含空间语义脚本（它们的格子集合是十个，见 <see cref="SpaceScripts"/>）。</summary>

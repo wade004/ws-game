@@ -75,15 +75,25 @@ namespace Adapter.Unity.LabHost
         public MetricRegistry Registry => _engineRunner.Registry;
 
         public EngineLabHost(string repoRoot)
+            : this(repoRoot, new[] { "data/_framework", "data/_lab" }, null)
+        {
+        }
+
+        /// <summary>
+        /// 同上，另可换基础数据根（相对仓库根或绝对路径，框架根在前、实验室数据集在后）与额外根的解析器（缺省按仓库根解析目录）。
+        /// 试玩宿主据此把数据根做成可换的：游戏接入时传自己的根即可（ADR-0141）。
+        /// </summary>
+        public EngineLabHost(string repoRoot, IReadOnlyList<string> baseDataRoots, Func<string, IDataSource>? extraRootResolver)
         {
             _repoRoot = repoRoot;
-            var sources = new List<IDataSource>
+            var sources = new List<IDataSource>();
+            foreach (var root in baseDataRoots)
             {
-                LabDataSources.FromDirectory(Path.Combine(repoRoot, "data", "_framework")),
-                LabDataSources.FromDirectory(Path.Combine(repoRoot, "data", "_lab")),
-            };
-            Func<string, IDataSource> resolver = path =>
-                LabDataSources.FromDirectory(Path.IsPathRooted(path) ? path : Path.Combine(repoRoot, path));
+                sources.Add(LabDataSources.FromDirectory(Path.IsPathRooted(root) ? root : Path.Combine(repoRoot, root)));
+            }
+
+            Func<string, IDataSource> resolver = extraRootResolver ?? (path =>
+                LabDataSources.FromDirectory(Path.IsPathRooted(path) ? path : Path.Combine(repoRoot, path)));
             var dataset = LabDataset.Load(sources);
             _engineRunner = new LabRunner(dataset, MetricRegistry.CreateWithEngine(), resolver);
             _headlessRunner = new LabRunner(dataset, MetricRegistry.CreateDefault(), resolver);

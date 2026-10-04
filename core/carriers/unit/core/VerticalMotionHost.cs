@@ -10,7 +10,7 @@ namespace Core.Carriers.Unit
 {
     /// <summary>
     /// <see cref="IVerticalMotion"/> 的唯一实现：为被抛起的单位积分抛体运动并写回 <see cref="Unit.HeightOffset"/>
-    /// （手感设计/06 第 10 节勘误 9；单位、公式与设计决定见 <see cref="VerticalAxisOptions"/>/<see cref="IVerticalMotion"/>
+    /// （手感设计/06 第 1.2 节；单位、公式与设计决定见 <see cref="VerticalAxisOptions"/>/<see cref="IVerticalMotion"/>
     /// 与 unit README 判断记录）。
     /// <para>
     /// 判断记录（只积分"被抛起"的单位）：没有被 <see cref="Launch"/> 的单位 <see cref="Unit.HeightOffset"/> 保持原值不动——
@@ -39,6 +39,9 @@ namespace Core.Carriers.Unit
 
             /// <summary>本次离地以来已用掉的空中跳跃次数（地面起跳不计）。</summary>
             public int AirJumps;
+
+            /// <summary>这次飞行是走出平台边缘的自然下落（初速 0，没被抛起过）：土狼时间起跳的前提（ADR-0143）。</summary>
+            public bool LedgeFall;
         }
 
         /// <summary>地形能力装配后逐单位的"贴地"簿记：上一次观测的位置与是否贴着地面（只在 <see cref="VerticalAxisOptions.Terrain"/> 非空时使用）。</summary>
@@ -244,6 +247,42 @@ namespace Core.Carriers.Unit
             return true;
         }
 
+        public bool IsLedgeFall(Id unitId) => _flights.TryGetValue(unitId, out var f) && f.LedgeFall;
+
+        public bool JumpFromLedge(Id unitId)
+        {
+            if (!_flights.TryGetValue(unitId, out var existing) || !existing.LedgeFall)
+            {
+                return false;
+            }
+
+            var airJumps = existing.AirJumps;
+            if (!LaunchToApex(unitId, _options.JumpHeight))
+            {
+                return false;
+            }
+
+            _flights[unitId].AirJumps = airJumps;
+            return true;
+        }
+
+        public bool CutAscent(Id unitId, double ratio)
+        {
+            if (!(ratio > 0.0 && ratio < 1.0) || !_flights.TryGetValue(unitId, out var f))
+            {
+                return false;
+            }
+
+            var speed = f.InitialSpeed - _options.Gravity * f.Elapsed;
+            if (!(speed > 0.0) || !(_world.GetEntity(unitId) is Unit unit) || !unit.Alive)
+            {
+                return false;
+            }
+
+            StartFlight(unitId, unit, speed * ratio);
+            return true;
+        }
+
         private bool AirJumpAllowed(int used) =>
             _options.MaxAirJumps.HasValue ? used < _options.MaxAirJumps.Value : _options.AllowAirJump;
 
@@ -412,6 +451,7 @@ namespace Core.Carriers.Unit
                     TerrainStepMath.FirstDrop(terrain, unit.MapId, previous, unit.Position, FallThreshold, _options.StepSampleDistance).HasValue)
                 {
                     StartFlight(id, unit, 0.0);
+                    _flights[id].LedgeFall = true;
                     continue;
                 }
 

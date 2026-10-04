@@ -40,10 +40,10 @@ namespace Tests.Foundation.InputMap
         [Fact]
         public void ActionClass_ValuesAreAppendedOnlyAndStable()
         {
-            Assert.Equal(new[] { "Move", "Attack", "Skill", "Dodge", "Interact", "Item", "Menu" },
+            Assert.Equal(new[] { "Move", "Attack", "Skill", "Dodge", "Interact", "Item", "Menu", "Jump" },
                 System.Enum.GetValues(typeof(ActionClass)).Cast<ActionClass>().Select(c => c.ToString()));
             Assert.Equal(0, (int)ActionClass.Move);
-            Assert.Equal(new[] { "Replaced", "Full", "Expired", "Cleared", "Rejected" },
+            Assert.Equal(new[] { "Replaced", "Full", "Expired", "Cleared", "Rejected", "ChargeBelowMin" },
                 System.Enum.GetValues(typeof(BufferDropReason)).Cast<BufferDropReason>().Select(c => c.ToString()));
         }
 

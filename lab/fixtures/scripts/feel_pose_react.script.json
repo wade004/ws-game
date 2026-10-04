@@ -1,0 +1,86 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_pose_react",
+    "scriptVersion": 1,
+    "description": "受击反应到姿势（M5-S4，ADR-0147）：同 feel_react_knockdown 的数据与出手序列，加挂姿势观测（meta.poseExt）。动作式格子里动画状态机处于受击反应驱动模式：第 1 击（击倒）依次请求 hit.knockback、hit.knockdown、hit.getup 三个受击姿势子键；第 2 击落在起身无敌窗口里被判 Invulnerable、不产生反应、不请求受击姿势；第 3 击重新击倒，再依次请求同样三个子键。目标选择式格子剥掉了时间线（瞬发、无倒地/起身段），反应与姿势请求本来就不同，所以本组度量是表现类、每格子各自基线，脚本期望只对动作式格子。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 200,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake_downable"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_reaction",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_react_massive"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/reaction"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": "",
+    "poseExt": {}
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 52,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 53,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 110,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 111,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "invulnerable_hit_requests_no_pose",
+      "metric": "poseext.hit_pose_total",
+      "op": "eq",
+      "value": 6,
+      "note": "两次击倒各三个受击姿势（knockback、knockdown、getup），起身无敌窗口里的那一击不请求任何受击姿势。",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ]
+    }
+  ]
+}

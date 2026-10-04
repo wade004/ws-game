@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Core.Foundation.DataRegistry;
 
@@ -15,8 +16,14 @@ namespace Core.Foundation.Feel
         public const string BufferSlots = "buffer_slots";
         public const string GraceMs = "grace_ms";
         public const string HoldThresholdMs = "hold_threshold_ms";
+
+        // ADR-0143：轴处理三字段已从手感档案登记表移除（归设备/玩家设置，改在 found.input_action 声明，InputMapHost 消费）。
+        // 常量按 ABI 只新增的约束保留并标过时，不再登记、不再有任何消费方。
+        [Obsolete("ADR-0143：轴死区归 found.input_action.dead_zone 与玩家设置，不再是手感档案字段")]
         public const string DeadZone = "dead_zone";
+        [Obsolete("ADR-0143：轴响应曲线归 found.input_action.response_curve 与玩家设置，不再是手感档案字段")]
         public const string ResponseCurve = "response_curve";
+        [Obsolete("ADR-0143：轴平滑归 found.input_action.smoothing_ms 与玩家设置，不再是手感档案字段")]
         public const string SmoothingMs = "smoothing_ms";
 
         // 移动（判定型）
@@ -88,9 +95,35 @@ namespace Core.Foundation.Feel
         public const string LaunchStackCap = "launch_stack_cap";
         public const string LaunchHeightCap = "launch_height_cap";
         public const string LaunchBodyScale = "launch_body_scale";
+
+        /// <summary>
+        /// 受击半径缩放（手感落地 M5-S2a，受击方档案，体型原型层可写）：目标命中半径 = <c>unit_body_radius</c>（标定后世界单位）× 本字段；
+        /// 缺省（无值）= 1。只在装配启用 <c>HitRadiusFromFeel</c> 时被命中几何读取，见手感设计/03 第 2.2 节。
+        /// </summary>
+        public const string HurtRadiusScale = "hurt_radius_scale";
         public const string AirReactionCap = "air_reaction_cap";
         public const string AirStunUntilLand = "air_stun_until_land";
         public const string KillHitstopScale = "kill_hitstop_scale";
+        public const string StaggerGraceMs = "stagger_grace_ms";
+        public const string StaggerGraceCap = "stagger_grace_cap";
+        public const string HitStunScale = "hit_stun_scale";
+        public const string KnockbackDurationMs = "knockback_duration_ms";
+        public const string GetupMs = "getup_ms";
+        public const string GetupInvulnMs = "getup_invuln_ms";
+        public const string CritImpactClass = "crit_impact_class";
+        public const string CritHitstopScale = "crit_hitstop_scale";
+        public const string BlockImpactClass = "block_impact_class";
+        public const string BlockHitstopScale = "block_hitstop_scale";
+        public const string BlockReactionCap = "block_reaction_cap";
+        public const string BlockAttackerReaction = "block_attacker_reaction";
+        public const string GlancingImpactClass = "glancing_impact_class";
+        public const string GlancingHitstopScale = "glancing_hitstop_scale";
+        public const string ParryImpactClass = "parry_impact_class";
+        public const string ParryHitstopScale = "parry_hitstop_scale";
+        public const string ParryAttackerReaction = "parry_attacker_reaction";
+        public const string GuardArcDeg = "guard_arc_deg";
+        public const string GuardDamageScale = "guard_damage_scale";
+        public const string GuardParryWindowMs = "guard_parry_window_ms";
 
         // 镜头（呈现型；07 第 2 节，加 camera_ 前缀与输入组的 dead_zone 区分）
         public const string CameraFollowLagMs = "camera_follow_lag_ms";
@@ -132,9 +165,9 @@ namespace Core.Foundation.Feel
     /// 判断记录：
     /// </para>
     /// <para>
-    /// 1) 镜头组字段全部加 <c>camera_</c> 前缀——07 第 2 节 <c>camera_profile</c> 的 <c>dead_zone</c>（呈现型，镜头）与
-    /// 01 第 4 节输入组的 <c>dead_zone</c>（判定型，手柄轴死区）同名，而同一张登记表里字段名必须全局唯一（一个字段只属于
-    /// 一边），因此镜头一侧改名；输入组沿用 01 的名字。
+    /// 1) 镜头组字段全部加 <c>camera_</c> 前缀——07 第 2 节 <c>camera_profile</c> 的 <c>dead_zone</c>（呈现型，镜头）曾与
+    /// 输入组的 <c>dead_zone</c>（判定型，手柄轴死区）同名，而同一张登记表里字段名必须全局唯一（一个字段只属于一边），因此镜头一侧改名。
+    /// 输入组的轴处理三字段后来按 ADR-0143 移出登记表（归设备/玩家设置），前缀沿用不改（改名是无谓的破坏性变更）。
     /// </para>
     /// <para>
     /// 2) 合成来源：05 第 3.4 节点名的字段按点名归类（加减速、转向、步幅、<c>hit_stun_ms</c>、脚步层 → 角色为主；
@@ -162,8 +195,48 @@ namespace Core.Foundation.Feel
         private static readonly IReadOnlyList<string> ReactionCapValues = new[] { "none", "flinch", "stagger_light", "stagger", "knockback", "knockdown" };
         private static readonly IReadOnlyList<string> ReversePolicyValues = new[] { "instant", "through_zero" };
 
+        /// <summary>
+        /// 已登记但尚无消费方的字段（落地状态 <see cref="FeelFieldStatus.Planned"/>，手感设计/05 第 4 节、ADR-0146）。
+        /// 某个字段有了生产消费方之后，把它从下表删除即回到 active；测试 <c>FeelFieldStatusTests</c> 守住"active ⇔ 有消费方引用"。
+        /// </summary>
+        private static readonly (string Name, string Note)[] PlannedFields =
+        {
+        };
+
         /// <summary>框架默认登记（不可变，登记顺序即遍历顺序）。</summary>
         public static FeelFieldSet Default { get; } = Build();
+
+        /// <summary>游戏自有手感字段的名字前缀（手感设计/05 第 4 节）。</summary>
+        public const string GameFieldPrefix = "game.";
+
+        /// <summary>
+        /// 在框架默认登记之上追加游戏自有字段（手感设计/05 第 4 节"游戏自有字段"，ADR-0146）：游戏自己的字段（如招架窗口、冲刺次数）参与八层解析、
+        /// 溯源与调参面板，但框架的判定与表现消费方不读取它们（消费方是游戏自己的代码，经解析结果按名读取）。
+        /// 约束：名字必须以 <see cref="GameFieldPrefix"/> 开头（与框架字段永不重名）、不得与已登记字段重名、状态恒为 active（消费方在游戏里）；
+        /// 建议声明为可选字段（<c>optional: true</c>），否则框架预设与每个游戏预设都得给它取值。
+        /// 要让数据里能写这些字段，把返回的登记同时交给 <c>FeelSchemas.RegisterAll</c>（数据校验）与装配选项（<c>FeelAssemblyOptions.Fields</c> 或
+        /// <c>CarriersFeelOptions.Fields</c>）。
+        /// </summary>
+        public static FeelFieldSet Extend(IEnumerable<FeelFieldDef> gameFields)
+        {
+            if (gameFields == null) throw new System.ArgumentNullException(nameof(gameFields));
+            var all = new List<FeelFieldDef>(Default.Fields);
+            foreach (var field in gameFields)
+            {
+                if (field == null) throw new System.ArgumentException("游戏字段登记不能为 null", nameof(gameFields));
+                if (!field.Name.StartsWith(GameFieldPrefix, System.StringComparison.Ordinal))
+                {
+                    throw new System.ArgumentException($"游戏自有字段必须以 \"{GameFieldPrefix}\" 开头：{field.Name}", nameof(gameFields));
+                }
+                if (field.Status != FeelFieldStatus.Active)
+                {
+                    throw new System.ArgumentException($"游戏自有字段不能标 planned：{field.Name}", nameof(gameFields));
+                }
+                all.Add(field);
+            }
+
+            return new FeelFieldSet(all);
+        }
 
         private static FeelFieldDef Num(
             string name, FeelGroup group, FeelHalf half, FeelUnit unit, FeelComposition comp,
@@ -225,9 +298,6 @@ namespace Core.Foundation.Feel
                 IntF(FeelFieldNames.BufferSlots, In, J, FeelUnit.Count, C, 1, 8, "缓冲槽位数"),
                 Num(FeelFieldNames.GraceMs, In, J, Ms, C, 0, 500, "宽限窗口：前置条件刚失效后仍视为满足的时长"),
                 Num(FeelFieldNames.HoldThresholdMs, In, J, Ms, C, 0, 5000, "缺省按住阈值；缺省（无值）表示动作不区分点按与按住", optional: true),
-                Num(FeelFieldNames.DeadZone, In, J, Ratio, C, 0, 0.9, "轴死区（仅手柄；键盘数字输入无死区）"),
-                Text(FeelFieldNames.ResponseCurve, In, J, C, "轴响应曲线：linear、expo 或 custom:<curve_id>"),
-                Num(FeelFieldNames.SmoothingMs, In, J, Ms, C, 0, 500, "轴幅值平滑时长（只作用于幅值，方向变化即时生效）"),
 
                 // ---------- 移动（02 第 2 节，判定型）----------
                 Num(FeelFieldNames.AccelMs, Mv, J, Ms, C, 0, 3000, "从静止达到目标速度的时间；0 即瞬时达速"),
@@ -279,7 +349,7 @@ namespace Core.Foundation.Feel
                     "落地姿势保持时长（手感落地 M4-W1b）：单位落地后空中阶段的落地相（jump.land）保持多久；缺省（无值）取呈现层默认 8 个 tick，0 = 不播落地姿势", optional: true),
                 Num(FeelFieldNames.StartBlendMs, Mv, P, Ms, C, 0, 1000, "起步混合时长"),
                 Num(FeelFieldNames.StopBlendMs, Mv, P, Ms, C, 0, 1000, "急停混合时长"),
-                Num(FeelFieldNames.LeanDegPerAccel, Mv, P, FeelUnit.Degrees, C, 0, 45, "身体倾斜：每单位加速度对应的倾斜角度上限（度）"),
+                Num(FeelFieldNames.LeanDegPerAccel, Mv, P, FeelUnit.Degrees, C, 0, 45, "身体倾斜：每单位加速度（速度比的变化率，1/秒）对应的前倾角度（度；加速前倾、减速后仰），总倾角夹在 45 度内；仅骨骼模型外形支持"),
 
                 // ---------- 动作（01 第 4 节，判定型）----------
                 Num(FeelFieldNames.PhaseScaleStartup, Ac, J, Ratio, W, 0.1, 10, "时间线前摇倍率", attr: HasteAttr),
@@ -330,6 +400,9 @@ namespace Core.Foundation.Feel
                     "与 launch_stack_cap 的区别：后者封叠加后的初速，本字段封世界高度，二者可同时声明）；缺省（无值）表示不设绝对上限", optional: true),
                 Num(FeelFieldNames.LaunchBodyScale, Re, J, Ratio, C, 0, 10,
                     "击飞体型缩放（手感落地 M4-W1b，受击方档案，体型原型层可写）：击飞顶点 × 本字段；缺省（无值）= 1 即不缩放，0 = 不可被击飞", optional: true),
+                Num(FeelFieldNames.HurtRadiusScale, Re, J, Ratio, C, 0, 4,
+                    "受击半径缩放（手感落地 M5-S2a，受击方档案，体型原型层可写）：目标命中半径 = unit_body_radius（标定后世界单位）× 本字段，命中形状与该圆相交即算命中；缺省（无值）= 1；" +
+                    "没有声明 unit_body_radius 的单位半径恒为 0（按点判定）；只在装配启用 HitRadiusFromFeel 时生效", ops: SetOnly, optional: true),
                 Enum(FeelFieldNames.AirReactionCap, Re, J, C, ReactionCapValues,
                     "空中受击反应上限（手感落地 M4-W1b，受击方档案）：目标在空中被命中时，反应在 reaction_cap 之外再受它限制（取两者较低）；缺省（无值）表示空中不另设上限",
                     optional: true),
@@ -340,8 +413,70 @@ namespace Core.Foundation.Feel
                 Enum(FeelFieldNames.ReactionCap, Re, J, C, ReactionCapValues, "受击反应上限（none 最低、knockdown 即不封顶）"),
                 Num(FeelFieldNames.KillHitstopScale, Re, J, Ratio, W, 1, 5, "击杀时顿帧放大倍数"),
 
+                // 受击反应（手感落地 M5-S2b，ADR-0145）：硬直保护、硬直时长缩放、击退时长、起身段、命中类别（暴击/格挡/偏斜/弹反）与格挡状态。全部可选，缺省 = 此前行为。
+                Num(FeelFieldNames.StaggerGraceMs, Re, J, Ms, C, 0, 5000,
+                    "硬直保护期（受击方）：从硬直开始、直到硬直（含倒地与起身）结束后再过这么久，期间新的硬直类反应一律被限制到 stagger_grace_cap（缺省 flinch，击杀不受影响），防止被高频攻击无限硬直锁；缺省（无值）= 0 即不设保护",
+                    optional: true),
+                Enum(FeelFieldNames.StaggerGraceCap, Re, J, C, ReactionCapValues,
+                    "硬直保护期内的反应上限（受击方）：期内硬直类反应被限制到该档；缺省（无值）= flinch；只在声明了 stagger_grace_ms 时有意义",
+                    optional: true),
+                Num(FeelFieldNames.HitStunScale, Re, J, Ratio, W, 0, 10,
+                    "硬直时长倍率（攻击方，武器/技能）：硬直时长 = 受击方 hit_stun_ms × 本字段 × 反应类型倍率表（HitFeelOptions.HitStunReactionMultipliers，缺省全 1）；缺省（无值）= 1",
+                    optional: true),
+                Num(FeelFieldNames.KnockbackDurationMs, Re, J, Ms, W, 0, 5000,
+                    "击退时长（攻击方，武器/技能）：击退位移在这么久内完成（ease_out 曲线），重击拖得更久、轻击瞬间弹开；缺省（无值）= 游戏级击退时长选项",
+                    optional: true),
+                Num(FeelFieldNames.GetupMs, Re, J, Ms, C, 0, 10000,
+                    "起身段时长（受击方）：knockdown 反应的倒地段（downed_ms）之后再接这么久的起身段，计入总倒地时长，期间发 unit.getup_started/unit.getup_finished；缺省（无值）= 0 即没有起身段",
+                    optional: true),
+                Num(FeelFieldNames.GetupInvulnMs, Re, J, Ms, C, 0, 10000,
+                    "起身无敌时长（受击方）：起身段开头的这么久内命中被判为 Invulnerable 回避；缺省（无值）= 0 即起身不无敌；只在声明了 getup_ms 时有意义",
+                    optional: true),
+                Enum(FeelFieldNames.CritImpactClass, Re, J, W, ImpactClassValues,
+                    "暴击时的冲击等级（攻击方）：暴击命中把 impact_class 替换为该值，同时决定反应映射、击退倍率与反馈包变体；缺省（无值）= 与普通命中相同",
+                    optional: true),
+                Num(FeelFieldNames.CritHitstopScale, Re, J, Ratio, W, 0, 5,
+                    "暴击顿帧倍率（攻击方）：暴击命中时攻击方与受击方的顿帧时长都乘该值；缺省（无值）= 1",
+                    optional: true),
+                Enum(FeelFieldNames.BlockImpactClass, Re, J, C, ImpactClassValues,
+                    "被格挡时的冲击等级（受击方）：命中结局为 Block（命中表格挡或格挡状态）时 impact_class 替换为该值；缺省（无值）= 与普通命中相同",
+                    optional: true),
+                Num(FeelFieldNames.BlockHitstopScale, Re, J, Ratio, C, 0, 5,
+                    "被格挡顿帧倍率（受击方）：命中结局为 Block 时攻击方与受击方的顿帧时长都乘该值；缺省（无值）= 1",
+                    optional: true),
+                Enum(FeelFieldNames.BlockReactionCap, Re, J, C, ReactionCapValues,
+                    "被格挡时的反应上限（受击方）：命中结局为 Block 时受击反应在 reaction_cap 之外再受它限制（取较低者）；缺省（无值）= 与普通命中相同",
+                    optional: true),
+                Enum(FeelFieldNames.BlockAttackerReaction, Re, J, C, ReactionCapValues,
+                    "被格挡时攻击方被弹开的反应（受击方）：命中结局为 Block 时攻击方吃这一档反应（仍受攻击方的霸体与 reaction_cap 限制）；缺省（无值）或 none = 攻击方不受影响",
+                    optional: true),
+                Enum(FeelFieldNames.GlancingImpactClass, Re, J, C, ImpactClassValues,
+                    "被偏斜时的冲击等级（受击方）：命中结局为 GlancingBlow 时 impact_class 替换为该值；缺省（无值）= 与普通命中相同",
+                    optional: true),
+                Num(FeelFieldNames.GlancingHitstopScale, Re, J, Ratio, C, 0, 5,
+                    "被偏斜顿帧倍率（受击方）：命中结局为 GlancingBlow 时攻击方与受击方的顿帧时长都乘该值；缺省（无值）= 1",
+                    optional: true),
+                Enum(FeelFieldNames.ParryImpactClass, Re, J, C, ImpactClassValues,
+                    "被弹反时的冲击等级（受击方）：命中结局为 Parry 时 impact_class 替换为该值（决定反馈包变体与弹反顿帧）；缺省（无值）= 与普通命中相同",
+                    optional: true),
+                Num(FeelFieldNames.ParryHitstopScale, Re, J, Ratio, C, 0, 5,
+                    "弹反顿帧倍率（受击方）：命中结局为 Parry 时攻击方与受击方各按其基础顿帧时长乘该值；缺省（无值）= 弹反不顿帧（此前行为）",
+                    optional: true),
+                Enum(FeelFieldNames.ParryAttackerReaction, Re, J, C, ReactionCapValues,
+                    "被弹反时攻击方被弹开的反应（受击方）：命中结局为 Parry 时攻击方吃这一档反应（仍受攻击方的霸体与 reaction_cap 限制）；缺省（无值）或 none = 攻击方不受影响",
+                    optional: true),
+                Num(FeelFieldNames.GuardArcDeg, Re, J, FeelUnit.Degrees, C, 0, 360,
+                    "格挡正面角度（受击方）：格挡状态下，攻击来向落在受击方朝向两侧各一半角度（总宽度本字段）的扇形内才算被格挡；缺省（无值）= 180（朝向前方的半个平面）；360 = 全向",
+                    optional: true),
+                Num(FeelFieldNames.GuardDamageScale, Re, J, Ratio, C, 0, 1,
+                    "格挡伤害倍率（受击方）：格挡状态下被格挡的命中伤害 × 本字段（0 = 完全挡住）；缺省（无值）= 1 即格挡不减伤",
+                    optional: true),
+                Num(FeelFieldNames.GuardParryWindowMs, Re, J, Ms, C, 0, 2000,
+                    "弹反窗口（受击方）：格挡开始后的这么久内被命中判为 Parry（弹反/偏斜，目标不受伤）；缺省（无值）= 0 即没有弹反窗口",
+                    optional: true),
+
                 // ---------- 镜头（07 第 2 节，呈现型）----------
-                Num(FeelFieldNames.CameraFollowLagMs, Cam, P, Ms, C, 0, 2000, "镜头跟随滞后"),
+                Num(FeelFieldNames.CameraFollowLagMs, Cam, P, Ms, C, 0, 2000, "镜头跟随滞后（已弃用：阻尼是唯一权威，分轴阻尼为 0 的轴取本值作为阻尼，不再另走 ICamera.Follow 平滑）"),
                 Num(FeelFieldNames.CameraLookAhead, Cam, P, BodyH, C, 0, 10, "沿速度方向的前瞻距离"),
                 Num(FeelFieldNames.CameraLookAheadLagMs, Cam, P, Ms, C, 0, 2000, "前瞻点自身的滞后，避免反转时甩动"),
                 Num(FeelFieldNames.CameraDeadZoneWidth, Cam, P, BodyH, C, 0, 10, "死区宽：目标在死区内镜头不动"),
@@ -352,9 +487,9 @@ namespace Core.Foundation.Feel
                 Num(FeelFieldNames.CameraCombatZoomBlendMs, Cam, P, Ms, C, 0, 3000, "进出战斗缩放的过渡时长"),
                 Num(FeelFieldNames.CameraImpulseGain, Cam, P, FeelUnit.ScreenHeightRatio, W, 0, 0.2, "镜头冲击基准幅度（画面高度比例）"),
                 Num(FeelFieldNames.CameraImpulseMinIntervalMs, Cam, P, Ms, C, 0, 2000, "镜头冲击合并的最小间隔"),
-                Num(FeelFieldNames.CameraShakeCap, Cam, P, FeelUnit.ScreenHeightRatio, C, 0, 0.5, "震屏与冲击叠加后的上限（画面高度比例）"),
-                Text(FeelFieldNames.CameraDistanceAttenuation, Cam, P, C, "命中点到跟随目标的距离衰减曲线引用：linear 或曲线 id"),
-                Text(FeelFieldNames.CameraUserIntensitySetting, Cam, P, C, "玩家可调整体强度开关的设置项引用", optional: true),
+                Num(FeelFieldNames.CameraShakeCap, Cam, P, FeelUnit.ScreenHeightRatio, C, 0, 0.5, "震屏与冲击叠加后的合成幅度上限（画面高度比例）：相机侧对所有仍在衰减的冲击与震屏总量截断，0 = 相机侧不限制"),
+                Text(FeelFieldNames.CameraDistanceAttenuation, Cam, P, C, "命中点到跟随目标的距离衰减：none（缺省，不衰减）、linear:<跨度身高倍数>（线性衰减到 0）或曲线 id；旧写法裸 linear 等同 none 并提示迁移"),
+                Text(FeelFieldNames.CameraUserIntensitySetting, Cam, P, C, "玩家可调强度的命名设置项引用（额外乘到该包的镜头冲击上；震屏/冲击/闪白/震动四个全局系数 feel.intensity.* 在出口统一生效，与本字段无关）", optional: true),
 
                 // ---------- 特效（05 第 3.1 节、08 第 4 节，呈现型）----------
                 IdF(FeelFieldNames.ImpactProfileRef, Fx, P, W, "打击反馈包引用（feedback.impact_profile），再按 impact_class 与命中结局选变体；缺省（无值）表示无反馈包", "feedback.impact_profile"),
@@ -373,7 +508,18 @@ namespace Core.Foundation.Feel
                 IntF(FeelFieldNames.SfxMaxConcurrent, Au, P, FeelUnit.Count, C, 1, 32, "同时发声上限"),
             };
 
+            ApplyPlannedStatus(fields);
             return new FeelFieldSet(fields);
+        }
+
+        private static void ApplyPlannedStatus(List<FeelFieldDef> fields)
+        {
+            for (var p = 0; p < PlannedFields.Length; p++)
+            {
+                var index = fields.FindIndex(f => f.Name == PlannedFields[p].Name);
+                if (index < 0) throw new System.InvalidOperationException("planned 字段未登记：" + PlannedFields[p].Name);
+                fields[index] = fields[index].WithStatus(FeelFieldStatus.Planned, PlannedFields[p].Note);
+            }
         }
     }
 }

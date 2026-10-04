@@ -124,6 +124,7 @@ function Get-PackageManifestProblems {
             "Tools~/feellab/bin/Lab.Kernel.dll",
             "Tools~/feellab/Directory.Build.props",
             "Tools~/feellab/labroot/data/_feel/feel/feel.calibration.json",
+            "Tools~/feellab/labroot/data/_feel_templates/feel/feel.preset.json",
             "Tools~/feellab/labroot/data/_lab/lab/lab.scenario.json",
             "Tools~/feellab/labroot/data/_equip/item/item.template.json",
             "Tools~/feellab/labroot/lab/fixtures/scripts/feel_kill.script.json",
@@ -137,7 +138,8 @@ function Get-PackageManifestProblems {
         # 手感落地 S1（收 S0 遗留 (b)）：发版产物必须带 data/_feel（含缺省标定行），否则消费方的框架根拿不到手感档案。
         $missingFeel = @(Get-MissingSuffixes -Suffixes @(
             "Data~/data/_feel/feel/feel.calibration.json",
-            "Data~/data/_feel/feel/feel.preset.json"))
+            "Data~/data/_feel/feel/feel.preset.json",
+            "Data~/data/_feel_templates/feel/feel.preset.json"))
         if ($missingFeel.Count -gt 0) {
             $problems += ("$PackageName：npm pack --dry-run 文件清单缺失 data/_feel 手感框架数据（S1 发版打包断言）：" + ($missingFeel -join ", "))
         }

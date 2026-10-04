@@ -1,6 +1,8 @@
 """框架占位界面皮肤包（``assets/_placeholder/ui/skin/default/``），纯代码绘制，风格对齐
-``assets/_placeholder/ui/``（gen_placeholder_assets.py 的朴素深色面板）。文件清单与 ``asset_import/skin_pack.py``
-的 :func:`expected_items` 同源——这里按它列出的相对路径逐个出图，所以清单与校验不会漂移。"""
+``assets/_placeholder/ui/``（gen_placeholder_assets.py 的朴素深色面板）。文件清单取自机器可读清单
+``asset_import/skin_manifest.json``（与导入校验、人读清单同源）——这里按它列出的相对路径逐个出图，所以清单与校验不会漂移。
+占位皮肤只出清单里"必备 + 占位皮肤必备"的元素（可选元素缺省不带，运行期回落到框架默认，保持占位皮肤逐位不变）；
+:func:`generate_reference_pack` 出一整套"全元素"的确定性程序皮肤（每个元素唯一颜色），供完整性用例与导入校验用例当合格基线。"""
 
 from __future__ import annotations
 
@@ -13,7 +15,7 @@ from PIL import Image, ImageDraw
 from . import config as C
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from asset_import import skin_pack  # noqa: E402
+from asset_import import skin_manifest, skin_pack  # noqa: E402
 
 BG = (40, 42, 50, 220)
 EDGE = (15, 15, 18, 255)
@@ -121,7 +123,10 @@ def generate_skin(assets_out: Path) -> list[str]:
     slots = [s[0] for s in C.SLOTS]
     qualities = [q[0] for q in C.QUALITIES]
     written: list[str] = []
-    for rel, _label, _fb in skin_pack.expected_items(slots, qualities):
+    for x in skin_manifest.expand(slots, qualities):
+        if x.requirement == skin_manifest.REQ_OPTIONAL:
+            continue
+        rel = x.path
         parts = rel.split("/")
         stem = parts[-1][:-4] if rel.endswith(".png") else None
         if rel == skin_pack.THEME_FILE:
@@ -140,9 +145,71 @@ def generate_skin(assets_out: Path) -> list[str]:
         else:
             raise ValueError(f"皮肤清单出现生成器不认识的项: {rel}")
         written.append(rel)
-    for rel in skin_pack.default_fallback_files():
-        stem = rel.split("/")[-1][:-4]
-        img = draw_slot_frame(stem) if rel.startswith("slot_frame") else draw_quality_frame(stem)
-        _save(img, base / rel)
-        written.append(rel)
+    return sorted(written)
+
+
+# ---------------------------------------------------------------------------
+# 全元素参照皮肤（确定性程序绘制；每个元素一个由元素 id 与种子决定的唯一颜色）
+# ---------------------------------------------------------------------------
+
+REFERENCE_SIZES = {"cell": (48, 48), "nine_slice": (32, 32), "tooltip/divider.png": (64, 4), "tooltip/row.png": (96, 16),
+                   "paperdoll_preview/background.png": (160, 192)}
+
+
+def element_color(path: str, seed: int = 0) -> tuple[int, int, int]:
+    """元素在参照皮肤里的唯一颜色（路径 + 种子的稳定散列，三个通道都避开 0/255 附近以免与透明/纯白混淆）。"""
+    import hashlib
+
+    h = hashlib.sha256(f"{seed}:{path}".encode("utf-8")).digest()
+    return tuple(40 + h[i] % 176 for i in range(3))  # type: ignore[return-value]
+
+
+def reference_size(x: "skin_manifest.ExpandedElement") -> tuple[int, int]:
+    if x.path in REFERENCE_SIZES:
+        return REFERENCE_SIZES[x.path]
+    size = x.element.size or {}
+    if size.get("group") in REFERENCE_SIZES:
+        return REFERENCE_SIZES[size["group"]]
+    if x.element.nine_slice:
+        return REFERENCE_SIZES["nine_slice"]
+    return (48, 48)
+
+
+def draw_reference(x: "skin_manifest.ExpandedElement", seed: int = 0) -> Image.Image:
+    """画一个元素的参照图：框类元素是 3 像素描边的镂空圆角框（中心透明、四角透明），其余元素是整幅实色；颜色 = :func:`element_color`。"""
+    w, h = reference_size(x)
+    r, g, b = element_color(x.path, seed)
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    hollow = x.element.alpha in (skin_manifest.ALPHA_HAS_TRANSPARENCY, skin_manifest.ALPHA_TRANSPARENT_CENTER)
+    if hollow:
+        d.rounded_rectangle([0, 0, w - 1, h - 1], radius=6, outline=(r, g, b, 255), width=3)
+    else:
+        d.rectangle([0, 0, w - 1, h - 1], fill=(r, g, b, 255))
+    return img
+
+
+def reference_theme(seed: int = 0) -> dict:
+    tokens = skin_manifest.token_spec()
+    colors = {}
+    for spec in tokens["colors"]:
+        r, g, b = element_color("theme/" + spec["key"], seed)
+        colors[spec["key"]] = f"#{r:02x}{g:02x}{b:02x}"
+    doc: dict = {"colors": colors, "font": "fonts/reference_font.otf"}
+    for spec in tokens["numbers"]:
+        doc[spec["key"]] = int(spec["default"])
+    return doc
+
+
+def generate_reference_pack(pack_dir: Path, slots: list[str], qualities: list[str], *, seed: int = 0) -> list[str]:
+    """把清单里**全部**元素（必备 + 可选 + 占位皮肤必备）写成一个皮肤包目录，返回写出的包内相对路径。"""
+    pack_dir = Path(pack_dir)
+    written: list[str] = []
+    for x in skin_manifest.expand(slots, qualities):
+        if x.path == skin_pack.THEME_FILE:
+            (pack_dir / x.path).parent.mkdir(parents=True, exist_ok=True)
+            (pack_dir / x.path).write_text(json.dumps(reference_theme(seed), indent=2) + "\n", encoding="utf-8", newline="\n")
+        else:
+            _save(draw_reference(x, seed), pack_dir / x.path)
+        written.append(x.path)
     return sorted(written)

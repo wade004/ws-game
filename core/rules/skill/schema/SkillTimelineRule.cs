@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
+using Core.Rules.Common;
 
 namespace Core.Rules.Skill
 {
@@ -26,7 +27,7 @@ namespace Core.Rules.Skill
 
         private static readonly HashSet<string> AuthorableMarkers = new HashSet<string>(StringComparer.Ordinal)
         {
-            "hit", "invuln_start", "invuln_end", "armor_start", "armor_end", "motion_start", "motion_end", "release",
+            "hit", "invuln_start", "invuln_end", "armor_start", "armor_end", "guard_start", "guard_end", "motion_start", "motion_end", "release",
         };
 
         private static readonly HashSet<string> DerivedMarkers = new HashSet<string>(StringComparer.Ordinal)
@@ -100,10 +101,29 @@ namespace Core.Rules.Skill
                 issues.Add(Err("timeline_channel_time_exclusive", "声明了 timeline 的技能不能同时声明 channel_time", "channel_time"));
             }
 
+            var hasHitAnchor = tl.TryGetValue("hit_anchor", out var anchorVal) && anchorVal is JsonString anchorText && !string.IsNullOrEmpty(anchorText.Value);
             if (record.TryGetBool("ground_target", out var ground) && ground)
             {
-                issues.Add(Warn("timeline_ground_target_unsupported",
-                    "地面坐标施法请求（ground_target）不进入时间线模式，仍按 cast_time 读条结算；timeline 在该路径上被忽略", "ground_target"));
+                // M5-S2a：声明了 timeline.hit_anchor 的地面落点技能进入时间线（锚点见 03 第 2.2 节）；没有声明保持既有行为——timeline 被忽略。
+                if (!hasHitAnchor)
+                {
+                    issues.Add(Warn("timeline_ground_target_unsupported",
+                        "地面坐标施法请求（ground_target）不进入时间线模式，仍按 cast_time 读条结算；timeline 在该路径上被忽略（声明 timeline.hit_anchor 可让时间线在该路径上生效）", "ground_target"));
+                }
+            }
+            else if (hasHitAnchor)
+            {
+                issues.Add(Warn("timeline_hit_anchor_without_ground_target",
+                    "timeline.hit_anchor 只对声明了 ground_target 的技能有意义（经地面坐标施法请求施放时生效）；本技能没有声明 ground_target，该字段被忽略", "timeline.hit_anchor"));
+            }
+
+            // M5-S2a：技能行手感引用与时间线手感引用是同一个落点（第 6 层），同时声明且不同没有"谁覆盖谁"的合理读法，按错误拒绝。
+            if (record.TryGetString("feel_ref", out var skillFeelRef) && !string.IsNullOrEmpty(skillFeelRef)
+                && tl.TryGetValue("feel_ref", out var timelineFeelVal) && timelineFeelVal is JsonString timelineFeelRef
+                && !string.IsNullOrEmpty(timelineFeelRef.Value) && !string.Equals(skillFeelRef, timelineFeelRef.Value, StringComparison.Ordinal))
+            {
+                issues.Add(Err("skill_feel_ref_conflict",
+                    "skill.def.feel_ref（\"" + skillFeelRef + "\"）与 timeline.feel_ref（\"" + timelineFeelRef.Value + "\"）同时声明且不同：二者落在同一层，只写其中一个", "feel_ref"));
             }
 
             // charge
@@ -115,6 +135,27 @@ namespace Core.Rules.Skill
                 }
             }
 
+            // 按住维持（ADR-0143）
+            if (tl.TryGetValue("active_until_release", out var sustainVal) && sustainVal is JsonObject sustainObj)
+            {
+                if (Num(sustainObj, "max_ms") <= 0)
+                {
+                    issues.Add(Err("timeline_sustain_max", "active_until_release.max_ms 必须大于 0", "timeline.active_until_release"));
+                }
+
+                if (active <= 0)
+                {
+                    issues.Add(Err("timeline_sustain_no_active",
+                        "active_until_release 要求判定相 active_ms 大于 0（维持发生在判定相末尾）", "timeline.active_until_release"));
+                }
+
+                if (tl.TryGetValue("charge", out var chargeWithSustain) && chargeWithSustain is JsonObject)
+                {
+                    issues.Add(Warn("timeline_sustain_with_charge",
+                        "同一动作同时声明 charge 与 active_until_release：蓄力在动作开始前完成，维持在判定相末尾，两者各自独立生效", "timeline.active_until_release"));
+                }
+            }
+
             // markers
             var hasHit = false;
             var motionStart = (double?)null;
@@ -123,6 +164,8 @@ namespace Core.Rules.Skill
             var invulnEnd = (double?)null;
             var armorStart = (double?)null;
             var armorEnd = (double?)null;
+            var guardStart = (double?)null;
+            var guardEnd = (double?)null;
             var hitSegments = new HashSet<string>(StringComparer.Ordinal);
             if (tl.TryGetValue("markers", out var markersVal) && markersVal is JsonArray markers)
             {
@@ -182,6 +225,13 @@ namespace Core.Rules.Skill
                         continue;
                     }
 
+                    if (name != "hit" && name != "release"
+                        && m.TryGetValue("args", out var feelArgs) && feelArgs is JsonObject feelArgsObject && feelArgsObject.ContainsKey("feel_ref"))
+                    {
+                        issues.Add(Warn("timeline_marker_feel_ref_ignored",
+                            "标记 \"" + name + "\" 声明了 args.feel_ref，但只有 hit/release 标记读取分段手感覆盖，该字段被忽略", field));
+                    }
+
                     switch (name)
                     {
                         case "hit":
@@ -198,6 +248,8 @@ namespace Core.Rules.Skill
                         case "invuln_end": invulnEnd = at; break;
                         case "armor_start": armorStart = at; break;
                         case "armor_end": armorEnd = at; break;
+                        case "guard_start": guardStart = at; break;
+                        case "guard_end": guardEnd = at; break;
                     }
                 }
             }
@@ -230,6 +282,20 @@ namespace Core.Rules.Skill
                 issues.Add(Err("timeline_armor_order", "armor_end 早于 armor_start", "timeline.markers"));
             }
 
+            // 格挡窗口（与霸体窗口同级别，手感设计/03 第 4 节，ADR-0145）
+            if (guardEnd.HasValue && !guardStart.HasValue)
+            {
+                issues.Add(Err("timeline_guard_unpaired", "声明了 guard_end 但没有 guard_start", "timeline.markers"));
+            }
+            else if (guardStart.HasValue && !guardEnd.HasValue)
+            {
+                issues.Add(Warn("timeline_guard_unterminated", "声明了 guard_start 但没有 guard_end，格挡将持续到动作结束", "timeline.markers"));
+            }
+            else if (guardStart.HasValue && guardEnd.HasValue && guardEnd.Value < guardStart.Value)
+            {
+                issues.Add(Err("timeline_guard_order", "guard_end 早于 guard_start", "timeline.markers"));
+            }
+
             // 位移块与 motion_start/motion_end
             var hasMotion = tl.TryGetValue("motion", out var motionVal) && motionVal is JsonObject;
             if (hasMotion)
@@ -245,6 +311,28 @@ namespace Core.Rules.Skill
                 }
 
                 var motion = (JsonObject)motionVal!;
+                if (motion.TryGetValue("driver", out var drv) && drv is JsonString drvs && drvs.Value != "code")
+                {
+                    // ADR-0147：根运动驱动已删除，旧数据加载期报明确错误并给迁移说明（ADR-0039 破坏性变更流程）。
+                    issues.Add(Err("timeline_motion_driver_removed",
+                        drvs.Value == "root_motion"
+                            ? "timeline.motion.driver: " + ActionMotion.RootMotionMigrationNote
+                            : "timeline.motion.driver 唯一合法取值是 code（缺省），不认识 \"" + drvs.Value + "\"", "timeline.motion.driver"));
+                }
+
+                if (motion.TryGetValue("curve", out var crv) && crv is JsonString crvs
+                    && crvs.Value.StartsWith("custom:", StringComparison.Ordinal))
+                {
+                    // ADR-0147：位移曲线引用 custom:<id> 必须指向导入期烘焙出的 skill.motion_curve 行，运行期不静默改线性。
+                    var curveId = crvs.Value.Substring("custom:".Length);
+                    if (!view.Tables.Contains("skill.motion_curve") || view.Get("skill.motion_curve", curveId) == null)
+                    {
+                        issues.Add(Err("timeline_motion_curve_missing",
+                            "timeline.motion.curve 引用的位移曲线 \"" + curveId + "\" 不存在于 skill.motion_curve（先用工具链 bake-motion 烘焙）",
+                            "timeline.motion.curve"));
+                    }
+                }
+
                 var motionKind = motion.TryGetValue("kind", out var mk) && mk is JsonString mks ? mks.Value : string.Empty;
                 if (motionKind == "charge")
                 {
@@ -285,6 +373,13 @@ namespace Core.Rules.Skill
                     if (w.TryGetValue("close_ms", out var cv) && cv is JsonNumber cn && cn.Value < open)
                     {
                         issues.Add(Err("timeline_window_order", "取消窗口 close_ms 早于 open_ms", field));
+                    }
+
+                    if (w.TryGetValue("requires", out var wreq) && wreq is JsonString wreqs && wreqs.Value == "hit"
+                        && !hasHit && !(tl.TryGetValue("hit_policy", out var hpw) && hpw is JsonString hpws && hpws.Value == "continuous"))
+                    {
+                        issues.Add(Warn("timeline_window_requires_without_hit",
+                            "取消窗口声明了 requires=" + wreqs.Value + "，但时间线没有 hit 标记也不是 continuous 命中：命中确认可能永远不发生，窗口永不开启", field));
                     }
                 }
             }

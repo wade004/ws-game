@@ -3,7 +3,7 @@
   "meta": {
     "scriptId": "feel_breakable",
     "scriptVersion": 1,
-    "description": "可破坏障碍（06 第 3.6 节 breakable，第 10 节勘误 4）：障碍在 2 个单位处同时是动态阻挡；玩家朝 +x 走被挡住，挥击打碎障碍后阻挡版本更新，再朝 +x 走得过去。量被挡 tick、阻挡变更 tick、终点位置。",
+    "description": "可破坏障碍（06 第 3.6 节 breakable，第 2 节）：障碍在 2 个单位处同时是动态阻挡；玩家朝 +x 走被挡住，挥击打碎障碍后阻挡版本更新，再朝 +x 走得过去。量被挡 tick、阻挡变更 tick、终点位置。",
     "datasetRoot": "data/_lab",
     "presetId": "",
     "calibrationVersion": "none",

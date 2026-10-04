@@ -84,10 +84,10 @@ namespace Core.Foundation.DataRegistry
         /// <summary>位移：身高倍数，标定后乘参考身高得世界单位（也用于世界距离型镜头参数）。</summary>
         BodyHeights,
 
-        /// <summary>位移：基础移速下的秒数，标定后乘基础移速得世界单位。</summary>
+        /// <summary>位移：基础移速下的秒数，标定后乘参考基础移速得世界单位。不推荐：没有任何字段使用该单位（登记表单位枚举只加不改，故保留）。</summary>
         BaseSpeedSeconds,
 
-        /// <summary>速度：基础移速的倍数，标定后乘基础移速得世界单位/秒。</summary>
+        /// <summary>速度：基础移速的倍数。运动层的目标速度 = 倍数 × 单位的移动速度属性（属性已承载基础移速）；解析结果的绝对值视图 = 倍数 × 标定的参考基础移速。</summary>
         BaseSpeedRatio,
 
         /// <summary>角速度：度/秒，无需换算。</summary>

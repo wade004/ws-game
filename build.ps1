@@ -1461,6 +1461,10 @@ if ($DistRequested) {
     # 导致 dist 里的游戏根拿不到手感档案。打包方式与 data/_framework 完全相同（整树拷贝、
     # 同样进 framework-data 包 Data~/、MANIFEST 计数与 data_schemas 清单）。
     $dataFeelFileCount = Copy-DistDir -SourceRelative "data\_feel" -DestName "data\_feel"
+    # 默认手感模板（ADR-0142）：data/_feel_templates 是框架出厂的五套 experimental 手感模板数据根（预设、武器原型行、
+    # 反馈档案、相机档案、占位特效），与 data/_feel 并列、可选：游戏要用模板就把它作为额外框架根装载；不装则与它无关。
+    # 它不同步进 StreamingAssets（引导程序按显式常量装载 data/_feel），只进 dist、framework-data 包 Data~/ 与实验室根。
+    $dataFeelTemplatesFileCount = Copy-DistDir -SourceRelative "data\_feel_templates" -DestName "data\_feel_templates"
     # 手感实验室随发布产物分发（原"data/_lab 不分发"作废，06 第 8 节第 2 步：游戏用实验室在自己的数据上校准手感）：
     # 实验室数据集 data/_lab、data/_lab_action、占位装备集 data/_equip 与标准脚本/基线夹具 lab/fixtures 按"与仓库同路径"整树拷进 dist 根，
     # 于是 dist/<ver>/ 本身就是一个完整的"实验室根"（含 data/_framework、data/_feel）：在该目录下直接
@@ -1980,6 +1984,7 @@ if ($DistRequested) {
     New-Item -ItemType Directory -Force -Path $pkgDataDataTilde | Out-Null
     Copy-Item -Path (Join-Path $DistRoot "data\_framework") -Destination (Join-Path $pkgDataDataTilde "data\_framework") -Recurse -Force
     Copy-Item -Path (Join-Path $DistRoot "data\_feel") -Destination (Join-Path $pkgDataDataTilde "data\_feel") -Recurse -Force
+    Copy-Item -Path (Join-Path $DistRoot "data\_feel_templates") -Destination (Join-Path $pkgDataDataTilde "data\_feel_templates") -Recurse -Force
     Copy-Item -Path (Join-Path $DistRoot "assets\_placeholder") -Destination (Join-Path $pkgDataDataTilde "assets\_placeholder") -Recurse -Force
     Copy-Item -Path (Join-Path $DistRoot "assets\textmesh_pro_essentials") -Destination (Join-Path $pkgDataDataTilde "assets\textmesh_pro_essentials") -Recurse -Force
     Write-Host "  已组装 $pkgDataDir"
@@ -2002,7 +2007,7 @@ if ($DistRequested) {
     # （共约 85 KB），换来"不要求同时装两个包"；内容来自同一份 dist 树，版本必然一致。
     $pkgFeelLabRoot = Join-Path $pkgToolDir "Tools~\feellab\labroot"
     New-Item -ItemType Directory -Force -Path $pkgFeelLabRoot | Out-Null
-    foreach ($labRootPart in @("data\_framework", "data\_feel", "data\_lab", "data\_lab_action", "data\_equip", "lab\fixtures")) {
+    foreach ($labRootPart in @("data\_framework", "data\_feel", "data\_feel_templates", "data\_lab", "data\_lab_action", "data\_equip", "lab\fixtures")) {
         $labRootPartDst = Join-Path $pkgFeelLabRoot $labRootPart
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $labRootPartDst) | Out-Null
         Copy-Item -Path (Join-Path $DistRoot $labRootPart) -Destination $labRootPartDst -Recurse -Force
@@ -2088,7 +2093,7 @@ if ($DistRequested) {
     # -------------------------------------------------------------------
     $dataSchemaLines = @()
     # data/_feel 与 data/_framework 同属分发的框架级数据，表清单一并列出（手感落地 S1）。
-    foreach ($dataSrcName in @("_framework", "_feel")) {
+    foreach ($dataSrcName in @("_framework", "_feel", "_feel_templates")) {
         $dataFrameworkSrcDir = Join-Path $RepoRoot ("data\" + $dataSrcName)
         if (Test-Path $dataFrameworkSrcDir) {
             $schemaJsonFiles = Get-ChildItem -Path $dataFrameworkSrcDir -Filter "*.json" -File -Recurse | Sort-Object FullName
@@ -2138,6 +2143,7 @@ if ($DistRequested) {
         "assets/_placeholder: $assetsFileCount files",
         "data/_framework: $dataFrameworkFileCount files",
         "data/_feel: $dataFeelFileCount files",
+        "data/_feel_templates: $dataFeelTemplatesFileCount files",
         "data/_lab: $dataLabFileCount files",
         "data/_lab_action: $dataLabActionFileCount files",
         "data/_equip: $dataEquipFileCount files",

@@ -142,8 +142,11 @@ namespace Tests.Presentation.FeedbackBinder
         public readonly List<(IReadOnlyList<Id> Units, int Ticks, ImpactFreezeLayers Layers)> Freezes =
             new List<(IReadOnlyList<Id>, int, ImpactFreezeLayers)>();
         public readonly List<IReadOnlyList<Id>> Releases = new List<IReadOnlyList<Id>>();
+        public readonly List<(double Strength, double DurationMs)> Rumbles = new List<(double, double)>();
 
         public void FloatingText(Id entityId, Id styleId, string text) => Texts.Add((entityId, styleId, text));
+
+        public void Rumble(double strength, double durationMs) => Rumbles.Add((strength, durationMs));
 
         public void PlayVfx(Id vfxId, FeedbackAttachSpec attach) => Vfx.Add((vfxId, attach, null));
 

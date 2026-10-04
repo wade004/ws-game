@@ -30,16 +30,18 @@
 | `use_condition` | Expr | 否 | 使用条件（宿主为施法者上下文，`self`/`combat`/`target` 分组，见 04 第 6.2 节"宿主引用分组"）；为假时施法返回 `ConditionNotMet`（T-N3-4 落地），就绪查询（`getSkillReadiness`）同步反映；"脱战才能用""仅限战斗中""目标是物件"均用它表达（ADR-0031 决策 9，见 06 第 3.1 节 2026-09-14 修订段）。登记为 `FieldKind.Expr` 后自动获得 `DataRegistry` 内建 `expr_parsable` 校验，本任务不需要额外注册校验规则 |
 | `budget_note` | String | 否 | 超模说明：技能预算（锚点秒伤(技能等级) × 施放时间当量 × 冷却溢价 × 范围折价 × 消耗溢价，见 06 第 3.10 节）偏离带宽时填写意图，`SkillBudgetAnalyzer`（T-N3-9，本任务未落地）按有无本字段把带宽外的技能分为已确认/待确认两组；比值超硬上限且本字段为空为阻断（ADR-0031 决策 2） |
 | `timeline` | Object | 否 | 动作时间线块（手感设计/01 第 3.1 节，ADR-0115），字段见下"`skill.def.timeline`"；缺省技能走原路径，行为不变 |
+| `feel_ref` | Id | 否 | 技能行的手感引用（`feel.action` 行 id，M5-S2a，ADR-0144）：时间线技能与 `timeline.feel_ref` 等价（同时声明且不同为错误 `skill_feel_ref_conflict`）；非时间线技能命中时受击裁决据此以该行为动作层重算攻击方手感；缺省按武器/角色 |
+| `ignores_invulnerability` | Bool | 否 | 是否无视无敌窗口（M5-S2a）：真时本技能的伤害类结算不经结算第 0 步的无敌前置，时间线路径的前置过滤同样不拦它；缺省 false |
 
 ### `skill.def.timeline`（手感落地 S3a，可选块；新增可选字段属兼容变更，不升 `schema_version`，ADR-0039）
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `source` | Enum(`data`\|`clip`) | 否 | 作者态权威来源，缺省 `data`；`clip` 时校验器要求与剪辑标记一致（运行期永远只读本块） |
-| `charge` | Object | 否 | `{min_ms, max_ms[, value_scale]}` 蓄力范围（`max_ms > min_ms`），换算 `action.started.chargeRatio`；可选 `value_scale: {min, max}`（均 ≥ 0）声明效果值倍率 = `min + (max − min) × 蓄力比例`，乘在伤害/治疗类效果值上（含投射物命中后效果），缺省不缩放 |
+| `charge` | Object | 否 | `{min_ms, max_ms[, value_scale][, feel_scale]}` 蓄力范围（`max_ms > min_ms`），换算 `action.started.chargeRatio`；可选 `value_scale: {min, max}`（均 ≥ 0）声明效果值倍率 = `min + (max − min) × 蓄力比例`，乘在伤害/治疗类效果值上（含投射物命中后效果），缺省不缩放；可选 `feel_scale`（M5-S2a）：四个可选字段 `attacker_hitstop_ms`/`target_hitstop_ms`/`knockback_distance`/`launch_height`，各为 `{min, max}`（均 ≥ 0，蓄力比例 0/1 处的倍率，线性插值），乘在对应判定型字段解析后的取值上（顿帧仍受上限限幅），没列出的字段倍率为 1，缺省不缩放 |
 | `is_attack` | Bool | 否 | 显式声明动作是否带攻击（`action.started.isAttack`），缺省按技能内容推断（含伤害类/投射物效果，或有 `hit`/`release` 标记即为真）；`false` 使反馈侧不为该动作开挥空窗口 |
 | `startup_ms` / `active_ms` / `recovery_ms` | Number（毫秒，≥ 0） | 是 | 三相时长；三相之和必须等于 `cast_time × 1000` |
-| `markers` | Array | 否 | `[{name, at_ms, args?}]`，`name` 取 `hit`（可写 `hit:<段>`）/`invuln_start`/`invuln_end`/`armor_start`/`armor_end`/`motion_start`/`motion_end`/`release`；`at_ms` 相对动作开始（不含蓄力），不得超出总时长 |
+| `markers` | Array | 否 | `[{name, at_ms, args?}]`，`name` 取 `hit`（可写 `hit:<段>`）/`invuln_start`/`invuln_end`/`armor_start`/`armor_end`/`motion_start`/`motion_end`/`release`；`at_ms` 相对动作开始（不含蓄力），不得超出总时长；`args` 登记 `segment` 与 `feel_ref`（M5-S2a，`feel.action` 软引用，只在 `hit`/`release` 标记上读取：该段命中的攻击方手感在动作层之上再叠这一行；写在其它标记上给警告 `timeline_marker_feel_ref_ignored`） |
 | `cancel_windows` | Array | 否 | `[{class, open_ms, close_ms?}]`，`class` 取输入类别（`move`/`attack`/`skill`/`dodge`/`interact`/`item`/`menu`）；`close_ms` 缺省到动作结束，超出末尾截断 |
 | `combo` | Object | 否 | `{next, open_ms, close_ms}`，`next` 为同表另一条声明了 `timeline` 的技能 |
 | `hit_policy` | Enum(`marker`\|`continuous`) | 否 | 缺省 `marker`（`hit` 标记处按攻击方当时位姿解析一次）；`continuous` 判定相内逐 tick 解析（需要链声明 `shape`，见下 `hit_mode`） |
@@ -51,12 +53,14 @@
 | `cooldown_at` | Enum(`commit`\|`active`\|`finish`) | 否 | 冷却起算时刻，缺省 `commit` |
 | `motion` | Object | 否 | 位移块 `{driver, kind, distance, curve?, direction, max_turn_deg?, blocking}`（运动仲裁切片消费，经 `ActionState.Motion`；`max_turn_deg` 缺省 180，`curve` 缺省 `linear`） |
 | `feel_ref` | Id | 否 | 动作层手感覆盖行（`feel.action`） |
+| `hit_anchor` | Enum(`caster`\|`ground_point`) | 否 | M5-S2a：只对声明了 `ground_target` 的技能有意义——声明后经地面坐标施法请求施放时进入时间线，命中形状以施法者位姿（`caster`）或落点（`ground_point`，朝向指向落点）为锚点；缺省不声明保持既有行为（`timeline` 被忽略并给警告）；没有 `ground_target` 却写了它给警告 `timeline_hit_anchor_without_ground_target` |
 
 语义校验由 `SkillTimelineRule`（`RulesSchemaCatalog` 登记）负责，Error 检查名：`timeline_zero_duration`、`timeline_cast_time_mismatch`、
 `timeline_on_passive`、`timeline_channel_time_exclusive`、`timeline_charge_range`、`timeline_marker_{segment,out_of_range,derived,unknown,duplicate_segment}`、
 `timeline_invuln_{unpaired,order}`、`timeline_armor_{unpaired,order}`、`timeline_motion_{markers,order,charge_incomplete}`、`timeline_window_{out_of_range,order}`、
 `timeline_combo_{order,out_of_range,next_missing,next_no_timeline}`、`timeline_cost_first_hit_without_hit`（`continuous` 不要求 `hit` 标记）、
-`timeline_spatial_without_shape`、`timeline_continuous_instant_conflict`、`timeline_continuous_without_shape`、`timeline_target_assist_chain_missing`（后四条的"链有无 `shape`/链是否存在"需要 `target.chain_def` 表已加载，未加载时跳过）；Warning：`timeline_ground_target_unsupported`、
+`skill_feel_ref_conflict`（M5-S2a：技能行 `feel_ref` 与 `timeline.feel_ref` 同时声明且不同）、
+`timeline_spatial_without_shape`、`timeline_continuous_instant_conflict`、`timeline_continuous_without_shape`、`timeline_target_assist_chain_missing`（后四条的"链有无 `shape`/链是否存在"需要 `target.chain_def` 表已加载，未加载时跳过）；Warning：`timeline_ground_target_unsupported`（声明了 `hit_anchor` 后不再给）、`timeline_hit_anchor_without_ground_target`、`timeline_marker_feel_ref_ignored`、
 `timeline_marker_presentation`、`timeline_invuln_unterminated`、`timeline_armor_unterminated`、`timeline_motion_markers_without_block`、`timeline_effects_without_hit`（`continuous` 不报）、`timeline_target_assist_close_distance_without_motion`、`timeline_target_assist_close_distance_without_shape`。
 剪辑一致性（`TimelineClipConsistencyRule`，check `timeline_clip_missing`/`timeline_clip_mismatch`/`timeline_clip_deviation`）依赖
 `IClipMarkerSource`，尚无生产来源，未登记进目录（见 `../README.md` T9）。

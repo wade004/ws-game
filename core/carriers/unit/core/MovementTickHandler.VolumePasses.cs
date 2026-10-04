@@ -123,7 +123,6 @@ namespace Core.Carriers.Unit
             CaptureTickState(world);
             _buffering = true;
             _outbox.Clear();
-            _rootMotionCache.Clear();
             var passes = 0;
             try
             {
@@ -262,25 +261,6 @@ namespace Core.Carriers.Unit
             {
                 _outbox[index] = null;
             }
-        }
-
-        // 根运动是"消费型"读取：重放时同一 tick 的第二遍读不到了，所以第一次读到的值缓存下来供各遍共用。
-        private readonly Dictionary<Id, Vec2> _rootMotionCache = new Dictionary<Id, Vec2>();
-
-        private Vec2 ConsumeRootMotion(IRootMotionSource source, Id unitId)
-        {
-            if (!_buffering)
-            {
-                return source.ConsumeRootMotionDelta(unitId);
-            }
-
-            if (!_rootMotionCache.TryGetValue(unitId, out var delta))
-            {
-                delta = source.ConsumeRootMotionDelta(unitId);
-                _rootMotionCache[unitId] = delta;
-            }
-
-            return delta;
         }
 
         // ================================================================== tick 状态的取下与恢复

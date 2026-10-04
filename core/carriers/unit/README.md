@@ -598,7 +598,7 @@ blocking 为 `Stop`）"分支。用例 `ADR0125_MovementIntentEnumArgsTests`（�
    朝向速率为 0 时 `StepFacing` 直接返回目标朝向。用例 `DefaultProfile_PositionFacingAndMode_AreBitIdenticalToLegacyMovement`
    逐 tick 比较位置/朝向/模式的二进制位（方向、路径、追击、撞墙四类混合场景）。
 2. **仲裁用"各来源入口处的放行判断"实现优先级**，每 tick 恰一个来源产生位移：`dead > frozen > forced > staggered > rooted >
-   action|root_motion > regular`。forced（受控位移）不受 rooted/staggered 影响（优先级更高，被控制的目标仍会被击退），所以运动层启用时
+   action > regular`（ADR-0147 删除了 `root_motion` 来源）。forced（受控位移）不受 rooted/staggered 影响（优先级更高，被控制的目标仍会被击退），所以运动层启用时
    `AdvanceDisplacement`/`BeginDisplacement` 不再因 `IsLocked` 结束或拒绝位移；frozen 期间位移任务与速度原样保留，解冻后继续。
 3. **运动学写回**：每 tick 末把速度、期望方向、模式、底层模式、来源、基础移速写入 `MovementState.Motion`（`MotionKinematics`）。
    `frozen` 是叠加态：`Mode` 为 Frozen、`BaseMode` 保留底层模式，速度保留。重建 `MovementState` 的既有代码路径会丢掉 `Motion`，
@@ -619,10 +619,12 @@ blocking 为 `Stop`）"分支。用例 `ADR0125_MovementIntentEnumArgsTests`（�
 8. **路径跟随与追击**：`apply_to_path_following` 为真时位移预算由速度积分器给出（`arrival_decel` 为真时到终点前按 `sqrt(2·a·L)` 限速，
    `a` 为基础移速/`decel` 秒数，到达时速度归零不再滑行越过终点）；为假时仍是既有的 `属性速度 × dt`。到达减速的限速按线性制动率估算，
    与制动曲线形状无关（只需要不越过终点）。追击的朝向走转向速率（`MotionFacing`）。
-9. **动作位移（`action`/`root_motion` 来源）**：`MotionActionPass` 在 move 意图之前结算，胜出的 tick 压制该单位输入位移。读取
+9. **动作位移（`action` 来源）**：`MotionActionPass` 在 move 意图之前结算，胜出的 tick 压制该单位输入位移。读取
    `IActionStateQuery.Current(unit).Motion`（`ActionMotionState`）：窗口内逐 tick 位移 = `DistanceWorld × (f(p1) − f(p0))`，各 tick 之和恰为总距离；
-   `charge` 额外按到目标身前 `StopDistanceWorld` 与累计已走距离（按 `CastInstanceId` 记）夹取；`blocking: slide` 沿用滑墙切向裁决。`root_motion` 驱动与
-   代码驱动互斥，`IRootMotionSource.SupportsRootMotion` 为假时抛 `InvalidOperationException`，不降级。**契约新增**：`ActionState.Motion`
+   `charge` 额外按到目标身前 `StopDistanceWorld` 与累计已走距离（按 `CastInstanceId` 记）夹取；`blocking: slide` 沿用滑墙切向裁决。**根运动已删除（ADR-0147）**：位移权威只在逻辑层，动作位移由逻辑按距离与曲线逐固定步算出；
+   原 `root_motion` 驱动遇到时直接抛 `InvalidOperationException`（带迁移说明 `ActionMotion.RootMotionMigrationNote`），加载期由 `skill.def` 的时间线规则提前报错（`timeline_motion_driver_removed`）；
+   `ActionMotion.RootMotion` 枚举成员、`IRootMotionSource`、`MotionServices.RootMotion` 为 ABI 只增不删保留 `[Obsolete]`，赋值被忽略。带位移的动画走导入期烘焙：
+   `skill.motion_curve` 行（`bake-motion`）+ `motion.curve: custom:<id>`，运动层经 `DataMotionCurveSource`（`CarriersFeelOptions.Curves` 缺省）按固定步求值，引用解析不到时抛错、不静默改线性。**冲刺**：`MoveMode.Sprint`（枚举值追加在末尾），目标速度 = 属性速度 × `MotionProfile.SprintSpeedRatio`（`sprint_speed_ratio`，没写按 1，与跑步等速）。**契约新增**：`ActionState.Motion`
    与 `ActionMotion*` 类型落在 `core/rules/common/contracts/ActionMotion.cs`（`ActionState` 新增 6 参构造，5 参构造转发，ABI 只加不改），由动作时间线（S3a）填充。
 10. **击退（forced 模式）**：`MovementHost.BeginKnockback(KnockbackRequest)` 提交带 `knockback`/`curve=ease_out`/`duration` 的 `move_displace`；
     曲线位移从当前位置按 `起点 + 向量 × 曲线(已过时间/总时长)` 逐 tick 取点并经导航裁决截断（起点取处理那一刻的位置，避免意图提交到处理之间位置回跳）。
@@ -642,7 +644,7 @@ blocking 为 `Stop`）"分支。用例 `ADR0125_MovementIntentEnumArgsTests`（�
 
 测试：`core/carriers/unit/tests/MotionArbiterTests.cs`（51 例：缺省逐位等价；`accel_ms` 达速 tick 数与速度曲线；减速与停止距离；反向策略；
 转向速率；rooted/staggered/frozen/dead/forced 仲裁与优先级链；击退曲线、叠加与恢复策略；滑墙开关位移差；路径跟随与到达减速；动作位移、charge、
-root_motion；规则表与档案读取；目标辅助、步态与击退距离的纯函数）。
+曲线烘焙引用；冲刺速度；规则表与档案读取；目标辅助、步态与击退距离的纯函数）。
 
 ## 判断记录（运动层遗留两项，2026-10-02，手感落地 S2b）
 
@@ -737,7 +739,7 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
 - 复现与不变量：`tests/MotionArbiterTests.UnitVolume.cs`（M2-C：边界停止、"从不重叠"、冲刺高速不隧穿、穿过、滑开、追击、击退、死亡不阻挡）`tests/MotionArbiterTests.UnitVolumeLimits.cs`（M3-A：推开速率与上限、权重为 0 不被推、不穿墙、绕行与窄道停下不摆动、推人转移量与抗性、顺序无关的打乱不变量、种类声明、折线扫掠）`tests/MotionArbiterTests.UnitVolumePhase3.cs`（M4-W2：预判与否不影响结果的不变量与收敛遍数、加减速剖面接触时刻、幽灵落点（体积外、夹在两个单位之间、墙边）与别人避让幽灵终点、切向速度与路径进度保留、同 tick 推人与顺序无关、网格与暴力逐位一致及 n = 100/200/400 计时）与 `tests/MotionArbiterTests.UnitVolumeExact.cs`（M4-B：跟随者同速轨迹与独自行走逐位一致、更快的跟随者贴最终位置且不拖慢领头者、折线对走动单位只拦第二段不拦弦、位移事件携带最终位置且按 id 排序、追击与冲锋读起点快照、含追击/折线/击退/冲锋的人群打乱顺序位置与事件流逐位一致）；实验室脚本 `feel_unit_block`、`feel_unit_separate`（`lab/README.md` 判断记录 34、36）。
 - **需要在有引擎的环境里跑**：运动层核心逻辑改了，按 AGENTS.md 跑引擎侧 `MovementStopAndBlockingPlayModeTests` 一组。
 
-## 判断记录（竖直轴：重力下的跳跃/击飞/落地，2026-10-02，M3-E1，[手感设计/06](../../../architecture/手感设计/06_手感实验室与验收.md) 第 10 节勘误 9）
+## 判断记录（竖直轴：重力下的跳跃/击飞/落地，2026-10-02，M3-E1，[手感设计/06](../../../architecture/手感设计/06_手感实验室与验收.md) 第 1.2 节）
 
 1. **只是加法、缺省关闭**：`MovementOptions.Vertical`（`VerticalAxisOptions`：`Gravity` 缺省 30 世界单位/秒²、`JumpHeight` 缺省 1.5、`AllowAirJump` 缺省假）为空时不装配，行为与引入之前逐位一致；非空时装配 `VerticalMotionHost`（实现 `IVerticalMotion` 与 `Core.Rules.Common.ILaunchSink`）并在 `MovementAndNavigation` 阶段紧随 `MovementTickHandler` 挂 `VerticalMotionTickHandler`；`CarriersAssembly.VerticalMotion` 暴露服务。
 2. **只积分被抛起的单位**：没被 `Launch`/`LaunchToApex`/`Jump` 的单位 `Unit.HeightOffset` 保持原值不动——飘浮怪、悬空靶是"静态高度"，不受重力；落地后高度回到地面高度（缺省地面恒为 0；声明了地形能力时是落点的地面高度，见"竖直轴能力包补完"一节）。
@@ -777,3 +779,10 @@ M4-V 遗留的八条限制逐条解除（原文见上节第 6 条的旧版本，
 2. **`BeginLaunch` 的绝对高度上限**：`ILaunchSink` 默认接口成员 5 参数重载，`VerticalMotionHost` 覆盖（语义见 combat README 空战二期第 4 条）；`heightCap` 非正或无穷时与 4 参数重载完全一致。
 3. **受控位移的深度锁（原局限"横版深度锁只作用在移动输入，不限制被击退的方向"）**：`MovementOptions.DepthLockControlledMotion`（缺省 false，与 1.95.0 逐位一致：深度锁只在宿主输入层，受控位移按提交的方向走）。为真时 `MovementTickHandler.BeginDisplacement` 约束受控位移只沿横向：**击退**保持距离、方向取提交方向横向分量的符号（横向分量为 0，即攻击方恰在同一横坐标时没有横向可推，本次击退不位移）；**其它受控位移**（技能位移的冲锋/扑击/闪避位移）丢弃目标点的深度分量（落点横坐标不变、深度保持起点）。体积推人转移的位移沿撞人者的位移方向因此随之受约束；单位间重叠分离是穿插修正、不是受控位移，不受本选项约束。深度轴取平面的竖直分量（Y）。理由：深度锁是世界性质（横版二维没有深度），宿主应用它时受控位移也不该漂出平面；缺省关因为"深度锁"一直只是输入层约定，改成缺省开会改变既有横版基线。
 4. **复现与不变量**：`tests/VerticalAxisCompletionTests.cs`（落地事件载荷与空中时长累计、缺省不发、`BeginLaunch` 高度上限的地面/空中/叠加三种情形、深度锁下击退只走横向距离保持/横向分量为 0 不位移/技能位移丢深度、缺省不锁）；实验室 `space.dummy_air`（靶子起跳与空中移动，落地事件）、`space.depth_knockback` 与对照 `space.depth_knockback_free`。
+
+## 判断记录（输入层补全：边缘下落与可变跳高，2026-10-04，M5-S1，[ADR-0143](../../../architecture/adr/0143-输入层补全.md)）
+
+1. **契约（只加不改）**：`IVerticalMotion` 新增三个默认接口成员 `IsLedgeFall(unitId)`、`JumpFromLedge(unitId)`、`CutAscent(unitId, ratio)`，缺省实现分别返回假/假/假；`VerticalMotionHost` 覆盖实现。
+2. **边缘下落**：`FollowGround` 在单位走出支撑面起一段零速自然下落时给这段飞行打 `LedgeFall` 标记；起跳、击飞、`LaunchToApex` 等任何替换飞行的操作都清除它。`JumpFromLedge` 只在 `LedgeFall` 为真时成立：从当前高度以地面起跳速度起跳，不占空中跳跃次数，起跳后标记清除，所以不能连续宽限起跳。宽限窗口本身由输入层的 `grounded` 条件判定。
+3. **可变跳高**：`CutAscent(unitId, ratio)` 只在上升中（竖直速度 > 0）且 `0 < ratio < 1` 时把竖直速度乘 `ratio`，当前高度与空中跳跃次数不变；下降中、在地面、比例越界都拒绝并保持状态。已知边界：松键与起跳之间若这次上升已被别的运动（例如击飞）替换，裁切会作用在新的上升上；输入层只在"自己起的跳"上订阅松键，窗口很小，不额外追踪飞行来源。
+4. **复现与不变量**：`tests/VerticalAxisLedgeJumpTests.cs`（边缘下落可辨认、不开空中跳跃时普通跳起不来而 `JumpFromLedge` 成立、速度 `v = sqrt(2 g H)`、不占次数；地面/起跳飞行/被击飞后拒绝；裁切后速度 = `v × ratio` 且顶点高度按抛体公式、对照不裁切的同一跳更高）。

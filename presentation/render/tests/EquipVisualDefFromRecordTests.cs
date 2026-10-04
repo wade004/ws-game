@@ -80,6 +80,39 @@ namespace Tests.PresentationRender
             Assert.Null(def.PreviewDirection);
         }
 
+        [Fact]
+        public void FromRecord_BehindDirections_ParsedWhenPresent_EmptyWhenAbsent()
+        {
+            var with = EquipVisualDef.FromRecord(Raw(
+                "{\"id\":\"display.equip_visual.b1\",\"item_id\":\"item.sword\",\"mode\":\"slot_mesh\"," +
+                "\"slot_id\":\"slot.main_hand\",\"mesh_ref\":\"paperdoll.item.sword\",\"behind_directions\":[\"dir.back\",\"dir.back_side_r\"]}"));
+            var without = EquipVisualDef.FromRecord(Raw(
+                "{\"id\":\"display.equip_visual.b2\",\"item_id\":\"item.sword\",\"mode\":\"slot_mesh\"," +
+                "\"slot_id\":\"slot.main_hand\",\"mesh_ref\":\"paperdoll.item.sword\"}"));
+
+            Assert.Equal(new[] { new Id("dir.back"), new Id("dir.back_side_r") }, with.BehindDirections.ToArray());
+            Assert.Empty(without.BehindDirections);
+        }
+
+        [Fact]
+        public void BehindDirections_IsOptionalIdArrayField_AndSchemaVersionUnchanged()
+        {
+            var field = DisplaySchemas.EquipVisual.Fields.Single(f => f.Name == "behind_directions");
+
+            Assert.Equal(FieldKind.Array, field.Kind);
+            Assert.False(field.Required);
+            Assert.Equal(1, DisplaySchemas.EquipVisual.CurrentSchemaVersion);
+        }
+
+        [Fact]
+        public void EightArgConstructor_StillWorks_WithEmptyBehindDirections()
+        {
+            var def = new EquipVisualDef(new Id("display.equip_visual.l"), new Id("item.sword"), EquipVisualMode.SlotMesh,
+                new Id("slot.main_hand"), new Id("paperdoll.item.sword"), null, null, new Id("dir.front"));
+
+            Assert.Empty(def.BehindDirections);
+        }
+
         [Theory]
         [InlineData("{\"item_id\":\"item.sword\",\"mode\":\"slot_mesh\"}", "id")]
         [InlineData("{\"id\":\"display.equip_visual.a\",\"mode\":\"slot_mesh\"}", "item_id")]

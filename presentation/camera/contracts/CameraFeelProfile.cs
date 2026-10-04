@@ -35,6 +35,12 @@ namespace Presentation.Camera
 
         public double DampingYMs { get; }
 
+        /// <summary>X 轴实际阻尼毫秒数：<c>damping_x_ms &gt; 0</c> 取它，否则取（已弃用的）<c>follow_lag_ms</c>。阻尼是跟随滞后的唯一权威（ADR-0148）。</summary>
+        public double EffectiveDampingXMs => DampingXMs > 0 ? DampingXMs : FollowLagMs;
+
+        /// <summary>Y 轴实际阻尼毫秒数，口径同 <see cref="EffectiveDampingXMs"/>。</summary>
+        public double EffectiveDampingYMs => DampingYMs > 0 ? DampingYMs : FollowLagMs;
+
         public double CombatZoomDelta { get; }
 
         public double CombatZoomBlendMs { get; }
@@ -47,7 +53,7 @@ namespace Presentation.Camera
         /// <summary>震屏与冲击叠加后的上限（画面高度比例）。</summary>
         public double ShakeCap { get; }
 
-        /// <summary>距离衰减曲线引用（<c>linear</c> 或曲线 id）。</summary>
+        /// <summary>距离衰减取值（<c>none</c>、<c>linear:跨度</c> 或曲线 id；旧写法裸 <c>linear</c> 等同 none，见 <see cref="Presentation.Camera.DistanceAttenuation"/>）。</summary>
         public string DistanceAttenuation { get; }
 
         /// <summary>玩家强度设置项引用；null 表示不受玩家设置影响。</summary>
@@ -90,7 +96,7 @@ namespace Presentation.Camera
 
         /// <summary>中性档案（不改变任何镜头行为）。</summary>
         public static CameraFeelProfile Neutral { get; } =
-            new CameraFeelProfile(0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, "linear", null);
+            new CameraFeelProfile(0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, Presentation.Camera.DistanceAttenuation.None, null);
 
         /// <summary>跟随相关字段全为中性：<see cref="CameraHost"/> 旁路档案跟随计算。</summary>
         public bool IsFollowNeutral =>

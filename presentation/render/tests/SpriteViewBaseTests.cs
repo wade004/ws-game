@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Adapters.Stub;
 using Core.Carriers.Common;
 using Core.Foundation.Common;
@@ -384,6 +385,92 @@ namespace Tests.PresentationRender
             Assert.NotEqual(atFront, atBack);
             Assert.NotEqual(atFront, atSideR);
             Assert.NotEqual(atBack, atSideR);
+        }
+
+        // -----------------------------------------------------------------
+        // ADR-0152：逐方向层序（display.equip_visual.behind_directions）。
+        // -----------------------------------------------------------------
+
+        private static List<Id> LayersAt(IReadOnlyList<Id>? behindDirections, IReadOnlyList<string> baseLayers, int directionIndex, string layerName = "hand_main")
+        {
+            var renderer = new StubRenderer2D();
+            var displayInfo = MakeSpriteDisplayInfoWithLayers(baseLayers);
+            var itemInstanceId = new Id("item.instance_1");
+            var slotId = new Id("slot." + layerName);
+            var equipVisuals = new Dictionary<Id, EquipVisualDef>
+            {
+                [itemInstanceId] = new EquipVisualDef(
+                    new Id("display.equip_visual.sword"), new Id("item.template.sword"), EquipVisualMode.SlotMesh,
+                    slotId: slotId, meshRef: new Id("paperdoll.item.sword"), socketId: null, modelRef: null,
+                    previewDirection: null, behindDirections: behindDirections),
+            };
+            var view = new TestSpriteView(renderer, new RenderConventionHost(), displayInfo, equipVisualByItemInstanceId: equipVisuals);
+            view.Bind(new Id("unit.hero_1"));
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI * 2 * directionIndex / 8, 8), 0.0);
+            view.ResetEquipmentVisuals(new[] { new EquippedItemRef(slotId, itemInstanceId, new Id("item.template.sword")) });
+            var handleValue = new List<int>(renderer.CreatedSpriteSets.Keys)[0];
+            return new List<Id>(renderer.Layers[handleValue]);
+        }
+
+        private static bool WeaponIsFirst(List<Id> layers) => layers[0].Value.Contains("item_sword__");
+
+        private static string DirectionOfWeapon(List<Id> layers) =>
+            layers.Single(l => l.Value.Contains("item_sword__")).Value.Split(new[] { "__" }, System.StringSplitOptions.None)[1];
+
+        /// <summary>复现：没有逐方向层序时，所有 8 个方向武器都排在身体之后（画在身体前面）——"背面列武器仍盖在身体前"的现状。
+        /// 不变量：缺省（null/空列表）与改动前逐项一致，且两种缺省写法互相一致。</summary>
+        [Fact]
+        public void BehindDirections_Default_KeepsTheBodyFirstInEveryDirection()
+        {
+            for (var index = 0; index < 8; index++)
+            {
+                var none = LayersAt(null, new[] { "body", "hand_main" }, index);
+                var empty = LayersAt(new Id[0], new[] { "body", "hand_main" }, index);
+                Assert.Equal(2, none.Count);
+                Assert.False(WeaponIsFirst(none), "方向 " + index);
+                Assert.Contains("__body", none[0].Value);
+                Assert.Equal(none, empty);
+            }
+        }
+
+        [Fact]
+        public void BehindDirections_PutsTheWeaponBehindTheBody_OnlyInTheDeclaredDirections_AndMirroredSidesFollow()
+        {
+            var behind = new[] { new Id("dir.back_side_r"), new Id("dir.back") };
+            var results = new Dictionary<int, List<Id>>();
+            for (var index = 0; index < 8; index++)
+            {
+                results[index] = LayersAt(behind, new[] { "body", "hand_main" }, index);
+            }
+
+            // 命中声明方向的恰好是解析到 back / back_side_r 的那些档（镜像侧 back_side_l 解析到 back_side_r，跟着走）；其余方向武器仍在身体前。
+            for (var index = 0; index < 8; index++)
+            {
+                var direction = DirectionOfWeapon(results[index]);
+                var expectBehind = direction == "back" || direction == "back_side_r";
+                Assert.Equal(expectBehind, WeaponIsFirst(results[index]));
+                Assert.Equal(2, results[index].Count);                         // 只是顺序换了：层数与资源没变
+                Assert.Contains("__body", results[index][expectBehind ? 1 : 0].Value);
+            }
+
+            Assert.True(WeaponIsFirst(results[6]));                             // index 6 = back
+            Assert.False(WeaponIsFirst(results[2]));                            // index 2 = front
+            Assert.Equal(3, results.Count(kv => WeaponIsFirst(kv.Value)));      // back、back_side_r、back_side_l（镜像）
+        }
+
+        [Fact]
+        public void BehindDirections_AppliesToAnEquipmentOnlyLayer_AndKeepsTheOtherLayersRelativeOrder()
+        {
+            // 武器层不在身体基础层集合里（装备新增的层，追加在最后）：命中方向时排到最前，其余层相对顺序不变。
+            var back = LayersAt(new[] { new Id("dir.back") }, new[] { "body", "head" }, 6);
+            Assert.True(WeaponIsFirst(back));
+            Assert.Contains("__body", back[1].Value);
+            Assert.Contains("__head", back[2].Value);
+            var front = LayersAt(new[] { new Id("dir.back") }, new[] { "body", "head" }, 2);
+            Assert.False(WeaponIsFirst(front));
+            Assert.Contains("__body", front[0].Value);
+            Assert.Contains("__head", front[1].Value);
+            Assert.Contains("item_sword__", front[2].Value);
         }
 
         [Fact]

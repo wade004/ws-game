@@ -60,6 +60,9 @@ namespace Tests.Rules.Common
             yield return new object[] { new CombatPoiseChangedEvent(Target, Actor, 4, 2, 4, 2, false), "combat.poise_changed" };
             yield return new object[] { new CombatPoiseRecoveredEvent(Target, 4), "combat.poise_recovered" };
             yield return new object[] { new CombatReactionAppliedEvent(Target, HitReaction.Stagger, Actor, Cast, 9), "combat.reaction_applied" };
+            yield return new object[] { new UnitKnockedDownEvent(Target, 18, 12), "unit.knocked_down" };
+            yield return new object[] { new UnitGetupStartedEvent(Target, 12, 6), "unit.getup_started" };
+            yield return new object[] { new UnitGetupFinishedEvent(Target), "unit.getup_finished" };
             yield return new object[] { new FeelHitstopStartedEvent(new[] { Actor, Target }, 3, Cast), "feel.hitstop_started" };
             yield return new object[] { new FeelHitstopEndedEvent(new[] { Actor, Target }), "feel.hitstop_ended" };
             yield return new object[] { new InputBufferDroppedEvent(Actor, new Id("input.attack"), BufferDropReason.Expired), "input.buffer_dropped" };
@@ -121,6 +124,35 @@ namespace Tests.Rules.Common
             Assert.Equal("Knockback", reaction.AsString);
             Assert.False(hit.TryGetField("no_such_field", out _));
             Assert.Equal(4, hit.AttackerHitStopTicks);
+        }
+
+        [Fact]
+        public void ReactionPhaseEvents_CarryTheirConstructorArguments_AndOldConstructorsKeepTheirMeaning()
+        {
+            var down = new UnitKnockedDownEvent(Target, 18, 12);
+            Assert.Equal(Target, down.UnitId);
+            Assert.Equal(18, down.DownedTicks);
+            Assert.Equal(12, down.GetupTicks);
+            var started = new UnitGetupStartedEvent(Target, 12, 6);
+            Assert.Equal(12, started.GetupTicks);
+            Assert.Equal(6, started.InvulnerableTicks);
+            Assert.Equal(Target, new UnitGetupFinishedEvent(Target).UnitId);
+
+            // 旧的 5 参数构造：整段时长都算硬直段，倒地/起身为 0（既有发出方的含义不变）。
+            var legacy = new CombatReactionAppliedEvent(Target, HitReaction.Stagger, Actor, Cast, 9);
+            Assert.Equal(9, legacy.StunTicks);
+            Assert.Equal(0, legacy.DownedTicks);
+            Assert.Equal(0, legacy.GetupTicks);
+            var split = new CombatReactionAppliedEvent(Target, HitReaction.Knockdown, Actor, Cast, 30, 9, 12, 9);
+            Assert.Equal(9, split.StunTicks);
+            Assert.Equal(12, split.DownedTicks);
+            Assert.Equal(9, split.GetupTicks);
+
+            // 命中确认事件带受击反应附带决定；旧构造没有（IsSet=false，宿主退回现算）。
+            var plain = new CombatHitConfirmedEvent(Cast, 0, Actor, Target, null, HitResult.Hit, 10, 0.1, false, false,
+                new Vec2(0, 0), new Vec2(1, 0), new Vec2(1, 0), "light", 2, 3, HitReaction.Flinch);
+            Assert.False(plain.ReactionDetail.IsSet);
+            Assert.Equal(HitReaction.None, plain.AttackerReaction);
         }
 
         [Fact]

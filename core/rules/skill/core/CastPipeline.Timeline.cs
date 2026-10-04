@@ -30,6 +30,21 @@ namespace Core.Rules.Skill
 
         public Vec2? Direction;
 
+        /// <summary>触发这次动作的输入动作 id（按住维持型动作用，ADR-0143）；非输入动作触发为 null。</summary>
+        public Id? TriggerAction;
+
+        /// <summary>本动作实例已有的命中确认次数（含被回避的接触，<c>combat.hit_confirmed</c> 按动作实例配对；取消/连招窗口的 <c>requires</c> 用，ADR-0143）。</summary>
+        public int HitCount;
+
+        /// <summary>已经按住维持的动作时钟 tick 数（<c>timeline.active_until_release</c>，判定相走完后键仍按着期间累计）。</summary>
+        public int SustainTicks;
+
+        /// <summary>当前正停在判定相末尾按住维持（对应 <see cref="IActionStateQuery.IsSustained"/>）。</summary>
+        public bool Sustaining;
+
+        /// <summary>按住维持已结束（松键或到上限）：此后不再进入维持。</summary>
+        public bool SustainDone;
+
         /// <summary>已经过的动作时钟 tick（顿帧暂停期间不增长）。</summary>
         public int Elapsed;
 
@@ -50,6 +65,13 @@ namespace Core.Rules.Skill
         public bool FirstHitSeen;
         public bool Invulnerable;
         public bool SuperArmor;
+
+        /// <summary>格挡窗口（<c>guard_start</c>～<c>guard_end</c>，手感设计/03 第 4 节，ADR-0145）。</summary>
+        public bool Guarding;
+
+        /// <summary><c>guard_start</c> 触发时的 <see cref="Elapsed"/>；弹反窗口按 <c>Elapsed - GuardStartedAt</c> 判。</summary>
+        public int GuardStartedAt;
+
         public bool MotionOpen;
 
         /// <summary>动作被接受时落定的位移段快照（声明了 <c>motion</c> 块才有；运动仲裁器经 <see cref="ActionState.Motion"/> 读取）。</summary>
@@ -99,6 +121,17 @@ namespace Core.Rules.Skill
 
         /// <summary>声明了 <c>release</c> 标记：投射物效果在该标记处发射，<c>hit</c> 标记处只结算其余效果。</summary>
         public bool HasReleaseMarker;
+
+        // ---- 地面落点技能（timeline.hit_anchor，M5-S2a）----
+
+        /// <summary>地面坐标施法请求带来的落点（经 <c>CastSkillAtGround</c> 进入时间线才有值）；效果上下文的 <c>GroundPoint</c> 取它。</summary>
+        public Vec2? GroundPoint;
+
+        /// <summary>命中锚点（<see cref="TimelineHitAnchor.None"/> = 以施法者位姿为锚点，同单位目标的时间线动作）。</summary>
+        public TimelineHitAnchor Anchor;
+
+        /// <summary><see cref="Anchor"/> 为 <see cref="TimelineHitAnchor.GroundPoint"/> 时命中形状的朝向（弧度，施法时刻施法者指向落点的方向，重合时取施法者朝向）。</summary>
+        public double AnchorFacing;
     }
 
     /// <summary>每个行动者一条的连招链状态（见 <c>CastPipeline.ApplyComboRedirect</c>）。</summary>
@@ -361,7 +394,13 @@ namespace Core.Rules.Skill
         public bool IsCancelOpen(Id unitId, ActionClass actionClass)
         {
             var run = RunOf(unitId);
-            return run != null && run.Schedule.IsCancelOpen(actionClass, run.Elapsed);
+            return run != null && run.Schedule.IsCancelOpen(actionClass, run.Elapsed, run.HitCount > 0, null);
+        }
+
+        public bool IsSustained(Id unitId)
+        {
+            var run = RunOf(unitId);
+            return run != null && run.Sustaining;
         }
 
         public bool IsInvulnerable(Id unitId)
@@ -375,6 +414,45 @@ namespace Core.Rules.Skill
         {
             var run = RunOf(unitId);
             return run != null && run.SuperArmor;
+        }
+
+        /// <summary>格挡窗口（<c>guard_start</c>～<c>guard_end</c>）：受击方防御裁决经它读取（手感设计/03 第 4 节，ADR-0145）。</summary>
+        public bool IsGuarding(Id unitId)
+        {
+            var run = RunOf(unitId);
+            return run != null && run.Guarding;
+        }
+
+        /// <summary>格挡开始后经过的动作时钟 tick 数（顿帧期间不增长）；不在格挡中为 0。</summary>
+        public int GuardElapsedTicks(Id unitId)
+        {
+            var run = RunOf(unitId);
+            return run != null && run.Guarding ? Math.Max(0, run.Elapsed - run.GuardStartedAt) : 0;
+        }
+
+        /// <summary>带这个标签的技能，其按住维持（<c>timeline.active_until_release</c>）期间视为在格挡（ADR-0143 的按住维持与 ADR-0145 的防御裁决的接缝）。</summary>
+        public static readonly Id GuardSkillTag = new Id("skill.tag.guard");
+
+        /// <summary>
+        /// 行动者是否正处在"按住维持的格挡动作"里：当前动作停在判定相末尾按住维持、且技能行带 <see cref="GuardSkillTag"/> 标签。
+        /// <paramref name="elapsedTicks"/> 是本次维持已累计的动作时钟 tick 数（顿帧期间不增长），弹反窗口按它判。
+        /// </summary>
+        public bool TryGetSustainedGuard(Id unitId, out int elapsedTicks)
+        {
+            elapsedTicks = 0;
+            var run = RunOf(unitId);
+            if (run == null || !run.Sustaining) return false;
+            if (!_defs.TryGetSkillDef(run.SkillId, out var def)) return false;
+            for (var i = 0; i < def.Tags.Count; i++)
+            {
+                if (def.Tags[i].Equals(GuardSkillTag))
+                {
+                    elapsedTicks = Math.Max(0, run.SustainTicks);
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public bool IsActionClockPaused(Id unitId) => _timeline?.Clock != null && _timeline.Clock.IsPaused(unitId);
@@ -437,7 +515,8 @@ namespace Core.Rules.Skill
 
         private CastResult EnterTimeline(
             Id casterId, Id skillId, SkillDef def, IReadOnlyList<Id> explicitTargets,
-            IReadOnlyList<(Id PowerType, double Amount)> modifiedCost, Id? presetCastInstanceId, ComboRedirect? redirect)
+            IReadOnlyList<(Id PowerType, double Amount)> modifiedCost, Id? presetCastInstanceId, ComboRedirect? redirect,
+            Vec2? groundPoint = null)
         {
             var tl = def.Timeline!;
             var step = _options.ActionStepSeconds;
@@ -460,7 +539,8 @@ namespace Core.Rules.Skill
             }
 
             // 动作开始快照（手感设计/05 第 8 节"正在进行的动作沿用其开始时的快照"）。
-            var feel = _timeline?.Feel?.BeginAction(casterId, castInstanceId, tl.FeelRef);
+            // M5-S2a：技能行的 feel_ref 与 timeline.feel_ref 落在同一层（同时声明且不同由校验拒绝），任一声明即为该动作的动作层引用。
+            var feel = _timeline?.Feel?.BeginAction(casterId, castInstanceId, tl.FeelRef ?? def.FeelRef);
             var scaling = TimelineScaling.Identity;
             var comboResetTicks = 0;
             if (feel != null)
@@ -497,8 +577,23 @@ namespace Core.Rules.Skill
             // 目标辅助（手感设计/02 第 5 节，缺省关闭）：动作被接受时解析一次，朝向修正当场落地，辅助目标与距离缩放交给位移段快照。
             var assist = ResolveTargetAssist(casterId, castInstanceId, def, tl, feel);
 
+            // 地面落点技能的命中锚点（M5-S2a）：落点锚点的形状朝向取施法时刻施法者指向落点的方向，重合时取施法者朝向。
+            var anchor = groundPoint.HasValue ? tl.HitAnchor : TimelineHitAnchor.None;
+            var anchorFacing = _units.GetFacing(casterId);
+            if (anchor == TimelineHitAnchor.GroundPoint)
+            {
+                var toPoint = groundPoint!.Value - _units.GetPosition(casterId);
+                if (toPoint.Length > 1e-9)
+                {
+                    anchorFacing = Math.Atan2(toPoint.Y, toPoint.X);
+                }
+            }
+
             var run = new ActionRun
             {
+                GroundPoint = groundPoint,
+                Anchor = anchor,
+                AnchorFacing = anchorFacing,
                 CastInstanceId = castInstanceId,
                 SkillId = skillId,
                 Def = def,
@@ -509,14 +604,15 @@ namespace Core.Rules.Skill
                 ChargeRatio = chargeRatio,
                 ChargeValueScale = tl.Charge != null ? tl.Charge.ValueScaleAt(chargeRatio) : 1.0,
                 Direction = context.Direction,
+                TriggerAction = context.TriggerAction,
                 LastClock = _timeline?.Clock != null ? _timeline.Clock.ActionTicks(casterId) : 0,
                 StartSeq = _inUpdate ? _updateSeq : _updateSeq + 1,
                 ComboResetTicks = comboResetTicks,
                 MotionState = tl.Motion.HasValue
                     ? BuildMotionState(casterId, tl.Motion.Value, schedule, feel, context, explicitTargets, assist)
                     : (ActionMotionState?)null,
-                PrevPosition = _units.GetPosition(casterId),
-                PrevFacing = _units.GetFacing(casterId),
+                PrevPosition = anchor == TimelineHitAnchor.GroundPoint ? groundPoint!.Value : _units.GetPosition(casterId),
+                PrevFacing = anchor == TimelineHitAnchor.GroundPoint ? anchorFacing : _units.GetFacing(casterId),
                 HasReleaseMarker = HasMarker(tl, "release"),
                 AssistTarget = assist.HasValue ? assist.Value.Outcome.TargetId : (Id?)null,
             };
@@ -567,7 +663,8 @@ namespace Core.Rules.Skill
             }
 
             _bus.Enqueue(new ActionStartedEvent(
-                casterId, skillId, castInstanceId, comboIndex, schedule.TotalTicks, chargeRatio, IsAttackAction(def, tl)));
+                casterId, skillId, castInstanceId, comboIndex, schedule.TotalTicks, chargeRatio, IsAttackAction(def, tl),
+                schedule.StartupRate, schedule.ActiveRate, schedule.RecoveryRate));
             if (assist.HasValue)
             {
                 _bus.Enqueue(new ActionTargetAssistedEvent(
@@ -704,6 +801,44 @@ namespace Core.Rules.Skill
             }
 
             var previousElapsed = run.Elapsed;
+
+            // ADR-0143 按住维持（timeline.active_until_release）：判定相最后一个 tick 之后，触发键仍按着就把动作停在判定相末尾，
+            // 累计维持时长；松键或到 max_ms 才继续走后摇。冻结点取"判定相最后一个 tick"（StartupTicks + ActiveTicks - 1），
+            // 这样相位切换到后摇与判定相结束标记（invuln_end 等）都还没触发，维持期间动作仍处于判定相。
+            if (run.Timeline.ActiveUntilRelease != null && run.TriggerAction.HasValue && !run.SustainDone)
+            {
+                var holdTick = run.Schedule.StartupTicks + run.Schedule.ActiveTicks - 1;
+                var maxTicks = Math.Max(1, (int)Math.Ceiling(run.Timeline.ActiveUntilRelease.MaxMs / (_options.ActionStepSeconds * 1000.0) - 1e-9));
+                var held = _timeline?.Input != null && _timeline.Input.IsHeld(casterId, run.TriggerAction.Value);
+                if (run.Sustaining)
+                {
+                    if (held && run.SustainTicks < maxTicks)
+                    {
+                        run.SustainTicks += delta;
+                        TryPullIntent(casterId, state, run);
+                        return;
+                    }
+
+                    run.Sustaining = false;
+                    run.SustainDone = true;
+                    EnqueueSustainMarker(casterId, run, "sustain_end", held ? "max" : "release");
+                }
+                else if (run.Schedule.ActiveTicks > 0 && previousElapsed + delta > holdTick)
+                {
+                    if (held)
+                    {
+                        run.SustainTicks += previousElapsed + delta - holdTick;
+                        delta = Math.Max(0, holdTick - previousElapsed);
+                        run.Sustaining = true;
+                        EnqueueSustainMarker(casterId, run, "sustain_start", null);
+                    }
+                    else
+                    {
+                        run.SustainDone = true;
+                    }
+                }
+            }
+
             run.Elapsed += delta;
             state.Remaining = Math.Max(0, (run.Schedule.TotalTicks - run.Elapsed) * _options.ActionStepSeconds);
 
@@ -715,8 +850,8 @@ namespace Core.Rules.Skill
                 return;
             }
 
-            run.PrevPosition = _units.GetPosition(casterId);
-            run.PrevFacing = _units.GetFacing(casterId);
+            run.PrevPosition = RunPosition(casterId, run);
+            run.PrevFacing = RunFacing(casterId, run);
 
             if (run.Elapsed >= run.Schedule.TotalTicks)
             {
@@ -725,6 +860,14 @@ namespace Core.Rules.Skill
             }
 
             TryPullIntent(casterId, state, run);
+        }
+
+        private void EnqueueSustainMarker(Id casterId, ActionRun run, string name, string? reason)
+        {
+            IReadOnlyDictionary<string, string> args = reason == null
+                ? new Dictionary<string, string>()
+                : new Dictionary<string, string> { ["reason"] = reason };
+            _bus.Enqueue(new ActionMarkerEvent(casterId, run.CastInstanceId, name, args));
         }
 
         /// <summary>按时间顺序触发 <c>run.Elapsed</c> 及之前的全部调度事件（一次推进跨过多个标记时一个不漏）。返回动作是否仍在进行。</summary>
@@ -817,6 +960,13 @@ namespace Core.Rules.Skill
                 case "armor_end":
                     run.SuperArmor = false;
                     break;
+                case "guard_start":
+                    run.Guarding = true;
+                    run.GuardStartedAt = run.Elapsed;
+                    break;
+                case "guard_end":
+                    run.Guarding = false;
+                    break;
                 case "motion_start":
                     run.MotionOpen = true;
                     break;
@@ -907,6 +1057,13 @@ namespace Core.Rules.Skill
 
             public IReadOnlyList<Id> ResolveTargets()
             {
+                // 地面落点技能以落点为锚点（M5-S2a hit_anchor: ground_point）：按落点解析（与 CastSkillAtGround 的 instant 落地同一入口，不带分配系数）。
+                if (_run.Anchor == TimelineHitAnchor.GroundPoint)
+                {
+                    _coefficients = null;
+                    return _owner._targetHost.ResolveAtPoint(_def.TargetShapeRef, _casterId, _run.GroundPoint!.Value);
+                }
+
                 var resolution = _owner._targetHost.ResolveWithCoefficients(_def.TargetShapeRef, _casterId);
                 var ids = new List<Id>(resolution.Targets.Count);
                 Dictionary<Id, double>? coefficients = null;
@@ -951,7 +1108,8 @@ namespace Core.Rules.Skill
                 // 手感落地：instant 路径的时间线结算同样发 combat.hit_confirmed、做无敌前置检查（手感设计/03 第 2.3/2.4 节，
                 // 两种结算路径统一）；不做命中集合去重（调用方——自定义钩子或 instant 缺省——自己决定何时结算）。
                 _owner.SettleTimelineBatch(
-                    _casterId, _run, live, _coefficients, _segment, _owner.PoseGeometry(_casterId, closest: false),
+                    _casterId, _run, live, _coefficients, _segment,
+                    new HitGeometry(_owner.RunPosition(_casterId, _run), _owner.RunFacing(_casterId, _run), false, default),
                     _owner.EffectSubsetFor(_run));
             }
 
@@ -1004,7 +1162,7 @@ namespace Core.Rules.Skill
             _bus.Enqueue(new ActionFinishedEvent(casterId, run.CastInstanceId));
             _bus.Enqueue(new SkillCastSuccessEvent(
                 casterId, state.SkillId, state.Targets, isInstant: false, castTimeSeconds: state.CastTimeSeconds,
-                castInstanceId: state.CastInstanceId));
+                castInstanceId: state.CastInstanceId, groundPoint: run.GroundPoint));
         }
 
         /// <summary>时间线动作未自然结束即终止（<see cref="TerminateCastWithReason"/> 调用）：收尾冷却/链/手感快照并发 <c>action.cancelled</c>。</summary>
@@ -1013,6 +1171,7 @@ namespace Core.Rules.Skill
             var run = state.Run!;
             run.Invulnerable = false;
             run.SuperArmor = false;
+            run.Guarding = false;
             run.MotionOpen = false;
 
             // cooldown_at: finish 的动作被取消/打断时在终止那一刻起算（不让"取消"成为绕开冷却的手段）；清空（场景/模式切换）不起算。
@@ -1070,7 +1229,7 @@ namespace Core.Rules.Skill
             }
 
             var run = state.Run;
-            if (IsActionClockPaused(unitId) || !run.Schedule.IsCancelOpen(ActionClass.Move, run.Elapsed))
+            if (IsActionClockPaused(unitId) || !run.Schedule.IsCancelOpen(ActionClass.Move, run.Elapsed, run.HitCount > 0, null))
             {
                 return;
             }
@@ -1104,15 +1263,16 @@ namespace Core.Rules.Skill
             var elapsed = run.Elapsed;
 
             // 窗口内连招：attack 类记录在连招窗口内启动 next（携带 comboIndex + 1），不需要输入动作→技能映射。
-            if (record.Class == ActionClass.Attack && run.Timeline.Combo != null && run.Schedule.IsComboOpen(elapsed))
+            var anyHit = run.HitCount > 0;
+            if (record.Class == ActionClass.Attack && run.Timeline.Combo != null && run.Schedule.IsComboOpen(elapsed, anyHit))
             {
                 return new CancelDecision(run.Timeline.Combo.Next, run.ComboIndex + 1, true);
             }
 
-            // 取消进入：该类别的取消窗口此刻打开，且输入动作能映射到技能。
-            if (run.Schedule.IsCancelOpen(record.Class, elapsed)
-                && _timeline?.Binding != null
-                && _timeline.Binding.TryResolveSkill(casterId, record, out var skillId))
+            // 取消进入：该类别的取消窗口此刻打开（含 requires 条件），且输入动作能映射到技能、技能在窗口的 into 白名单里（声明了的话）。
+            if (_timeline?.Binding != null
+                && _timeline.Binding.TryResolveSkill(casterId, record, out var skillId)
+                && run.Schedule.IsCancelOpen(record.Class, elapsed, anyHit, skillId))
             {
                 return new CancelDecision(skillId, 0, false);
             }
@@ -1123,6 +1283,7 @@ namespace Core.Rules.Skill
         /// <summary>
         /// 这条记录是否永远接不了（M4 清扫）：既不能走连招（只有带 <c>combo</c> 块的动作里的 attack 类记录不需要映射），也没有输入动作 → 技能映射能给出技能。
         /// 拉取时先把它们剔出候选，使一条永远接不了的记录不在过期前挡住次优先级候选；窗口此刻没开不算"永远"（窗口可能稍后打开），仍按最前候选处理。
+        /// ADR-0143：取消窗口的 <c>into</c> 白名单把目标技能排除在外同样算"永远"（白名单在动作内是静态的）。
         /// </summary>
         private bool IsNeverAcceptable(Id casterId, ActionRun run, BufferedIntent record)
         {
@@ -1131,7 +1292,13 @@ namespace Core.Rules.Skill
                 return false;
             }
 
-            return _timeline?.Binding == null || !_timeline.Binding.TryResolveSkill(casterId, record, out _);
+            if (_timeline?.Binding == null || !_timeline.Binding.TryResolveSkill(casterId, record, out var skillId))
+            {
+                return true;
+            }
+
+            // ADR-0143：该类别的取消窗口全部声明了 into 白名单、且白名单里都没有这条记录映射到的技能——在这个动作里它永远进不来，同样不挡次优先级候选。
+            return run.Schedule.IntoNeverAllows(record.Class, skillId);
         }
 
         private void TryPullIntent(Id casterId, CastState state, ActionRun run)
@@ -1156,7 +1323,7 @@ namespace Core.Rules.Skill
 
             var d = decision.Value;
             var context = new ActionCastContext(
-                record.DirectionSnapshot, record.HoldState == BufferHoldState.HoldReleased ? record.HeldTicks : 0);
+                record.DirectionSnapshot, record.HoldState == BufferHoldState.HoldReleased ? record.HeldTicks : 0, record.ActionId);
 
             // 先验证再取消：新动作能开始才终止当前动作（验证失败时当前动作原样继续，记录按原因分流）。
             _cancelIntoCaster = casterId;

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace Lab
 {
     /// <summary>
-    /// 空间语义的运行期记录（手感设计/06 第 10 节勘误 9：<c>plane</c>/<c>side_2d</c>/<c>volume</c> 三个空间取值在无头宿主上的真实语义）。
+    /// 空间语义的运行期记录（手感设计/06 第 1.2 节：<c>plane</c>/<c>side_2d</c>/<c>volume</c> 三个空间取值在无头宿主上的真实语义）。
     /// 只有"这次运行与空间语义有关"时才有（格子带竖直轴、脚本含跳跃事件，或靶子声明了出生高度），否则 <see cref="LabRecording.Space"/> 为
     /// null，度量组 <c>space</c> 不出现，既有脚本的指纹与基线逐字不变。
     /// <para>

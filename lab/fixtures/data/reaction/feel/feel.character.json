@@ -1,0 +1,138 @@
+{
+  "table": "feel.character",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.character.lab_react_downable",
+      "description": "可被击倒的木桩（M5-S2b）：基础硬直 200 毫秒，倒地 400 毫秒，起身 300 毫秒（起身开头 150 毫秒无敌）；不设硬直保护期。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "hit_stun_ms",
+          "op": "set",
+          "value": 200
+        },
+        {
+          "field": "downed_ms",
+          "op": "set",
+          "value": 400
+        },
+        {
+          "field": "getup_ms",
+          "op": "set",
+          "value": 300
+        },
+        {
+          "field": "getup_invuln_ms",
+          "op": "set",
+          "value": 150
+        },
+        {
+          "field": "reaction_cap",
+          "op": "set",
+          "value": "knockdown"
+        }
+      ]
+    },
+    {
+      "id": "feel.character.lab_react_graced",
+      "description": "带硬直保护期的木桩（M5-S2b）：与 lab_react_free 同样的硬直/倒地/起身时长，硬直（含倒地与起身）结束后再保护 250 毫秒，期间的硬直类反应封顶 flinch。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "hit_stun_ms",
+          "op": "set",
+          "value": 200
+        },
+        {
+          "field": "downed_ms",
+          "op": "set",
+          "value": 400
+        },
+        {
+          "field": "getup_ms",
+          "op": "set",
+          "value": 300
+        },
+        {
+          "field": "stagger_grace_ms",
+          "op": "set",
+          "value": 250
+        },
+        {
+          "field": "reaction_cap",
+          "op": "set",
+          "value": "knockdown"
+        }
+      ]
+    },
+    {
+      "id": "feel.character.lab_react_free",
+      "description": "不带硬直保护期的对照木桩（M5-S2b）：与 lab_react_graced 同样的硬直/倒地/起身时长，不声明 stagger_grace_ms。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "hit_stun_ms",
+          "op": "set",
+          "value": 200
+        },
+        {
+          "field": "downed_ms",
+          "op": "set",
+          "value": 400
+        },
+        {
+          "field": "getup_ms",
+          "op": "set",
+          "value": 300
+        },
+        {
+          "field": "reaction_cap",
+          "op": "set",
+          "value": "knockdown"
+        }
+      ]
+    },
+    {
+      "id": "feel.character.lab_react_guarder",
+      "description": "举盾的精英（M5-S2b）：格挡状态下被命中伤害 × 0.25、被格挡的反应封顶 flinch、攻击方被弹开成 stagger_light；格挡开始后 300 毫秒内的命中是弹反（防御方不受伤，攻击方同样被弹开）。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "guard_damage_scale",
+          "op": "set",
+          "value": 0.25
+        },
+        {
+          "field": "guard_parry_window_ms",
+          "op": "set",
+          "value": 300
+        },
+        {
+          "field": "block_reaction_cap",
+          "op": "set",
+          "value": "flinch"
+        },
+        {
+          "field": "block_attacker_reaction",
+          "op": "set",
+          "value": "stagger_light"
+        },
+        {
+          "field": "parry_attacker_reaction",
+          "op": "set",
+          "value": "stagger_light"
+        },
+        {
+          "field": "reaction_cap",
+          "op": "set",
+          "value": "flinch"
+        }
+      ]
+    }
+  ]
+}

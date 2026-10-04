@@ -1,0 +1,142 @@
+{
+  "formatVersion": 2,
+  "meta": {
+    "scriptId": "equip_ext_cycle",
+    "scriptVersion": 1,
+    "description": "副手与挂点装备循环（手感设计 06 第 3.6 节、08 第 2 节，ADR-0153）：主手穿单手剑，再穿副手匕首（副手槽位 + 副手手感写入叠加）、穿提灯（挂点 socket_attach 型外观，不是 2D 纸娃娃图层）、卸副手、卸提灯、卸主手、重穿单手剑；每次穿脱后打一次普攻。度量副手引用、副手叠加后的解析值（增味层强度档、命中特效强度）、纸娃娃图层数与非 2D 外观数；数据是独立数据根 lab/fixtures/data/equip_ext（占位副手武器 + 占位挂点装备），data/_equip 不动。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "feel.calibration.std_equip",
+    "poseSet": "display.anim_set.std_dummy_biped",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 360,
+    "playerStart": {
+      "x": 2.5,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "scene": "equip",
+    "feelCalibrationId": "feel.calibration.std_equip",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_equip",
+      "lab/fixtures/data/equip",
+      "lab/fixtures/data/equip_ext"
+    ],
+    "extraDataExcludeTables": [
+      "l10n.locale"
+    ],
+    "extraDataExcludeRows": [
+      "l10n.text/key=l10n.power.health.name"
+    ],
+    "unarmedAttackSkill": "skill.lab_equip.attack_unarmed"
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "item.std_sword_1h",
+      "kind": "equip"
+    },
+    {
+      "tick": 2,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 3,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 50,
+      "action": "item.std_offhand_dagger",
+      "kind": "equip"
+    },
+    {
+      "tick": 52,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 53,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 100,
+      "action": "item.std_lantern",
+      "kind": "equip"
+    },
+    {
+      "tick": 102,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 103,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 150,
+      "action": "item.slot.std_off_hand",
+      "kind": "unequip"
+    },
+    {
+      "tick": 152,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 153,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 200,
+      "action": "item.slot.std_trinket",
+      "kind": "unequip"
+    },
+    {
+      "tick": 202,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 203,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 250,
+      "action": "item.slot.std_main_hand",
+      "kind": "unequip"
+    },
+    {
+      "tick": 252,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 253,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 300,
+      "action": "item.std_sword_1h",
+      "kind": "equip"
+    },
+    {
+      "tick": 302,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 303,
+      "action": "input.action.attack",
+      "kind": "release"
+    }
+  ]
+}

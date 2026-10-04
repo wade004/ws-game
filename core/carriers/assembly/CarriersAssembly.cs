@@ -592,7 +592,7 @@ namespace Core.Carriers.Assembly
                 spatial: spatial);
             world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, movementTickHandler);
 
-            // 竖直轴（体积空间 / 横版二维能力包，手感设计/06 第 10 节勘误 9）：只在 MovementOptions.Vertical 非 null 时装配，
+            // 竖直轴（体积空间 / 横版二维能力包，手感设计/06 第 1.2 节）：只在 MovementOptions.Vertical 非 null 时装配，
             // 紧随 MovementTickHandler 之后注册到同一阶段（先水平位移、再竖直积分）。缺省 null 不装配、不注册，行为逐位不变。
             if (resolvedMovementOptions.Vertical != null)
             {

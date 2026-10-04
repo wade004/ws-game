@@ -34,6 +34,13 @@ namespace Core.Rules.Combat
         public Func<Id?, bool>? IsTimelineSkill { get; set; }
 
         /// <summary>
+        /// 技能行声明的手感引用（<c>skill.def.feel_ref</c>，手感落地 M5-S2a）：目标选择式（instant）命中据此以该 <c>feel.action</c> 行为动作层重算攻击方视图，
+        /// 使法术等没有动作时间线的技能也能有自己的冲击等级、顿帧与击退。参数为命中事件携带的技能 id，返回 null 即没有声明（取攻击方当前解析结果，缺省口径）。
+        /// 缺省 null——全部按攻击方当前解析结果，与引入本选项之前逐位一致。时间线技能不经它（它们走动作时间线的手感引用）。
+        /// </summary>
+        public Func<Id?, string?>? SkillFeelRef { get; set; }
+
+        /// <summary>
         /// 是否处于离散（回合制）时间模型：为真时顿帧与硬直整体不生效（手感设计/00 第 7 节、03 第 6 节）。缺省 null 即连续模式。
         /// 装配根可传 <c>() =&gt; clockHost.Mode == TimeModelMode.Discrete</c>。
         /// </summary>
@@ -77,7 +84,15 @@ namespace Core.Rules.Combat
         /// <summary>扩展冲击等级在 <see cref="ImpactReactions"/> 里没有映射时的受击反应，缺省 <see cref="HitReaction.Stagger"/>。</summary>
         public HitReaction UnknownImpactReaction { get; set; } = HitReaction.Stagger;
 
-        /// <summary>击退总时长（秒），≤ 0 表示用运动层的缺省击退时长（<c>MovementOptions.KnockbackDurationSeconds</c>）。</summary>
+        /// <summary>
+        /// 反应类型 → 硬直时长倍率（手感设计/03 第 4 节，ADR-0145）。硬直时长 = 受击方 <c>hit_stun_ms</c> × 攻击方 <c>hit_stun_scale</c>
+        /// × 本表倍率；表里没有该反应（含空表，<b>缺省</b>）取 1，即不缩放，与此前逐位一致。可填项 <c>stagger_light</c>/<c>stagger</c>/
+        /// <c>knockback</c>/<c>knockdown</c>。游戏要"轻击短硬直、重击长硬直"时自己填表，例如 stagger_light 0.6 / stagger 1 / knockback 1.3 /
+        /// knockdown 1.3（试调起点，未经试玩）。
+        /// </summary>
+        public IReadOnlyDictionary<HitReaction, double> HitStunReactionMultipliers { get; set; } = new Dictionary<HitReaction, double>();
+
+        /// <summary>击退总时长（秒），≤ 0 表示用运动层的缺省击退时长（<c>MovementOptions.KnockbackDurationSeconds</c>）；攻击方档案 <c>knockback_duration_ms</c> 声明时以档案为准（ADR-0145）。</summary>
         public double KnockbackDurationSeconds { get; set; } = 0.0;
     }
 }

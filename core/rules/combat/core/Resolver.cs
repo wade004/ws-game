@@ -139,6 +139,13 @@ namespace Core.Rules.Combat
             _gearLevelOffsetProvider = gearLevelOffsetProvider ?? NullGearLevelOffsetProvider.Instance;
         }
 
+        /// <summary>
+        /// 无敌窗口前置门（手感落地 M5-S2a，手感设计/03 第 2.3 节）：结算第 0 步，在命中表之前调用；返回 <c>true</c> 表示本次伤害类结算的目标处于无敌窗口，
+        /// 直接判为 <see cref="HitResult.Invulnerable"/>（发布 <c>combat.attack_avoided</c>，不进命中表、不落地、不进战）。治疗类结算不经本门。
+        /// 默认 null：不检查，与引入本门之前逐位一致；生产装配根（<c>RulesAssembly</c>）接上技能模块的动作状态查询。
+        /// </summary>
+        public Func<EffectContext, bool>? InvulnerabilityGate { get; set; }
+
         public ResolveResult Resolve(EffectContext context)
         {
             if (context == null) throw new ArgumentNullException(nameof(context));
@@ -157,12 +164,47 @@ namespace Core.Rules.Combat
                 return deadTargetResult;
             }
 
+            // ---------------- 步骤 0：无敌窗口前置（所有命中路径共享，手感设计/03 第 2.3 节） ----------------
+            if (!isHeal && InvulnerabilityGate != null && InvulnerabilityGate(context))
+            {
+                steps.Add("precheck: target invulnerable -> Invulnerable，跳过步骤 1-8，FinalAmount=0");
+                _bus.Enqueue(new CombatAttackAvoidedEvent(
+                    context.SourceId, context.TargetId, context.School, HitResult.Invulnerable,
+                    ResolveEventSkillId(context), context.AttackInstanceId, context.TriggerChainDepth));
+                var invulnerableResult = new ResolveResult(HitResult.Invulnerable, 0.0, 0.0, 0.0, immune: false, isHeal, steps);
+                InvokeResolveTrace(context, invulnerableResult);
+                return invulnerableResult;
+            }
+
             var hitTable = RequireHitTable();
 
-            // ---------------- 步骤 1：判定 ----------------
-            var hit = DetermineHit(hitTable, context, isHeal, steps, out var isCrit, out var glancingMult, out var blockFlat);
+            // ADR-0145：受击方防御裁决（起身无敌 / 格挡 / 弹反），只对非治疗、非周期效果、且装配了裁决入口时才问；缺省不问，既有结算逐位不变。
+            var defense = !isHeal && !context.IsPeriodic && _options.DefenseArbiter != null
+                ? _options.DefenseArbiter.Judge(context.SourceId, context.TargetId)
+                : DefenseVerdict.None;
 
-            if (hit == HitResult.Miss || hit == HitResult.Dodge || hit == HitResult.Parry)
+            // ---------------- 步骤 1：判定 ----------------
+            double guardScale;
+            HitResult hit;
+            bool isCrit;
+            double glancingMult;
+            double blockFlat;
+            if (defense.Kind == DefenseKind.Invulnerable)
+            {
+                // 起身无敌：不进命中表（不消耗随机数）、不扣血，与时间线路径的无敌前置检查同一结局（HitResult.Invulnerable）。
+                steps.Add("hit_check: 目标处于起身无敌，判为 Invulnerable");
+                hit = HitResult.Invulnerable;
+                isCrit = false;
+                glancingMult = 1.0;
+                blockFlat = 0.0;
+                guardScale = -1.0;
+            }
+            else
+            {
+                hit = DetermineHit(hitTable, context, isHeal, steps, defense, out isCrit, out glancingMult, out blockFlat, out guardScale);
+            }
+
+            if (hit == HitResult.Miss || hit == HitResult.Dodge || hit == HitResult.Parry || hit == HitResult.Invulnerable)
             {
                 steps.Add($"terminal: hit={hit}，跳过步骤 2-8，FinalAmount=0");
                 // ADR-0098（消费方第四十三批反馈2根治）：三个终止分支统一发布 combat.attack_avoided，
@@ -190,8 +232,17 @@ namespace Core.Rules.Combat
             else if (hit == HitResult.Block)
             {
                 var before = amount;
-                amount = Math.Max(0.0, amount - blockFlat);
-                steps.Add($"block_adjust: {before} - {blockFlat} -> {amount}");
+                if (guardScale >= 0.0)
+                {
+                    // ADR-0145：格挡状态（受击方在格挡窗口内、攻击来自正面）——按受击方档案的伤害倍率缩放，不走命中表的固定减免。
+                    amount *= guardScale;
+                    steps.Add($"guard_block_adjust: {before} × {guardScale} -> {amount}");
+                }
+                else
+                {
+                    amount = Math.Max(0.0, amount - blockFlat);
+                    steps.Add($"block_adjust: {before} - {blockFlat} -> {amount}");
+                }
             }
 
             // ---------------- 步骤 3：暴击 ----------------
@@ -411,13 +462,16 @@ namespace Core.Rules.Combat
             EffectContext context,
             bool isHeal,
             List<string> steps,
+            DefenseVerdict defense,
             out bool isCrit,
             out double glancingMult,
-            out double blockFlatReduction)
+            out double blockFlatReduction,
+            out double guardScale)
         {
             isCrit = false;
             glancingMult = 1.0;
             blockFlatReduction = 0.0;
+            guardScale = -1.0;
 
             // Hit 作为"尚未触发任何特殊分支"的哨兵值，见下方 special 的用法。
             var special = HitResult.Hit;
@@ -440,6 +494,21 @@ namespace Core.Rules.Combat
                 if (RollBranch(table.Dodge, context.TargetId, steps, "dodge"))
                 {
                     return HitResult.Dodge;
+                }
+
+                if (defense.Kind == DefenseKind.Parry)
+                {
+                    // ADR-0145：弹反窗口（格挡开始后的短窗口内、攻击来自正面）——直接弹反，不再掷命中表的 parry/glancing/block/crit。
+                    steps.Add("hit_check: 防御状态弹反窗口 -> Parry");
+                    return HitResult.Parry;
+                }
+
+                if (defense.Kind == DefenseKind.Block)
+                {
+                    // ADR-0145：格挡状态——结局直接判 Block（伤害倍率见 guardScale），格挡中的命中不再掷 parry/glancing/block 与暴击。
+                    guardScale = defense.DamageScale;
+                    steps.Add($"hit_check: 防御状态格挡 -> Block，伤害倍率={guardScale}，不掷命中表分支与暴击");
+                    return HitResult.Block;
                 }
 
                 if (RollBranch(table.Parry, context.TargetId, steps, "parry"))

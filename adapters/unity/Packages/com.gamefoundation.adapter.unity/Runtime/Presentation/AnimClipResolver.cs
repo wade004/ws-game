@@ -48,6 +48,16 @@
 // 非基础键咨询，已在播的那一条视为就绪）。来源的 ContextChanged 与姿态变化走同一个 Refresh 出口：只对运动态重新解析，
 // 与最近播放的剪辑不同才切换，瞬态不被打断。武器风格/技能覆盖剪辑（AutoAttackAnim/CastAnimOverride）优先级仍最高，
 // 不经姿势解析；武器族维度补齐的是待机/移动/受击等没有覆盖剪辑的状态。
+//
+// ADR-0147（手感落地 M5-S4）：
+//   1) 受击子键：状态机处于反应驱动模式（AnimStateMachine.IsReactionDriven）时，Hit 状态按裁决结果带子键解析
+//      （hit.light/heavy/knockback/knockdown/getup/block，经姿势回落链回落到 hit）；空中受击（hit.air）只对 light/heavy/knockback 生效。
+//      反应=none 不进 Hit 状态，所以什么也不播。没有子键（未反应驱动）时与此前逐位一致。
+//   2) 播放速率：可选的 ClipPlaybackRates 给出当前剪辑的播放速率（动作分相重映射的速率比、移动剪辑的步幅速率）。切换剪辑时随 playClip 的
+//      speed 参数下发；播放中速率变化（相位切换、速度变化）经 setClipSpeed 委托下发，只在速率真的变了时调用（取整步长由速率来源保证）。
+//      没传速率来源时恒为 1，与此前一致。
+//   3) 起步/急停混合：可选的 LocomotionBlends 给出 Idle 与 Move 之间状态切换的混合时长，经 hintBlend 委托在下一次 playClip 之前下发
+//      （一次性提示，只 model 型接线；sprite 型没有交叉淡入）。
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
@@ -92,6 +102,13 @@ namespace Adapter.Unity.Presentation
         private readonly IWeaponStyleSource? _weaponStyleSource;
         private readonly Func<Id, Id, bool>? _isClipReady;
         private readonly IPoseContextSource? _poseContext;
+        private readonly ClipPlaybackRates? _playbackRates;
+        private readonly Action<Id, double>? _setClipSpeed;
+        private readonly ILocomotionBlendSource? _blends;
+        private readonly Action<Id, double>? _hintBlend;
+
+        // ADR-0147：每个实体最近一次下发给播放器的速率（playClip 的 speed 或 setClipSpeed），用于只在变化时下发。
+        private readonly Dictionary<Id, double> _lastRate = new Dictionary<Id, double>();
 
         // ADR-0111：每个实体最近一次经本类型实际播放的剪辑 id——姿态变化时用它判断"新姿态解析出的剪辑与
         // 正在播的是否相同"（相同则不重播）。实体销毁/重生时由 Forget 清理。
@@ -151,7 +168,33 @@ namespace Adapter.Unity.Presentation
             IReadOnlyDictionary<Id, WeaponStyleDef>? weaponStyles,
             Func<Id, Id, bool>? isClipReady,
             IPoseContextSource? poseContext)
+            : this(stateMachine, defaultClipsForEntity, playClip, weaponStyleSource, weaponStyles, isClipReady, poseContext, null, null, null, null)
         {
+        }
+
+        /// <summary>
+        /// ADR-0147：带播放速率/起停混合的构造重载（旧构造保持原签名转调本重载，新参数全为 null）。
+        /// <paramref name="playbackRates"/>：剪辑播放速率来源；<paramref name="setClipSpeed"/>：播放中改速率的落地委托 (entityId, speed)；
+        /// <paramref name="blends"/>：起步/急停混合时长来源；<paramref name="hintBlend"/>：混合时长提示落地委托 (entityId, seconds)，
+        /// 在对应的一次 <c>playClip</c> 之前调用（model 型接线；sprite 型传 null）。
+        /// </summary>
+        public AnimClipResolver(
+            AnimStateMachine stateMachine,
+            Func<Id, IReadOnlyDictionary<string, Id>?> defaultClipsForEntity,
+            Action<Id, Id, bool, double> playClip,
+            IWeaponStyleSource? weaponStyleSource,
+            IReadOnlyDictionary<Id, WeaponStyleDef>? weaponStyles,
+            Func<Id, Id, bool>? isClipReady,
+            IPoseContextSource? poseContext,
+            ClipPlaybackRates? playbackRates,
+            Action<Id, double>? setClipSpeed,
+            ILocomotionBlendSource? blends,
+            Action<Id, double>? hintBlend)
+        {
+            _playbackRates = playbackRates;
+            _setClipSpeed = setClipSpeed;
+            _blends = blends;
+            _hintBlend = hintBlend;
             _stateMachine = stateMachine ?? throw new ArgumentNullException(nameof(stateMachine));
             _defaultClipsForEntity = defaultClipsForEntity ?? throw new ArgumentNullException(nameof(defaultClipsForEntity));
             _playClip = playClip ?? throw new ArgumentNullException(nameof(playClip));
@@ -172,6 +215,32 @@ namespace Adapter.Unity.Presentation
             {
                 _poseContext.ContextChanged += OnPoseContextChanged;
             }
+            if (_playbackRates != null)
+            {
+                _playbackRates.RateChanged += OnRateChanged;
+            }
+        }
+
+        /// <summary>ADR-0147：速率变化（动作相位切换、移动速度变化、动作结束）后，对该实体正在播的剪辑改速率；已经是这个速率则不下发。</summary>
+        private void OnRateChanged(Id entityId)
+        {
+            if (_setClipSpeed == null || _playbackRates == null || !_lastPlayedClip.ContainsKey(entityId))
+            {
+                return;
+            }
+
+            var rate = _playbackRates.GetRate(entityId);
+            if (_lastRate.TryGetValue(entityId, out var last) && last == rate)
+            {
+                return;
+            }
+            if (!_lastRate.ContainsKey(entityId) && rate == 1.0)
+            {
+                return;
+            }
+
+            _lastRate[entityId] = rate;
+            _setClipSpeed(entityId, rate);
         }
 
         private void OnPoseContextChanged(Id entityId)
@@ -182,10 +251,10 @@ namespace Adapter.Unity.Presentation
         }
 
         private void OnStateChangedWithSkill(Id entityId, AnimState from, AnimState to, Id? triggerSkillId) =>
-            PlayResolvedClip(entityId, to, triggerSkillId);
+            PlayResolvedClip(entityId, to, triggerSkillId, from);
 
         private void OnStateRetriggered(Id entityId, AnimState state, Id? triggerSkillId) =>
-            PlayResolvedClip(entityId, state, triggerSkillId);
+            PlayResolvedClip(entityId, state, triggerSkillId, null);
 
         private void OnCombatStanceChanged(Id entityId, bool inCombat) => Refresh(entityId);
 
@@ -280,9 +349,13 @@ namespace Adapter.Unity.Presentation
 
         /// <summary>ADR-0111：释放对该实体的"最近播放剪辑"记账（实体销毁/重生时由调用方清理，同
         /// <see cref="AnimStateMachine.Forget"/> 配套）。</summary>
-        public void Forget(Id entityId) => _lastPlayedClip.Remove(entityId);
+        public void Forget(Id entityId)
+        {
+            _lastPlayedClip.Remove(entityId);
+            _lastRate.Remove(entityId);
+        }
 
-        private void PlayResolvedClip(Id entityId, AnimState to, Id? triggerSkillId)
+        private void PlayResolvedClip(Id entityId, AnimState to, Id? triggerSkillId, AnimState? from)
         {
             Id? clipId = null;
 
@@ -314,6 +387,12 @@ namespace Adapter.Unity.Presentation
 
             if (clipId.HasValue)
             {
+                // ADR-0147：起步/急停（Idle 与 Move 之间）的混合时长提示，一次性，随紧接着的这一次 playClip 生效。
+                if (from.HasValue && _blends != null && _hintBlend != null
+                    && _blends.TryGetBlendSeconds(entityId, from.Value, to, out var blendSeconds))
+                {
+                    _hintBlend(entityId, blendSeconds);
+                }
                 PlayAndRecord(entityId, clipId.Value, DefaultLoop(to));
             }
         }
@@ -347,9 +426,34 @@ namespace Adapter.Unity.Presentation
                 return PoseResolver.TryResolve(airRequest, table, out var airResolved, out _, airUsable) ? airResolved : (Id?)null;
             }
 
+            // ADR-0147：反应驱动的受击子键（hit.light/heavy/knockback/knockdown/getup/block）。空中受击只对 light/heavy/knockback 改走 hit.air。
+            var hitSub = allowVariant && state == AnimState.Hit ? _stateMachine.GetHitPoseSub(entityId) : null;
+            if (hitSub != null && _poseContext != null
+                && _poseContext.GetContext(entityId).TryGetAirHitRequest(_stateMachine.IsInCombatStance(entityId), hitSub, out var airHit))
+            {
+                Func<string, bool>? airHitUsable = null;
+                if (_isClipReady != null)
+                {
+                    airHitUsable = tableKey =>
+                    {
+                        var clip = table[tableKey];
+                        return (_lastPlayedClip.TryGetValue(entityId, out var playing) && playing.Equals(clip))
+                            || _isClipReady(entityId, clip);
+                    };
+                }
+                return PoseResolver.TryResolve(airHit, table, out var airHitResolved, out _, airHitUsable) ? airHitResolved : (Id?)null;
+            }
+
             if (!allowVariant)
             {
                 request = PoseRequest.Base(stateKey);
+            }
+            else if (hitSub != null)
+            {
+                var combatHit = _stateMachine.IsInCombatStance(entityId);
+                request = _poseContext != null
+                    ? _poseContext.GetContext(entityId).ToRequest(stateKey, combatHit, hitSub)
+                    : new PoseRequest(stateKey, null, combatHit ? PoseKeys.StanceCombat : null, null, null, hitSub);
             }
             else
             {
@@ -378,7 +482,9 @@ namespace Adapter.Unity.Presentation
         private void PlayAndRecord(Id entityId, Id clipId, bool loop)
         {
             _lastPlayedClip[entityId] = clipId;
-            _playClip(entityId, clipId, loop, 1.0);
+            var rate = _playbackRates?.GetRate(entityId) ?? 1.0;
+            _lastRate[entityId] = rate;
+            _playClip(entityId, clipId, loop, rate);
         }
 
         public void Dispose()
@@ -389,6 +495,10 @@ namespace Adapter.Unity.Presentation
             if (_poseContext != null)
             {
                 _poseContext.ContextChanged -= OnPoseContextChanged;
+            }
+            if (_playbackRates != null)
+            {
+                _playbackRates.RateChanged -= OnRateChanged;
             }
         }
     }

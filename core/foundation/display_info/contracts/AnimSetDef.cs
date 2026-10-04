@@ -61,6 +61,13 @@ namespace Core.Foundation.DisplayInfo
         /// 只对 model 型的骨骼剪辑有意义（sprite 型帧序列播放器不做交叉淡入，忽略它）。</summary>
         public double? BlendMs { get; }
 
+        /// <summary>
+        /// ADR-0147：剪辑总时长（毫秒，数据行 <c>clips[*].duration_ms</c>，导入工具从资源量出后写入）；null = 数据没有声明。
+        /// 事件的 <see cref="AnimClipEventSpec.TimePct"/> 乘以它才是毫秒——作者态校验（剪辑标记与 <c>skill.def.timeline</c> 的一致性，
+        /// 手感设计/01 第 3.2 节）需要它；运行期不读（播放速率与时长由引擎侧资源决定）。
+        /// </summary>
+        public double? DurationMs { get; }
+
         public AnimClipDef(Id resourceRef, IReadOnlyList<AnimClipEventSpec>? events = null)
             : this(resourceRef, events, null)
         {
@@ -68,10 +75,17 @@ namespace Core.Foundation.DisplayInfo
 
         /// <summary>带混合时长的构造重载（旧构造保持原签名并转调本重载，<paramref name="blendMs"/> 为 null）。</summary>
         public AnimClipDef(Id resourceRef, IReadOnlyList<AnimClipEventSpec>? events, double? blendMs)
+            : this(resourceRef, events, blendMs, null)
+        {
+        }
+
+        /// <summary>ADR-0147 新增重载：追加剪辑总时长（<see cref="DurationMs"/>）。</summary>
+        public AnimClipDef(Id resourceRef, IReadOnlyList<AnimClipEventSpec>? events, double? blendMs, double? durationMs)
         {
             ResourceRef = resourceRef;
             Events = events ?? Array.Empty<AnimClipEventSpec>();
             BlendMs = blendMs;
+            DurationMs = durationMs;
         }
     }
 
@@ -162,6 +176,19 @@ namespace Core.Foundation.DisplayInfo
             if (_clipMs!.TryGetValue(toClip, out var clipMs))
             {
                 seconds = clipMs / 1000.0;
+                return true;
+            }
+            seconds = 0.0;
+            return false;
+        }
+
+        /// <summary><see cref="IAnimBlendSource.TryGetPairBlendSeconds"/>：只查每对键声明。</summary>
+        public bool TryGetPairBlendSeconds(Id? fromClip, Id toClip, out double seconds)
+        {
+            EnsureBlendTables();
+            if (fromClip.HasValue && _pairMs!.TryGetValue((fromClip.Value, toClip), out var pairMs))
+            {
+                seconds = pairMs / 1000.0;
                 return true;
             }
             seconds = 0.0;
@@ -280,7 +307,7 @@ namespace Core.Foundation.DisplayInfo
                     var def = kv.Value;
                     if (!def.BlendMs.HasValue && inheritedBlend.TryGetValue(PoseKeys.Canonicalize(kv.Key), out var inherited))
                     {
-                        def = new AnimClipDef(def.ResourceRef, def.Events, inherited);
+                        def = new AnimClipDef(def.ResourceRef, def.Events, inherited, def.DurationMs);
                     }
                     merged.Add(new KeyValuePair<string, AnimClipDef>(kv.Key, def));
                 }
@@ -392,7 +419,17 @@ namespace Core.Foundation.DisplayInfo
                 blendMs = blendNum.Value;
             }
 
-            return new AnimClipDef(resourceRef, events, blendMs);
+            double? durationMs = null;
+            if (clipObj.TryGetValue("duration_ms", out var durationVal) && !(durationVal is JsonNull))
+            {
+                if (!(durationVal is JsonNumber durationNum) || !(durationNum.Value > 0.0))
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "clips", $"剪辑 \"{clipName}\" 的 duration_ms 必须是正数（毫秒）");
+                }
+                durationMs = durationNum.Value;
+            }
+
+            return new AnimClipDef(resourceRef, events, blendMs, durationMs);
         }
     }
 }

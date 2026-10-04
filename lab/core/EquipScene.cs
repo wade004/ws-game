@@ -92,6 +92,31 @@ namespace Lab
 
         /// <summary>装备宿主里的槽位 → 模板（排序后拼接），与 <see cref="UiSlots"/> 应一致。</summary>
         public string HostSlots { get; set; } = string.Empty;
+
+        /// <summary>装备面板视图模型（<see cref="EquipmentViewModel"/>，ADR-0149）里已装备槽位 → 模板（排序后拼接），与 <see cref="HostSlots"/> 应一致。
+        /// 不进任何度量组（既有指纹与基线不变），供衣橱报告（<see cref="EquipWardrobe"/>）与换装场景测试读取。</summary>
+        public string PanelSlots { get; set; } = string.Empty;
+
+        /// <summary>装备面板里纸娃娃预览的装备图层数（<c>display.equip_visual</c> 的 paperdoll 型 slot_mesh 行）。</summary>
+        public int PanelLayers { get; set; }
+
+        /// <summary>装备面板里已装备但外观不是 2D 图层的槽位数（model 型）。</summary>
+        public int PanelNonSpriteVisuals { get; set; }
+
+        /// <summary>装备面板里已装备但没有外观行的槽位数。</summary>
+        public int PanelNoVisuals { get; set; }
+
+        /// <summary>装备面板里已装备槽位数。</summary>
+        public int PanelOccupied { get; set; }
+
+        /// <summary>副手武器手感引用相对上一次快照是否变了（换装链的状态含副手，副手变化同样重算解析并发 <c>feel.weapon_changed</c>）。</summary>
+        public bool OffhandChanged { get; set; }
+
+        /// <summary>解出的增味层强度档（<c>sfx_sweetener_tier</c>，副手可叠加字段）。仅供副手叠加度量组（<c>equip_offhand</c>）读取。</summary>
+        public int SweetenerTier { get; set; }
+
+        /// <summary>解出的命中特效强度倍率（<c>impact_vfx_scale</c>，副手可叠加字段）。仅供副手叠加度量组读取。</summary>
+        public double ImpactVfxScale { get; set; }
     }
 
     /// <summary>换装场景里玩家的一次普通攻击时间线动作（从 <c>action.started</c> 到 <c>action.finished</c>）。</summary>
@@ -169,6 +194,7 @@ namespace Lab
         private readonly EquipmentWeaponStyleSource _weaponStyle;
         private readonly IDisplayInfoRegistry _displayInfo;
         private readonly InventoryViewModel _ui;
+        private readonly EquipmentViewModel _panel;
         private readonly HashSet<string> _poseKeys = new HashSet<string>(StringComparer.Ordinal);
         private readonly List<EquipStepRecord> _pending = new List<EquipStepRecord>();
         private readonly Dictionary<EquipStepRecord, Id> _pendingInstances = new Dictionary<EquipStepRecord, Id>();
@@ -176,6 +202,7 @@ namespace Lab
         private int _weaponChangedThisTick;
         private int _lastVersion;
         private string _lastMain = string.Empty;
+        private string _lastOffhand = string.Empty;
 
         public IReadOnlyCollection<Id> LearnedSkills { get; }
 
@@ -232,7 +259,10 @@ namespace Lab
                 }
             }
 
-            _ui = new InventoryViewModel(new UiDataSource(world.Bus, providers), slotIds);
+            var uiData = new UiDataSource(world.Bus, providers);
+            _ui = new InventoryViewModel(uiData, slotIds);
+            // 装备面板视图模型：槽位清单与纸娃娃图层取自数据，每个换装步骤读一次，供衣橱报告核对（不进度量组，既有指纹不变）。
+            _panel = new EquipmentViewModel(uiData, registry, displayInfo);
 
             if (meta.PoseSet.Length > 0 && !string.Equals(meta.PoseSet, "none", StringComparison.Ordinal))
             {
@@ -279,6 +309,7 @@ namespace Lab
             world.Bus.DispatchPending();
             _lastVersion = _feel.Resolver.GetVersion(_player);
             _lastMain = _provider.GetMainWeaponRef(_player) ?? string.Empty;
+            _lastOffhand = _provider.GetOffhandWeaponRef(_player) ?? string.Empty;
             _weaponChangedThisTick = 0;
         }
 
@@ -482,6 +513,8 @@ namespace Lab
             step.Family = _chain.GetFamily(_player) ?? string.Empty;
             step.WeaponChanged = !string.Equals(step.MainRef, _lastMain, StringComparison.Ordinal);
             _lastMain = step.MainRef;
+            step.OffhandChanged = !string.Equals(step.OffhandRef, _lastOffhand, StringComparison.Ordinal);
+            _lastOffhand = step.OffhandRef;
             step.WeaponChangedEvents = _weaponChangedThisTick;
 
             var resolver = _feel.Resolver;
@@ -492,6 +525,8 @@ namespace Lab
             step.ImpactClass = feel.Judging.GetText(FeelFieldNames.ImpactClass);
             step.AttackerHitstopTicks = feel.Judging.GetTicks(FeelFieldNames.AttackerHitstopMs);
             step.TargetHitstopTicks = feel.Judging.GetTicks(FeelFieldNames.TargetHitstopMs);
+            step.SweetenerTier = (int)Math.Round(feel.Presenting.GetNumber(FeelFieldNames.SfxSweetenerTier));
+            step.ImpactVfxScale = feel.Presenting.GetNumber(FeelFieldNames.ImpactVfxScale);
             var material = feel.Presenting.GetText(FeelFieldNames.SfxMaterial);
             step.SfxMaterial = material.Length > 0 ? material : "generic";
             step.SwingSfx = ResolveSfx("swing", step.SfxMaterial, step);
@@ -517,6 +552,22 @@ namespace Lab
 
             step.UiSlots = Describe(_ui.EquippedSlotIdentities);
             step.HostSlots = Describe(((IEquipmentHost)_world.Gameplay.Carriers.Equipment).GetAllEquippedIdentities(_player));
+
+            var panelSlots = new List<string>();
+            foreach (var slot in _panel.Slots)
+            {
+                if (slot.Occupied)
+                {
+                    panelSlots.Add(slot.SlotId.Value + "=" + slot.TemplateId!.Value.Value);
+                }
+            }
+
+            panelSlots.Sort(StringComparer.Ordinal);
+            step.PanelSlots = string.Join(",", panelSlots);
+            step.PanelOccupied = _panel.OccupiedCount;
+            step.PanelLayers = _panel.PaperdollLayers.Count;
+            step.PanelNonSpriteVisuals = _panel.NonSpriteVisualCount;
+            step.PanelNoVisuals = _panel.NoVisualCount;
         }
 
         private string ResolveSfx(string layer, string material, EquipStepRecord step)
@@ -559,6 +610,7 @@ namespace Lab
         public void Dispose()
         {
             _ui.Dispose();
+            _panel.Dispose();
             _weaponStyle.Dispose();
             _visual.Dispose();
             _bridge.Dispose();

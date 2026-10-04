@@ -1,0 +1,127 @@
+{
+  "table": "feel.weapon",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.weapon.offhand_dagger",
+      "description": "副手匕首（占位试调起点，不是已验证值）：作为副手只叠加 offhand_stackable 字段（增味层强度档 +1、命中特效强度 ×1.25）。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "family": "1h",
+      "writes": [
+        {
+          "field": "impact_class",
+          "op": "set",
+          "value": "light"
+        },
+        {
+          "field": "attacker_hitstop_ms",
+          "op": "set",
+          "value": 25
+        },
+        {
+          "field": "target_hitstop_ms",
+          "op": "set",
+          "value": 35
+        },
+        {
+          "field": "knockback_distance",
+          "op": "set",
+          "value": 0.1
+        },
+        {
+          "field": "stagger_power",
+          "op": "set",
+          "value": 0.5
+        },
+        {
+          "field": "kill_hitstop_scale",
+          "op": "set",
+          "value": 1.4
+        },
+        {
+          "field": "cancel_window_scale",
+          "op": "set",
+          "value": 1.1
+        },
+        {
+          "field": "combo_window_scale",
+          "op": "set",
+          "value": 1.2
+        },
+        {
+          "field": "stop_distance",
+          "op": "set",
+          "value": 0.4
+        },
+        {
+          "field": "action_move_speed_ratio",
+          "op": "set",
+          "value": 0.45
+        },
+        {
+          "field": "action_turn_lock",
+          "op": "set",
+          "value": true
+        },
+        {
+          "field": "camera_impulse_gain",
+          "op": "set",
+          "value": 0.005
+        },
+        {
+          "field": "trail_enabled",
+          "op": "set",
+          "value": true
+        },
+        {
+          "field": "afterimage_enabled",
+          "op": "set",
+          "value": false
+        },
+        {
+          "field": "impact_vfx_scale",
+          "op": "set",
+          "value": 0.8
+        },
+        {
+          "field": "sfx_swing_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_whiff_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_impact_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_sweetener_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_material",
+          "op": "set",
+          "value": "metal_light"
+        }
+      ],
+      "offhand_writes": [
+        {
+          "field": "sfx_sweetener_tier",
+          "op": "add",
+          "value": 1
+        },
+        {
+          "field": "impact_vfx_scale",
+          "op": "multiply",
+          "value": 1.25
+        }
+      ]
+    }
+  ]
+}

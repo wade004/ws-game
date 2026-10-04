@@ -1,0 +1,116 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_x_latency",
+    "scriptVersion": 1,
+    "description": "输入到首次可见响应（M5-S7，ADR-0151，06 第 3.3 节响应行表现半边）：攻击类、技能类、闪避类各按一次；量每次按下到动作开始的 tick 差、到首次可见变化（姿势请求或运动层动作位移）的 tick 差，以及按帧时间线换算的可见毫秒；帧量化多出的一截应不小于 0 且小于一个表现帧步长。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 200,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_slash",
+      "lab_a.dodge": "skill.lab_a_dodge",
+      "lab_a.skill": "skill.lab_a_bolt"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": "",
+    "extraMetrics": [
+      "latency",
+      "crowd"
+    ]
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 70,
+      "action": "input.action.lab_a_skill",
+      "kind": "press"
+    },
+    {
+      "tick": 71,
+      "action": "input.action.lab_a_skill",
+      "kind": "release"
+    },
+    {
+      "tick": 130,
+      "action": "input.action.lab_a_dodge",
+      "kind": "press"
+    },
+    {
+      "tick": 131,
+      "action": "input.action.lab_a_dodge",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "visible_excess_nonneg",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "latency.visible_excess_ms_min",
+      "op": "ge",
+      "value": 0,
+      "note": "首次可见时刻不早于逻辑必经时间（响应所在 tick 结束）"
+    },
+    {
+      "id": "visible_excess_lt_frame",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "latency.visible_excess_ms_max",
+      "op": "lt",
+      "versus": {
+        "metric": "latency.frame_ms"
+      },
+      "note": "帧量化多出的一截小于一个表现帧步长（随帧率上限变化，不写死数）"
+    },
+    {
+      "id": "every_input_responds",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "latency.by_class",
+      "op": "contains",
+      "value": "attack:1:1",
+      "note": "动作式格子里每类输入都有响应"
+    }
+  ]
+}

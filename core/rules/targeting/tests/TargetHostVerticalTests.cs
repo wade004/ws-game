@@ -9,7 +9,7 @@ using Xunit;
 namespace Tests.Rules.Targeting
 {
     /// <summary>
-    /// 体积空间 / 横版二维能力包（手感设计/06 第 10 节勘误 9）在目标选择上的两处加法：命中形状的高度窗口（<c>shape.height</c> +
+    /// 体积空间 / 横版二维能力包（手感设计/06 第 1.2 节）在目标选择上的两处加法：命中形状的高度窗口（<c>shape.height</c> +
     /// <see cref="TargetingOptions.VerticalHit"/>）与三维距离（<see cref="TargetingOptions.SpatialDistance"/>）。
     /// 每处各有复现（开关打开后候选/排序从 X 变到 Y，期望值由 |Δh| 与三维距离公式算出）与不变量（开关关闭或链没声明高度时与旧行为逐位一致）。
     /// </summary>

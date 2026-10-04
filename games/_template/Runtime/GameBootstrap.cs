@@ -115,6 +115,8 @@ namespace Game.Template
         private Id _classId;
         private bool _worldEverEntered;
         private double _interpAccumulator;
+        private Core.Carriers.Unit.PlayerMoveIntentResolver? _moveIntent;
+        private Core.Foundation.InputMap.InputBufferHost? _moveIntentBuffer;
 
         /// <summary>ADR-0047 运行期校验报告落盘出口：本次进程解析出的落盘路径（未配置选项时为
         /// <c>null</c>），在 <see cref="Bootstrap"/> 内解析一次，随后原样传给
@@ -545,7 +547,11 @@ namespace Game.Template
 
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
             Freeze = new FreezeFrameReceiver();
-            Flash = new FlashReceiver(presentation.ViewBinder);
+            Flash = new FlashReceiver(presentation.ViewBinder)
+            {
+                // ADR-0148：玩家闪白强度（feel.intensity.flash）在接收器出口生效。
+                IntensityScale = () => presentation.FeelIntensity.Get(global::Presentation.Camera.FeelIntensityKind.Flash),
+            };
 
             gameplay.RegisterPersistables(presentation.SaveSystem, _player);
 
@@ -594,6 +600,8 @@ namespace Game.Template
             OnFloatingText = (entityId, styleId, text) => FloatingText?.Show(entityId, styleId, text),
             OnFreeze = durationMs => Freeze?.Freeze(durationMs / 1000.0),
             OnFlash = (entityId, profileId) => Flash?.Show(entityId, profileId),
+            // ADR-0148：反馈包变体的 rumble 经手柄震动输出落地（没有手柄时静默忽略）；强度再乘玩家强度 feel.intensity.rumble。
+            Rumble = _host.Rumble,
             ActionBarSlotCountFallback = _options.ActiveSkillSlotCount,
             HudPowerTypes = new[] { Core.Rules.Common.WellKnownPowers.Health },
             EquipmentSlotIds = _options.BuildEquipmentSlotIds(),
@@ -699,9 +707,16 @@ namespace Game.Template
             _interpAccumulator = 0.0;
             Presentation.InputMap.Update(_host.Input);
             var moveAxis = Presentation.InputMap.GetActionAxis("input.action.move");
-            if (moveAxis.SqrLength > 0.0001)
+            var moveBuffer = Gameplay.Feel?.InputBuffer;
+            if (_moveIntent == null || !ReferenceEquals(moveBuffer, _moveIntentBuffer))
             {
-                Gameplay.Carriers.Movement.Request(MoveRequest.InDirection(PlayerId, moveAxis));
+                _moveIntentBuffer = moveBuffer;
+                _moveIntent = new PlayerMoveIntentResolver(moveBuffer);
+            }
+            // ADR-0153：玩家移动请求经移动意图解析器生成；数据没有声明冲刺动作时与此前逐位一致。
+            if (_moveIntent.TryResolve(PlayerId, moveAxis, out var moveRequest))
+            {
+                Gameplay.Carriers.Movement.Request(moveRequest);
             }
             Gameplay.Advance(stepSeconds);
         }

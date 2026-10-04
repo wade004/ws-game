@@ -26,5 +26,11 @@ namespace Core.Foundation.InputMap
 
         /// <summary>菜单。</summary>
         Menu,
+
+        /// <summary>
+        /// 跳跃（手感设计/01 第 2.5 节）：经缓冲取用，但接受时不是施法意图而是对竖直轴能力包的起跳请求
+        /// （装配了竖直轴才生效）；优先级介于 dodge 与 attack 之间。枚举值追加在末尾（ABI 只加不改）。
+        /// </summary>
+        Jump,
     }
 }

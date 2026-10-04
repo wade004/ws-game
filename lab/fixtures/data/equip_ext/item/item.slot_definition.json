@@ -1,0 +1,26 @@
+{
+  "table": "item.slot_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.slot.std_off_hand",
+      "name_key": "l10n.item.slot.std_off_hand.name",
+      "sort_weight": 2,
+      "is_weapon": true,
+      "is_equipment": true,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0,
+      "has_armor": false
+    },
+    {
+      "id": "item.slot.std_trinket",
+      "name_key": "l10n.item.slot.std_trinket.name",
+      "sort_weight": 12,
+      "is_weapon": false,
+      "is_equipment": true,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0,
+      "has_armor": false
+    }
+  ]
+}

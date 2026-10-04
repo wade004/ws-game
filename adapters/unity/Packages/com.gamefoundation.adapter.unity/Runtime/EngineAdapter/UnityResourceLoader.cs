@@ -327,6 +327,10 @@ namespace Adapter.Unity.EngineAdapter
 
         private static string RootDir => RootDirOverrideForTests ?? DefaultRootDir;
 
+        /// <summary>资源内容根目录（<c>StreamingAssets/GameFoundation</c>；测试可经 <see cref="RootDirOverrideForTests"/> 换根）。
+        /// 界面皮肤包（<c>ui/skin/&lt;名&gt;/</c>，ADR-0149）与加载器共用同一个根，皮肤包文件不是资源引用 id，不经 <see cref="ResolvePath"/>。</summary>
+        internal static string ContentRoot => RootDir;
+
         /// <summary>仅 <see cref="ResourceKind.Font"/> 使用：主线程专用队列（见类型顶部"Font 资源
         /// 种类"判断记录），不与 <see cref="_completions"/> 共用——后者由后台线程写入，前者只在
         /// 主线程内部排队等到下一次 <see cref="Tick"/> 处理，不需要并发安全的队列类型。</summary>
@@ -432,7 +436,8 @@ namespace Adapter.Unity.EngineAdapter
         /// 决策 6）。生命周期与本加载器既有资源缓存（<see cref="_sprites"/> 等字段）同一套口径——随本
         /// 加载器实例存活，没有独立的清理入口（本类型当前也没有"整体清缓存/重载"入口，<see cref="Unload"/>
         /// 只按单个资源 id 清理，与本缓存的"按精灵集目录"粒度不是同一维度，不需要跟随 <see cref="Unload"/>
-        /// 清理——同一精灵集的 anchors.json 内容不会因为某个资源被 Unload 而改变）。</summary>
+        /// 清理——同一精灵集的 anchors.json 内容不会因为某个资源被 Unload 而改变；但内容根/皮肤整体切换时它会变，
+        /// 由 <see cref="InvalidateSpriteSetAnchorsCache"/> 显式清空，ADR-0152）。</summary>
         private readonly Dictionary<string, SpriteSetAnchorsInfo> _spriteSetAnchorsCache = new Dictionary<string, SpriteSetAnchorsInfo>();
 
         /// <summary>测试/诊断用（同 <see cref="PendingLoadCount"/> 惯例）：本加载器实际执行过
@@ -873,6 +878,13 @@ namespace Adapter.Unity.EngineAdapter
             // 粗粒度估算（02 第 1.7 节允许）：仍在后台读取中记为 0.5，未发起过加载记为 0。
             return _loading.Contains(resourceId) ? 0.5 : 0.0;
         }
+
+        /// <summary>
+        /// 清空"按精灵集目录"缓存的 anchors.json 解析结果（<c>pixels_per_unit</c> 声明与脚底锚点，ADR-0081/0091）。切换内容根或皮肤资源
+        /// （<c>UiVisuals.SwitchSkin</c>，ADR-0152）之后必须调用：同一个精灵集目录在新内容根下可能有不同的锚点/像素密度，
+        /// 不清的话此后新解码的层图仍按旧根的锚点定枢轴与大小。只清缓存的解析结果，不动已解码的精灵（它们由 <see cref="Unload"/> 按资源 id 清理）。
+        /// </summary>
+        public void InvalidateSpriteSetAnchorsCache() => _spriteSetAnchorsCache.Clear();
 
         public void Unload(Id resourceId)
         {

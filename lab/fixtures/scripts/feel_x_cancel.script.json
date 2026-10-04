@@ -1,0 +1,107 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_x_cancel",
+    "scriptVersion": 1,
+    "description": "取消补项度量（M5-S7，ADR-0151）：同 feel_dodge_cancel 的挥击后闪避取消，量取消次数与取消之后才落地的命中数（取消应切断后续判定，应为 0），以及两类输入的首次可见延迟。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 150,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_slash",
+      "lab_a.dodge": "skill.lab_a_dodge"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": "",
+    "extraMetrics": [
+      "attackx",
+      "latency",
+      "crowd"
+    ]
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 8,
+      "action": "input.action.lab_a_dodge",
+      "kind": "press"
+    },
+    {
+      "tick": 9,
+      "action": "input.action.lab_a_dodge",
+      "kind": "release"
+    },
+    {
+      "tick": 60,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 61,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 80,
+      "action": "input.action.lab_a_dodge",
+      "kind": "press"
+    },
+    {
+      "tick": 81,
+      "action": "input.action.lab_a_dodge",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "no_residual_hits",
+      "metric": "attackx.residual_hits",
+      "op": "eq",
+      "value": 0,
+      "note": "取消切断后续判定"
+    },
+    {
+      "id": "cancel_happened",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "attackx.cancels_total",
+      "op": "ge",
+      "value": 1,
+      "note": "脚本设计为挥击后取消"
+    }
+  ]
+}

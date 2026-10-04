@@ -1,0 +1,16 @@
+{
+  "table": "found.input_action",
+  "schema_version": 1,
+  "rows": [
+    {
+      "key": "input.action.sprint",
+      "kind": "button",
+      "default_bindings": [
+        "key:l"
+      ],
+      "rebind_group": "default",
+      "class": "move",
+      "description": "按住冲刺（ADR-0153）：按钮型 move 类动作不入缓冲，输入缓冲只追踪它的按住状态，玩家移动意图解析器据此在按住且有移动输入时把移动请求升为冲刺模式。"
+    }
+  ]
+}

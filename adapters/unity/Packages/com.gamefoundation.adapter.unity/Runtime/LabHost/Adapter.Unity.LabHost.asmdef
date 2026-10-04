@@ -2,7 +2,10 @@
     "name": "Adapter.Unity.LabHost",
     "rootNamespace": "Adapter.Unity.LabHost",
     "references": [
-        "Adapter.Unity"
+        "Adapter.Unity",
+        "Unity.InputSystem",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
