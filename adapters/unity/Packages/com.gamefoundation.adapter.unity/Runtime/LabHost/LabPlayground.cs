@@ -10,7 +10,8 @@
 //
 // 判断记录（数据根可换）：基础数据根、额外数据根、靶子集、仓库根都是可序列化字段，缺省是框架根 + 实验室数据集 + 实验室动作式数据根；
 // 游戏接入时把它们换成自己的根即可，宿主不读任何写死的路径（动作式实验室输入动作的槽位绑定见 LabLive.DefaultSkillSlots，同样可换）。
-// 判断记录（本切片不含）：调参面板、帧数据时间轴、轨迹叠层、评分——接缝是 LabLiveModel 与 LabPlayground 的命令方法，下一个切片往这里加。
+// 判断记录（实验室面板，ADR-0150）：调参、帧数据时间轴、轨迹叠层、评分四页在 LabPlayground.Panels.cs，全部由内核里的纯 C# 视图模型驱动；
+// 预设切换、A/B、顿帧开关经调参面板（TuningPanel）落成同一种脚本事件，所以 A/B 槽位各自带自己的覆盖组。
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -27,7 +28,7 @@ using Debug = UnityEngine.Debug;
 
 namespace Adapter.Unity.LabHost
 {
-    public sealed class LabPlayground : MonoBehaviour
+    public sealed partial class LabPlayground : MonoBehaviour
     {
         public const string EliteSwingSkill = "skill.lab_a_elite_swing";
 
@@ -144,7 +145,15 @@ namespace Adapter.Unity.LabHost
                 _repoRoot = string.IsNullOrEmpty(repoRoot) ? EngineLabHost.LocateRepoRoot() : repoRoot;
                 _host = new EngineLabHost(_repoRoot, baseDataRoots, null);
                 var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                var script = LabLive.CreateScript("playground_" + cell + "_" + stamp, 60, 60, extraDataRoots, dummySet);
+                _savePath = string.IsNullOrEmpty(SaveDirectory) ? Path.Combine(_repoRoot, "lab", "out", "playground") : SaveDirectory!;
+                var roots = new List<string>(extraDataRoots);
+                if (File.Exists(Path.Combine(LocalPresetRoot, "feel", "feel.preset.json")))
+                {
+                    // 调参面板"保存为预设"写出的本地预设自动并入，预设列表里就能选到（本地、被忽略规则覆盖、不入库）。
+                    roots.Add(LocalPresetRoot);
+                }
+
+                var script = LabLive.CreateScript("playground_" + cell + "_" + stamp, 60, 60, roots, dummySet);
                 _filter = new LabEffectFilter();
                 _filter.Submitted += OnFeedbackSubmitted;
                 var options = new EngineLabOptions
@@ -157,7 +166,6 @@ namespace Adapter.Unity.LabHost
                 };
                 _stage = new EngineLabStage(options);
                 Session = _host.Runner.StartLive(script, cell, null, _stage);
-                _savePath = string.IsNullOrEmpty(SaveDirectory) ? Path.Combine(_repoRoot, "lab", "out", "playground") : SaveDirectory!;
                 BuildModel();
                 InputSource ??= UnityEngineHost.Ensure().Input;
                 var ctx = Session.Context!;
@@ -169,7 +177,8 @@ namespace Adapter.Unity.LabHost
 
                 _poller = new LabLiveInput(InputSource, _actions, "input.action.move", PadReader);
                 _ended = false;
-                Model.Note("试玩会话已开始（" + cell + "）。F1 显示/隐藏面板。");
+                InitPanels();
+                Model.Note("试玩会话已开始（" + cell + "）。F1 显示/隐藏面板，F12 切页（场景/调参/时间轴/轨迹/评分）。");
                 return true;
             }
             catch (Exception ex)
@@ -240,7 +249,11 @@ namespace Adapter.Unity.LabHost
                 return;
             }
 
-            PollHotkeys();
+            if (!_textFocus)
+            {
+                PollHotkeys();
+            }
+
             Tick(Time.unscaledDeltaTime);
         }
 
@@ -267,7 +280,12 @@ namespace Adapter.Unity.LabHost
             try
             {
                 Model.FrameIntervalMs.Add(realDeltaSeconds * 1000.0);
-                _poller?.Poll(OnInputEvent);
+                RunDeferred();
+                if (!_textFocus)
+                {
+                    _poller?.Poll(OnInputEvent);
+                }
+
                 var dt = Math.Min(realDeltaSeconds, 0.1) * Model.TimeScale;
                 if (!Model.Paused && dt > 0.0)
                 {
@@ -384,6 +402,7 @@ namespace Adapter.Unity.LabHost
 
             Model.DummyCount = _live.Count;
             Model.RecordedEvents = Session.Script.Events.Count;
+            AfterAdvancePanels();
         }
 
         /// <summary>帧尾（渲染提交之前）：完成"首次可见响应"的计时。</summary>
@@ -419,6 +438,7 @@ namespace Adapter.Unity.LabHost
                 return;
             }
 
+            PollTabHotkey(kb);
             if (kb.f1Key.wasPressedThisFrame) Model.PanelVisible = !Model.PanelVisible;
             if (kb.f2Key.wasPressedThisFrame) Model.HelpVisible = !Model.HelpVisible;
             if (kb.tabKey.wasPressedThisFrame) SwitchAb();
@@ -620,62 +640,45 @@ namespace Adapter.Unity.LabHost
         /// </summary>
         public void SetPreset(string presetId)
         {
-            if (!IsBegun || string.IsNullOrEmpty(presetId))
+            if (!IsBegun || string.IsNullOrEmpty(presetId) || _tuning == null)
             {
                 return;
             }
 
-            Inject(ScriptEventKind.Preset, presetId);
-            Model.Preset = presetId;
-            if (Model.ActiveSlot == 'A') Model.PresetA = presetId; else Model.PresetB = presetId;
+            _tuning.SetPreset(presetId);
+            SyncFromTuning();
             Model.Note("预设：" + LabLiveModel.FriendlyName(presetId) + "（槽位 " + Model.ActiveSlot + "）");
         }
 
-        /// <summary>A/B 槽位瞬间切换（热键 Tab）：把另一个槽位的预设经预设事件切进来。</summary>
+        /// <summary>
+        /// A/B 槽位瞬间切换（热键 Tab）：每个槽位各自持有基础预设与自己的一组覆盖（调参面板里改的值），切换 = 预设事件（预设不同时）
+        /// + 清空覆盖 + 重注入目标槽位的覆盖，全部落进脚本，可无头重放。
+        /// </summary>
         public void SwitchAb()
         {
-            if (!IsBegun)
+            if (!IsBegun || _tuning == null)
             {
                 return;
             }
 
-            var next = Model.ActiveSlot == 'A' ? 'B' : 'A';
-            var target = next == 'A' ? Model.PresetA : Model.PresetB;
-            if (string.IsNullOrEmpty(target))
-            {
-                Model.Note("槽位 " + next + " 还没有预设（先在预设列表里选一个）。");
-                return;
-            }
-
-            Inject(ScriptEventKind.Preset, target);
-            Model.ActiveSlot = next;
-            Model.Preset = target;
-            Model.SlotSwitches++;
-            Model.Note("A/B 切到槽位 " + next + "：" + LabLiveModel.FriendlyName(target));
+            _tuning.SwitchSlot();
+            SyncFromTuning();
+            Model.Note("A/B 切到槽位 " + Model.ActiveSlot + "：" + LabLiveModel.FriendlyName(Model.Preset) + "（覆盖 " + _tuning.ActiveWrites.Count + " 条）");
         }
 
         /// <summary>
         /// 顿帧开关：局部顿帧是判定型手感（改的是逻辑时钟），所以关顿帧是一条录进脚本的覆盖事件
-        /// （攻击方/受击方顿帧时长置 0），不是呈现闸；重新打开 = 清掉这条覆盖。
+        /// （攻击方/受击方顿帧时长置 0，按槽位各自保存），不是呈现闸；重新打开 = 清掉这两条覆盖。
         /// </summary>
         public void SetHitStop(bool on)
         {
-            if (!IsBegun || on == Model.HitStopOn)
+            if (!IsBegun || _tuning == null || on == _tuning.HitStopOn)
             {
                 return;
             }
 
-            if (on)
-            {
-                Inject(ScriptEventKind.ClearOverrides, "hitstop");
-            }
-            else
-            {
-                Inject(ScriptEventKind.Override, FeelFieldNames.AttackerHitstopMs, new Vec2(0.0, 0.0));
-                Inject(ScriptEventKind.Override, FeelFieldNames.TargetHitstopMs, new Vec2(0.0, 0.0));
-            }
-
-            Model.HitStopOn = on;
+            _tuning.SetHitStop(on);
+            SyncFromTuning();
             Model.Note("顿帧：" + (on ? "开" : "关（逻辑覆盖，已录入脚本）"));
         }
 
@@ -741,6 +744,11 @@ namespace Adapter.Unity.LabHost
             }
 
             Model.Paused = !Model.Paused;
+            if (!Model.Paused)
+            {
+                _timeline.Follow();
+            }
+
             Inject(ScriptEventKind.Marker, "pause", new Vec2(Model.Paused ? 1.0 : 0.0, 0.0));
             Model.Note(Model.Paused ? "已暂停：. 推进一个 tick，, 推进一个表现帧，P 继续" : "继续");
         }
@@ -773,6 +781,7 @@ namespace Adapter.Unity.LabHost
         {
             try
             {
+                _timeline.Follow();
                 AdvanceSession(seconds);
                 AfterAdvance();
                 Model.Tick = Session!.Tick;
@@ -868,6 +877,14 @@ namespace Adapter.Unity.LabHost
                 return;
             }
 
+            UpdateTextFocus();
+            if (!Model.PanelVisible && _textFocus)
+            {
+                GUIUtility.keyboardControl = 0;
+                _textFocus = false;
+            }
+
+            DrawOverlay();
             var scale = Mathf.Clamp(Screen.height / 900f, 1f, 2f);
             var matrix = GUI.matrix;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
@@ -889,6 +906,10 @@ namespace Adapter.Unity.LabHost
 
                 _small ??= new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
                 DrawPanel(scale);
+                if (Model.Tab == LabTab.Timeline)
+                {
+                    DrawTimelineArea(scale);
+                }
             }
             finally
             {
@@ -898,12 +919,20 @@ namespace Adapter.Unity.LabHost
 
         private void DrawPanel(float scale)
         {
-            var width = 380f;
+            var width = PanelWidth;
             var height = Screen.height / scale - 16f;
             GUILayout.BeginArea(new UnityEngine.Rect(8, 8, width, height), GUI.skin.box);
             _scroll = GUILayout.BeginScrollView(_scroll);
             GUILayout.Label("手感试玩  " + Model.Cell + "　tick " + Model.Tick + "　靶子 " + Model.DummyCount + (Model.Paused ? "　[暂停]" : string.Empty));
             GUILayout.Label(Model.Status, _small);
+            DrawTabBar();
+            if (Model.Tab != LabTab.Scene)
+            {
+                DrawTabContent();
+                GUILayout.EndScrollView();
+                GUILayout.EndArea();
+                return;
+            }
 
             // 场景控制
             GUILayout.Label("— 场景控制 —");
@@ -1038,7 +1067,7 @@ namespace Adapter.Unity.LabHost
             var skill = _poller?.Describe("input.action.lab_a_skill") ?? string.Empty;
             var charge = _poller?.Describe("input.action.lab_a_charge") ?? string.Empty;
             return "移动 WASD/方向键/左摇杆\n攻击(三连击) " + attack + "\n闪避 " + dodge + "\n技能(重击) " + skill + "\n蓄力(按住) " + charge
-                + "\n数字键 1.. 出靶子（按住 Shift = 出一群）\nF3 换武器　F4 换体型　Tab A/B　F5 存脚本\nF6 震屏　F7 闪白　F8 顿帧　F9 音效　F10 镜头冲击　F11 角落闪块\n[ ] 时间尺度　P 暂停　. 单步 tick　, 单步帧　G 精英出手";
+                + "\n数字键 1.. 出靶子（按住 Shift = 出一群）\nF3 换武器　F4 换体型　Tab A/B　F5 存脚本　F12 切页（场景/调参/时间轴/轨迹/评分）\nF6 震屏　F7 闪白　F8 顿帧　F9 音效　F10 镜头冲击　F11 角落闪块\n[ ] 时间尺度　P 暂停　. 单步 tick　, 单步帧　G 精英出手";
         }
 
         private static string EffectLabel(string channel)

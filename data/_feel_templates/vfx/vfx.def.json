@@ -8,6 +8,13 @@
       "attach_mode": "world",
       "lifetime": 0.4,
       "resource_ref": "vfx.placeholder_hit_spark"
+    },
+    {
+      "id": "vfx.placeholder_hit_flash",
+      "category": "impact",
+      "attach_mode": "world",
+      "lifetime": 0.15,
+      "resource_ref": "vfx.placeholder_hit_flash"
     }
   ]
 }

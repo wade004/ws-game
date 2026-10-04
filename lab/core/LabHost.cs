@@ -727,8 +727,7 @@ namespace Lab
                         continue;
                     }
 
-                    var op = logged.Value.Y < 0.5 ? Core.Foundation.Feel.FeelOp.Set : logged.Value.Y < 1.5 ? Core.Foundation.Feel.FeelOp.Multiply : Core.Foundation.Feel.FeelOp.Add;
-                    overrides.SetUnit(playerId, new Core.Foundation.Feel.FeelWrite(logged.Action, op, Core.Foundation.Feel.FeelValue.Of(logged.Value.X)));
+                    overrides.SetUnit(playerId, LabOverrideCodec.Decode(world.Gameplay.Feel!.Feel.Resolver.Fields, logged));
                 }
             }
 
@@ -919,8 +918,17 @@ namespace Lab
                 {
                     var overrides = world.Gameplay.Feel?.Feel.DebugOverrides
                         ?? throw new LabFormatException("脚本 override 事件需要手感装配（脚本须是手感场景）");
-                    var op = e.Value.Y < 0.5 ? Core.Foundation.Feel.FeelOp.Set : e.Value.Y < 1.5 ? Core.Foundation.Feel.FeelOp.Multiply : Core.Foundation.Feel.FeelOp.Add;
-                    var write = new Core.Foundation.Feel.FeelWrite(e.Action, op, Core.Foundation.Feel.FeelValue.Of(e.Value.X));
+                    var write = LabOverrideCodec.Decode(world.Gameplay.Feel!.Feel.Resolver.Fields, e);
+                    // 同作用域同字段后写覆盖先写（第 8 层同层不重复写）：日志里只保留最新一条，面板拖滑条时事件很多，日志与重算不随之线性增长。
+                    for (var i = overrideLog.Count - 1; i >= 0; i--)
+                    {
+                        if (string.Equals(overrideLog[i].Action, e.Action, StringComparison.Ordinal)
+                            && string.Equals(overrideLog[i].Actor, e.Actor, StringComparison.Ordinal))
+                        {
+                            overrideLog.RemoveAt(i);
+                        }
+                    }
+
                     if (e.Actor.Length == 0)
                     {
                         overrides.SetGlobal(write);
@@ -952,6 +960,36 @@ namespace Lab
                 {
                     var overrides = world.Gameplay.Feel?.Feel.DebugOverrides
                         ?? throw new LabFormatException("脚本 clear_overrides 事件需要手感装配（脚本须是手感场景）");
+                    if (world.Gameplay.Feel!.Feel.Resolver.Fields.Contains(e.Action))
+                    {
+                        // 事件的 action 是已登记的手感字段名：只清该字段在 actor 作用域里的覆盖（调参面板的"清除单个覆盖"，ADR-0150）；
+                        // 不是字段名（空串、旧试玩脚本里的 "hitstop" 标签等）沿用 ADR-0141 的"清掉全部"。
+                        for (var i = overrideLog.Count - 1; i >= 0; i--)
+                        {
+                            if (string.Equals(overrideLog[i].Action, e.Action, StringComparison.Ordinal)
+                                && string.Equals(overrideLog[i].Actor, e.Actor, StringComparison.Ordinal))
+                            {
+                                overrideLog.RemoveAt(i);
+                            }
+                        }
+
+                        if (e.Actor.Length == 0)
+                        {
+                            overrides.ClearGlobal(e.Action);
+                        }
+                        else if (string.Equals(e.Actor, "player", StringComparison.Ordinal))
+                        {
+                            ReapplyPlayerOverrides(overrides);
+                        }
+                        else if (dummyByLabel.TryGetValue(e.Actor, out var scoped))
+                        {
+                            overrides.ClearUnit(scoped, e.Action);
+                        }
+
+                        recording.InjectedInputs.Add(e);
+                        return;
+                    }
+
                     foreach (var logged in overrideLog)
                     {
                         if (logged.Actor.Length == 0)
@@ -1282,7 +1320,7 @@ namespace Lab
             void InjectLive(ScriptEvent e)
             {
                 // 实时输入：盖上"下一个将要执行的固定步"的戳，进入与脚本相同的分桶队列，并按序追加到会话日志（= 脚本事件清单）。
-                var stamped = new ScriptEvent(tick, e.Action, e.Kind, e.Value, null, e.Actor);
+                var stamped = new ScriptEvent(tick, e.Action, e.Kind, e.Value, null, e.Actor, e.Text);
                 if (!byTick.TryGetValue(tick, out var list))
                 {
                     list = new List<ScriptEvent>();

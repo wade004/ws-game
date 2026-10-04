@@ -374,6 +374,7 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 2. **舞台试玩模式**：`EngineLabOptions.Interactive`（缺省关；开启后舞台相机真正渲染并带音频监听、背景与地面网格、相机跟随玩家、震屏与闪白真实生效、呈现通道闸、视图创建后立即播待机）、`InteractiveZoom`（缺省 2.8）、`InteractiveFollowSmoothing`、`Effects`；`EngineLabHost` 新增接受基础数据根与额外根解析器的构造。缺省选项下脚本回放的行为逐位不变。
 3. **适配器侧新增（只增不改）**：`UnityViewFactory.PlayLocomotionClip(entityId)`（视图创建后默认只显示静态占位图，直到状态机第一次切换才播剪辑；试玩舞台创建视图后调用它，生产装配入口不调用）。
 4. **复现/不变量（PlayMode，`-testCategory module:lab`）**：`LabPlaygroundTests`——移动距离、命中（伤害量有变化）、顿帧时长取自激活预设行、A/B 切换后下一次命中的顿帧按另一预设行折算且切换事件盖在生效 tick、关顿帧是录进脚本的覆盖、呈现开关不改逻辑、磁盘读回的录制脚本无头重放逻辑组指纹逐字节一致、三个场景载入后注入移动与攻击。
+5. **实验室面板（ADR-0150，`LabPlayground.Panels.cs` 与 `LabLiveModel.Tab`）**：调参、帧数据时间轴、轨迹叠层、评分四页加原有场景页，F12 循环；全部从内核视图模型绘制（`TuningPanel`/`TimelineModel`/`TrajectoryModel`/`RatingModel`），界面操作先入队、下一帧控制器开头统一执行，文本框占着键盘时试玩热键与输入轮询暂停；`EngineLabStage` 在试玩模式下按基础预设取模板相机配置（`CameraFraming`：缩放相对值、跟随平滑折成时间常数，非模板预设恢复缺省，`TemplateFraming`/`FollowSmoothingSeconds` 可读）。冒烟：`LabPlaygroundPanelsTests`（分页循环、字段行全覆盖、改攻击方顿帧字段后命中顿帧 tick 等于数据折算且无头重放逐字节一致、A/B 覆盖组、时间轴、模板取景、保存预设/写回/评分的本地产物；设 `GF_LAB_SCREENSHOT_DIR` 另有一条截图用例，门禁不设）。
 
 ### NF2：表现层/适配层边界清扫（2026-10-03）
 

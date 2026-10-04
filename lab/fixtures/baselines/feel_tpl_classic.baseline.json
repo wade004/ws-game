@@ -6,7 +6,7 @@
       "key": {
         "script": "feel_tpl_classic",
         "scriptVersion": 1,
-        "dataset": "cc8c0eef600efe8f",
+        "dataset": "a7edac1c8626ae8a",
         "preset": "feel.preset.tpl_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -134,7 +134,7 @@
           "camera_decay_ms": [],
           "freeze_ops": "",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "5:vfx:vfx.placeholder_hit_spark;8:vfx:vfx.placeholder_hit_spark;100:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "5:flash:stake;5:vfx:vfx.placeholder_hit_spark;8:flash:stake;8:vfx:vfx.placeholder_hit_spark;100:flash:stake;100:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -142,7 +142,7 @@
       "key": {
         "script": "feel_tpl_classic",
         "scriptVersion": 1,
-        "dataset": "d1fbe6cc320f46cc",
+        "dataset": "2bb2e388196eadd9",
         "preset": "feel.preset.tpl_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -279,7 +279,7 @@
           "camera_decay_ms": [],
           "freeze_ops": "",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "14:vfx:vfx.placeholder_hit_spark;109:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "14:flash:stake;14:vfx:vfx.placeholder_hit_spark;109:flash:stake;109:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -287,7 +287,7 @@
       "key": {
         "script": "feel_tpl_classic",
         "scriptVersion": 1,
-        "dataset": "cc8c0eef600efe8f",
+        "dataset": "a7edac1c8626ae8a",
         "preset": "feel.preset.tpl_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -415,7 +415,7 @@
           "camera_decay_ms": [],
           "freeze_ops": "",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "5:vfx:vfx.placeholder_hit_spark;8:vfx:vfx.placeholder_hit_spark;100:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "5:flash:stake;5:vfx:vfx.placeholder_hit_spark;8:flash:stake;8:vfx:vfx.placeholder_hit_spark;100:flash:stake;100:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -423,7 +423,7 @@
       "key": {
         "script": "feel_tpl_classic",
         "scriptVersion": 1,
-        "dataset": "d1fbe6cc320f46cc",
+        "dataset": "2bb2e388196eadd9",
         "preset": "feel.preset.tpl_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -560,7 +560,7 @@
           "camera_decay_ms": [],
           "freeze_ops": "",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "14:vfx:vfx.placeholder_hit_spark;109:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "14:flash:stake;14:vfx:vfx.placeholder_hit_spark;109:flash:stake;109:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -568,7 +568,7 @@
       "key": {
         "script": "feel_tpl_classic",
         "scriptVersion": 1,
-        "dataset": "cc8c0eef600efe8f",
+        "dataset": "a7edac1c8626ae8a",
         "preset": "feel.preset.tpl_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -696,7 +696,7 @@
           "camera_decay_ms": [],
           "freeze_ops": "",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "5:vfx:vfx.placeholder_hit_spark;8:vfx:vfx.placeholder_hit_spark;100:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "5:flash:stake;5:vfx:vfx.placeholder_hit_spark;8:flash:stake;8:vfx:vfx.placeholder_hit_spark;100:flash:stake;100:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -704,7 +704,7 @@
       "key": {
         "script": "feel_tpl_classic",
         "scriptVersion": 1,
-        "dataset": "d1fbe6cc320f46cc",
+        "dataset": "2bb2e388196eadd9",
         "preset": "feel.preset.tpl_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -841,7 +841,7 @@
           "camera_decay_ms": [],
           "freeze_ops": "",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "14:vfx:vfx.placeholder_hit_spark;109:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "14:flash:stake;14:vfx:vfx.placeholder_hit_spark;109:flash:stake;109:vfx:vfx.placeholder_hit_spark"
         }
       }
     }

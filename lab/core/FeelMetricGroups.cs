@@ -699,6 +699,12 @@ namespace Lab
                     var moved = false;
                     foreach (var t in feel.Ticks)
                     {
+                        // 交互式试玩运行中出的靶子、被清掉的靶子会让各 tick 的靶子清单长度不同：按下标取，下标越界或标签对不上就当这 tick 没有该靶子的样本。
+                        if (k >= t.TargetPositions.Count || !string.Equals(t.TargetPositions[k].Key, first[k].Key, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
                         var d = t.TargetPositions[k].Value - first[k].Value;
                         if (Math.Abs(d.X) > 1e-9 || Math.Abs(d.Y) > 1e-9)
                         {
@@ -714,7 +720,8 @@ namespace Lab
 
                     foreach (var t in feel.Ticks)
                     {
-                        if (t.Tick % 30 == 0 || t.Tick == lastSample.Tick)
+                        if ((t.Tick % 30 == 0 || t.Tick == lastSample.Tick)
+                            && k < t.TargetPositions.Count && string.Equals(t.TargetPositions[k].Key, first[k].Key, StringComparison.Ordinal))
                         {
                             var p = t.TargetPositions[k].Value;
                             track.Add(first[k].Key + "@" + FeelMetricUtil.Num(t.Tick) + "=" + FeelMetricUtil.Num(p.X) + "," + FeelMetricUtil.Num(p.Y));

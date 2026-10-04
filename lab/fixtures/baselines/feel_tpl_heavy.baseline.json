@@ -6,7 +6,7 @@
       "key": {
         "script": "feel_tpl_heavy",
         "scriptVersion": 1,
-        "dataset": "e73f090484c1ad02",
+        "dataset": "a7edac1c8626ae8a",
         "preset": "feel.preset.tpl_heavy",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -140,7 +140,7 @@
           ],
           "freeze_ops": "5:freeze:player:3;5:freeze:stake:4;8:release:player:0;9:freeze:player:3;9:freeze:stake:4;12:release:player:0;13:release:stake:0;100:freeze:player:3;100:freeze:stake:4;103:release:player:0;104:release:stake:0",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "5:vfx:vfx.placeholder_hit_spark;9:vfx:vfx.placeholder_hit_spark;100:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "5:flash:stake;5:vfx:vfx.placeholder_hit_spark;9:flash:stake;9:vfx:vfx.placeholder_hit_spark;100:flash:stake;100:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -148,7 +148,7 @@
       "key": {
         "script": "feel_tpl_heavy",
         "scriptVersion": 1,
-        "dataset": "e32dcbcc7376e337",
+        "dataset": "2bb2e388196eadd9",
         "preset": "feel.preset.tpl_heavy",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -294,7 +294,7 @@
           ],
           "freeze_ops": "19:freeze:player:3;19:freeze:stake:4;22:release:player:0;23:release:stake:0;114:freeze:player:3;114:freeze:stake:4;117:release:player:0;118:release:stake:0",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "19:vfx:vfx.placeholder_hit_spark;114:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "19:flash:stake;19:vfx:vfx.placeholder_hit_spark;114:flash:stake;114:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -302,7 +302,7 @@
       "key": {
         "script": "feel_tpl_heavy",
         "scriptVersion": 1,
-        "dataset": "e73f090484c1ad02",
+        "dataset": "a7edac1c8626ae8a",
         "preset": "feel.preset.tpl_heavy",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -436,7 +436,7 @@
           ],
           "freeze_ops": "5:freeze:player:3;5:freeze:stake:4;8:release:player:0;9:freeze:player:3;9:freeze:stake:4;12:release:player:0;13:release:stake:0;100:freeze:player:3;100:freeze:stake:4;103:release:player:0;104:release:stake:0",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "5:vfx:vfx.placeholder_hit_spark;9:vfx:vfx.placeholder_hit_spark;100:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "5:flash:stake;5:vfx:vfx.placeholder_hit_spark;9:flash:stake;9:vfx:vfx.placeholder_hit_spark;100:flash:stake;100:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -444,7 +444,7 @@
       "key": {
         "script": "feel_tpl_heavy",
         "scriptVersion": 1,
-        "dataset": "e32dcbcc7376e337",
+        "dataset": "2bb2e388196eadd9",
         "preset": "feel.preset.tpl_heavy",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -590,7 +590,7 @@
           ],
           "freeze_ops": "19:freeze:player:3;19:freeze:stake:4;22:release:player:0;23:release:stake:0;114:freeze:player:3;114:freeze:stake:4;117:release:player:0;118:release:stake:0",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "19:vfx:vfx.placeholder_hit_spark;114:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "19:flash:stake;19:vfx:vfx.placeholder_hit_spark;114:flash:stake;114:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -598,7 +598,7 @@
       "key": {
         "script": "feel_tpl_heavy",
         "scriptVersion": 1,
-        "dataset": "e73f090484c1ad02",
+        "dataset": "a7edac1c8626ae8a",
         "preset": "feel.preset.tpl_heavy",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -732,7 +732,7 @@
           ],
           "freeze_ops": "5:freeze:player:3;5:freeze:stake:4;8:release:player:0;9:freeze:player:3;9:freeze:stake:4;12:release:player:0;13:release:stake:0;100:freeze:player:3;100:freeze:stake:4;103:release:player:0;104:release:stake:0",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "5:vfx:vfx.placeholder_hit_spark;9:vfx:vfx.placeholder_hit_spark;100:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "5:flash:stake;5:vfx:vfx.placeholder_hit_spark;9:flash:stake;9:vfx:vfx.placeholder_hit_spark;100:flash:stake;100:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -740,7 +740,7 @@
       "key": {
         "script": "feel_tpl_heavy",
         "scriptVersion": 1,
-        "dataset": "e32dcbcc7376e337",
+        "dataset": "2bb2e388196eadd9",
         "preset": "feel.preset.tpl_heavy",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -886,7 +886,7 @@
           ],
           "freeze_ops": "19:freeze:player:3;19:freeze:stake:4;22:release:player:0;23:release:stake:0;114:freeze:player:3;114:freeze:stake:4;117:release:player:0;118:release:stake:0",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "19:vfx:vfx.placeholder_hit_spark;114:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "19:flash:stake;19:vfx:vfx.placeholder_hit_spark;114:flash:stake;114:vfx:vfx.placeholder_hit_spark"
         }
       }
     }
