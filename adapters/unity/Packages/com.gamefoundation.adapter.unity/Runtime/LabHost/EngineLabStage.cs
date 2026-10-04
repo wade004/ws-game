@@ -1113,6 +1113,7 @@ namespace Adapter.Unity.LabHost
                     {
                         entry.LastModelClip = clipName;
                         _rec.ClipTransitions.Add(Label(pair.Key) + ":" + clipName);
+                        _rec.ClipTransitionSeconds.Add(_simNow);
                     }
                 }
             }
@@ -1179,6 +1180,7 @@ namespace Adapter.Unity.LabHost
                 {
                     pair.Value.LastClip = clip;
                     _rec.ClipTransitions.Add(Label(pair.Key) + ":" + clip.Value.Value);
+                    _rec.ClipTransitionSeconds.Add(_simNow);
                 }
             }
 
