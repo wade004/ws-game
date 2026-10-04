@@ -164,6 +164,7 @@ namespace Presentation.Camera
         /// 跟随调用与 <see cref="Update(double)"/> 改动前逐位一致（<c>ICamera.Follow(pos, FollowLerp)</c>）。</summary>
         public void Update(double alpha, double dt)
         {
+            AdvanceFeelClock(dt);
             if (_currentProfile == null || _followEntityId == null)
             {
                 return;
@@ -281,19 +282,47 @@ namespace Presentation.Camera
         /// 并在 <paramref name="decayMs"/> 内衰减回零。适配层支持 <see cref="ICameraImpulse"/> 时直接转发；不支持时退化为
         /// <see cref="ICamera.Shake"/>（强度 = 比例 × <c>shakeReferenceHeight</c>、时长 = 衰减时长、频率 =
         /// <see cref="ImpulseFallbackShakeFrequency"/>）并记一条去重诊断（手感设计/05 第 7 节降级）。幅度非正时忽略。
-        /// 合并、限频、上限截断由调用方（反馈包流水线）负责，本方法不再二次处理。
+        /// <para>
+        /// 出口统一处理（ADR-0148）：先乘玩家强度（<see cref="Intensity"/> 的镜头冲击系数），再按 <c>shake_cap</c>（跟随实体手感档案，
+        /// 画面高度比例；0 或未启用手感镜头 = 相机侧不限制）把<b>所有仍在衰减的冲击与当前震屏的合成幅度</b>压在上限之内：
+        /// 新冲击超出余量时按比例缩小，没有余量则丢弃。反馈包流水线只做批内合并（取最大、间隔限频），总量截断在这里。
+        /// </para>
         /// </summary>
         public void Impulse(Vec2 direction, double magnitude, double decayMs)
         {
+            if (Intensity != null)
+            {
+                magnitude *= Intensity.Get(FeelIntensityKind.Impulse);
+            }
             if (!(magnitude > 0))
             {
                 return;
             }
 
             var decay = decayMs > 1 ? decayMs : 1;
-            if (_camera is ICameraImpulse impulse && impulse.SupportsCameraImpulse)
+            var native = _camera is ICameraImpulse nativeImpulse && nativeImpulse.SupportsCameraImpulse;
+
+            var cap = CurrentShakeCap();
+            if (cap > 0)
             {
-                impulse.Impulse(direction, magnitude, decay);
+                var fitted = native
+                    ? FitImpulse(direction, magnitude, decay, cap)
+                    : FitShake(magnitude, decay, cap);
+                if (fitted < magnitude)
+                {
+                    CapClampedCount++;
+                    magnitude = fitted;
+                }
+                if (!(magnitude > 0))
+                {
+                    return;
+                }
+            }
+
+            if (native)
+            {
+                TrackImpulse(direction, magnitude, decay);
+                ((ICameraImpulse)_camera).Impulse(direction, magnitude, decay);
                 return;
             }
 
@@ -305,7 +334,242 @@ namespace Presentation.Camera
                     "（强度 = 画面高度比例 × 参考镜头高度；仅首次记录，之后同样退化）");
             }
 
+            TrackShake(magnitude, decay);
             _camera.Shake(magnitude * CurrentShakeReferenceHeight(), decay / 1000.0, ImpulseFallbackShakeFrequency);
+        }
+
+        /// <summary>
+        /// 缩放脉冲（可选能力 <see cref="ICameraZoomPunch"/>，ADR-0148）：命中瞬间可视范围收窄 <paramref name="magnitude"/>（比例）再回落。
+        /// 乘玩家强度的镜头冲击系数；适配层不支持时记一条去重诊断后忽略（没有对等降级通道）。不计入 <c>shake_cap</c> 合成幅度（它是缩放量、不是位移）。
+        /// </summary>
+        public void ZoomPunch(double magnitude, double decayMs)
+        {
+            if (Intensity != null)
+            {
+                magnitude *= Intensity.Get(FeelIntensityKind.Impulse);
+            }
+            if (!(magnitude > 0))
+            {
+                return;
+            }
+
+            if (_camera is ICameraZoomPunch punch && punch.SupportsCameraZoomPunch)
+            {
+                punch.ZoomPunch(magnitude, decayMs > 1 ? decayMs : 1);
+                return;
+            }
+
+            if (!_zoomPunchUnsupportedReported)
+            {
+                _zoomPunchUnsupportedReported = true;
+                _diagnostics.Warn("缩放脉冲：适配层不支持 ICameraZoomPunch（supportsCameraZoomPunch 为假），已忽略（仅首次记录）");
+            }
+        }
+
+        /// <summary>适配层是否真正支持缩放脉冲能力。</summary>
+        public bool SupportsZoomPunch => _camera is ICameraZoomPunch punch && punch.SupportsCameraZoomPunch;
+
+        // ------------------------------------------------------------------
+        // 相机侧合成幅度（ADR-0148）：跟踪本宿主发出的、仍在衰减的冲击与震屏，供 shake_cap 总量截断。
+        // 衰减口径与 Unity 适配层一致（线性回落到 0）；时钟由 Update(alpha, dt) 推进。
+        // ------------------------------------------------------------------
+
+        private struct TrackedImpulse
+        {
+            public double X;
+            public double Y;
+            public bool Isotropic;
+            public double Peak;
+            public double StartMs;
+            public double DurationMs;
+        }
+
+        private readonly List<TrackedImpulse> _tracked = new List<TrackedImpulse>();
+        private bool _shakeTracked;
+        private double _shakeAmplitude;
+        private double _shakeStartMs;
+        private double _shakeDurationMs;
+        private double _feelClockMs;
+        private bool _zoomPunchUnsupportedReported;
+
+        /// <summary>玩家强度来源（装配根注入 <see cref="FeelIntensityHost"/>）；null 表示不缩放（系数恒 1）。</summary>
+        public IFeelIntensity? Intensity { get; set; }
+
+        /// <summary>被 <c>shake_cap</c> 缩小过的冲击/震屏次数（观察截断是否生效；丢弃也计入）。</summary>
+        public int CapClampedCount { get; private set; }
+
+        /// <summary>
+        /// 当前合成幅度（画面高度比例）：方向冲击向量和的模 + 各向同性冲击幅度 + 震屏幅度，均按剩余时间线性衰减后计。
+        /// 是 <c>shake_cap</c> 约束的量；只含经本宿主发出的冲击与震屏。
+        /// </summary>
+        public double CompositeMagnitude => CompositeAt(_feelClockMs, includeShake: true);
+
+        /// <summary>手感镜头时钟（毫秒，<see cref="Update(double, double)"/> 累加的 dt）。</summary>
+        public double FeelClockMs => _feelClockMs;
+
+        private void AdvanceFeelClock(double dt)
+        {
+            if (dt > 0 && !double.IsInfinity(dt))
+            {
+                _feelClockMs += dt * 1000.0;
+            }
+            for (var i = _tracked.Count - 1; i >= 0; i--)
+            {
+                if (_feelClockMs >= _tracked[i].StartMs + _tracked[i].DurationMs)
+                {
+                    _tracked.RemoveAt(i);
+                }
+            }
+            if (_shakeTracked && _feelClockMs >= _shakeStartMs + _shakeDurationMs)
+            {
+                _shakeTracked = false;
+            }
+        }
+
+        private double CurrentShakeCap()
+        {
+            if (_feelSource == null || _followEntityId == null)
+            {
+                return 0.0;
+            }
+            var feel = _feelSource(_followEntityId.Value);
+            return feel != null ? feel.ShakeCap : 0.0;
+        }
+
+        private void TrackImpulse(Vec2 direction, double magnitude, double decayMs)
+        {
+            var sqr = direction.X * direction.X + direction.Y * direction.Y;
+            var iso = !(sqr > 1e-12);
+            var len = iso ? 1.0 : Math.Sqrt(sqr);
+            _tracked.Add(new TrackedImpulse
+            {
+                X = iso ? 0.0 : direction.X / len,
+                Y = iso ? 0.0 : direction.Y / len,
+                Isotropic = iso,
+                Peak = magnitude,
+                StartMs = _feelClockMs,
+                DurationMs = decayMs,
+            });
+        }
+
+        private void TrackShake(double amplitudeRatio, double decayMs)
+        {
+            _shakeTracked = true;
+            _shakeAmplitude = amplitudeRatio;
+            _shakeStartMs = _feelClockMs;
+            _shakeDurationMs = decayMs;
+        }
+
+        private static double Remaining(double now, double start, double duration)
+        {
+            var f = 1.0 - (now - start) / duration;
+            return f > 0 ? (f < 1.0 ? f : 1.0) : 0.0;
+        }
+
+        private double CompositeAt(double t, bool includeShake)
+        {
+            double sx = 0, sy = 0, iso = 0;
+            for (var i = 0; i < _tracked.Count; i++)
+            {
+                var tr = _tracked[i];
+                var f = Remaining(t, tr.StartMs, tr.DurationMs) * tr.Peak;
+                if (tr.Isotropic) iso += f;
+                else { sx += tr.X * f; sy += tr.Y * f; }
+            }
+            var shake = includeShake && _shakeTracked ? _shakeAmplitude * Remaining(t, _shakeStartMs, _shakeDurationMs) : 0.0;
+            return Math.Sqrt(sx * sx + sy * sy) + iso + shake;
+        }
+
+        /// <summary>
+        /// 断点时刻（现在，以及每个仍在衰减的轨道的结束时刻）：合成幅度是各轨道线性函数的向量和之模再相加，
+        /// 两个断点之间是凸函数，最大值只会出现在断点上，所以只需在断点检查上限。
+        /// </summary>
+        private List<double> Breakpoints(bool includeShake)
+        {
+            var points = new List<double> { _feelClockMs };
+            for (var i = 0; i < _tracked.Count; i++)
+            {
+                points.Add(_tracked[i].StartMs + _tracked[i].DurationMs);
+            }
+            if (includeShake && _shakeTracked)
+            {
+                points.Add(_shakeStartMs + _shakeDurationMs);
+            }
+            return points;
+        }
+
+        /// <summary>新方向冲击可用的最大幅度（不超过 <paramref name="magnitude"/>）：在所有断点上，加入新冲击后的合成幅度不超过 <paramref name="cap"/>。</summary>
+        private double FitImpulse(Vec2 direction, double magnitude, double decayMs, double cap)
+        {
+            var sqr = direction.X * direction.X + direction.Y * direction.Y;
+            var iso = !(sqr > 1e-12);
+            var dx = iso ? 0.0 : direction.X / Math.Sqrt(sqr);
+            var dy = iso ? 0.0 : direction.Y / Math.Sqrt(sqr);
+            var best = magnitude;
+            var newEnd = _feelClockMs + decayMs;
+            var points = Breakpoints(includeShake: true);
+            points.Add(newEnd);
+            foreach (var t in points)
+            {
+                if (t > newEnd) continue;
+                var f = Remaining(t, _feelClockMs, decayMs); // 新冲击在 t 时刻的剩余比例
+                if (!(f > 0)) continue;
+                double sx = 0, sy = 0, isoSum = 0;
+                for (var i = 0; i < _tracked.Count; i++)
+                {
+                    var tr = _tracked[i];
+                    var v = Remaining(t, tr.StartMs, tr.DurationMs) * tr.Peak;
+                    if (tr.Isotropic) isoSum += v;
+                    else { sx += tr.X * v; sy += tr.Y * v; }
+                }
+                if (_shakeTracked)
+                {
+                    isoSum += _shakeAmplitude * Remaining(t, _shakeStartMs, _shakeDurationMs);
+                }
+
+                double allowed; // 新冲击在 t 时刻的幅度 x = m * f 的上限
+                if (iso)
+                {
+                    allowed = cap - Math.Sqrt(sx * sx + sy * sy) - isoSum;
+                }
+                else
+                {
+                    var head = cap - isoSum;
+                    var sLen2 = sx * sx + sy * sy;
+                    if (head <= 0 || sLen2 > head * head)
+                    {
+                        allowed = 0;
+                    }
+                    else
+                    {
+                        var sd = sx * dx + sy * dy;
+                        var disc = sd * sd - sLen2 + head * head;
+                        allowed = disc <= 0 ? 0 : -sd + Math.Sqrt(disc);
+                    }
+                }
+                var m = allowed / f;
+                if (m < best) best = m;
+            }
+            return best > 0 ? best : 0.0;
+        }
+
+        /// <summary>新震屏（替换当前震屏）可用的最大幅度：在断点上，冲击合成 + 新震屏不超过 <paramref name="cap"/>。</summary>
+        private double FitShake(double amplitude, double durationMs, double cap)
+        {
+            var best = amplitude;
+            var newEnd = _feelClockMs + durationMs;
+            var points = Breakpoints(includeShake: false);
+            points.Add(newEnd);
+            foreach (var t in points)
+            {
+                if (t > newEnd) continue;
+                var f = Remaining(t, _feelClockMs, durationMs);
+                if (!(f > 0)) continue;
+                var head = cap - CompositeAt(t, includeShake: false);
+                var m = head / f;
+                if (m < best) best = m;
+            }
+            return best > 0 ? best : 0.0;
         }
 
         private void UpdateCombatZoom(CameraFeelProfile? feel, double dt)
@@ -383,7 +647,41 @@ namespace Presentation.Camera
             {
                 if (presets[i].Id.Equals(shakePresetId))
                 {
-                    _camera.Shake(presets[i].Amplitude, presets[i].Duration, presets[i].Frequency);
+                    var amplitude = presets[i].Amplitude;
+                    if (Intensity != null)
+                    {
+                        amplitude *= Intensity.Get(FeelIntensityKind.Shake);
+                        if (!(amplitude > 0))
+                        {
+                            return; // 玩家关闭震屏
+                        }
+                    }
+
+                    // 相机侧总量上限（ADR-0148）：震屏幅度（世界单位）按参考镜头高度折成画面高度比例，与仍在衰减的冲击合成后不超过 shake_cap。
+                    var cap = CurrentShakeCap();
+                    if (cap > 0 && amplitude > 0)
+                    {
+                        var refHeight = CurrentShakeReferenceHeight();
+                        var durationMs = presets[i].Duration * 1000.0;
+                        var ratio = amplitude / refHeight;
+                        var fitted = durationMs > 0 ? FitShake(ratio, durationMs, cap) : ratio;
+                        if (fitted < ratio)
+                        {
+                            CapClampedCount++;
+                            if (!(fitted > 0))
+                            {
+                                return;
+                            }
+                            ratio = fitted;
+                            amplitude = fitted * refHeight;
+                        }
+                        if (durationMs > 0)
+                        {
+                            TrackShake(ratio, durationMs);
+                        }
+                    }
+
+                    _camera.Shake(amplitude, presets[i].Duration, presets[i].Frequency);
                     return;
                 }
             }

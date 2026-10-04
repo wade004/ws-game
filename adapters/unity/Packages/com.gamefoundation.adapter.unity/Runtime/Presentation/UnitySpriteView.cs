@@ -24,7 +24,7 @@ using Adapter.Unity.EngineAdapter;
 
 namespace Adapter.Unity.Presentation
 {
-    public sealed class UnitySpriteView : SpriteViewBase
+    public sealed class UnitySpriteView : SpriteViewBase, IAfterimageTarget
     {
         /// <summary>闪白强度参数名，经 <c>IRenderer2D.SetShaderParam</c> 通道传递；
         /// <c>Adapter.Unity.EngineAdapter.UnityRenderer2D</c> 把它解释为"把纸娃娃层各
@@ -267,6 +267,35 @@ namespace Adapter.Unity.Presentation
         /// <summary>触发一次过曝白色 hit-flash（见类型注释）；调用方（<c>FlashReceiver</c>）负责
         /// 在闪白持续时间结束后调用 <see cref="ClearFlash"/> 复原。</summary>
         public void SetFlash(double intensity) => Renderer.SetShaderParam(Handle, FlashIntensityShaderParam, intensity);
+
+        /// <summary>残影开关（<see cref="IAfterimageTarget"/>，ADR-0148）：开启时在精灵根节点挂 <see cref="AfterimageEmitter"/> 并按间隔留半透明副本，
+        /// 关闭后已留下的残影继续淡出。渲染器不是 <c>UnityRenderer2D</c>（没有可挂载的根节点）时静默忽略。</summary>
+        public void SetAfterimage(bool enabled)
+        {
+            if (!(Renderer is UnityRenderer2D unity2D))
+            {
+                return;
+            }
+
+            var root = unity2D.GetSpriteRoot(Handle);
+            if (root == null)
+            {
+                return;
+            }
+
+            var emitter = root.GetComponent<AfterimageEmitter>();
+            if (emitter == null)
+            {
+                if (!enabled)
+                {
+                    return;
+                }
+
+                emitter = root.AddComponent<AfterimageEmitter>();
+            }
+
+            emitter.Active = enabled;
+        }
 
         public void ClearFlash() => Renderer.SetShaderParam(Handle, FlashIntensityShaderParam, 0.0);
     }

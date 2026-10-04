@@ -1,0 +1,18 @@
+{
+  "table": "feel.calibration",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.calibration.lab_av_feedback",
+      "description": "实验室镜头与音画反馈标定：基础预设 feel.preset.av_feedback；参考身高 1、基础移速 5，其余同动作式格子标定。",
+      "base_preset": "feel.preset.av_feedback",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    }
+  ]
+}

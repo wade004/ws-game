@@ -212,15 +212,45 @@ namespace Tests.PresentationCamera
             Assert.NotEqual(wallClock, legacy, 3);
         }
 
+        // ADR-0148：阻尼是跟随滞后的唯一权威。此前 follow_lag_ms 换算成 ICamera.Follow 的平滑、分轴阻尼又在档案跟随里再滞后一次，
+        // 两级串联，总滞后约为两者之和（复现：lag 250 + damping 250 时，旧实现的 Follow 平滑被改成 0.25 秒，叠在阻尼之上）。
+
         [Fact]
-        public void FollowLag_ConvertsToFollowSmoothingTimeConstantInSeconds()
+        public void FollowLag_DoesNotAddASecondSmoothingStage_TheFollowSmoothingStaysTheProfileValue()
         {
-            var (host, camera, target) = MakeHost(NonNeutral(Set(FeelFieldNames.CameraFollowLagMs, 250)));
+            const double lagMs = 250.0;
+            var (host, camera, target) = MakeHost(NonNeutral(Set(FeelFieldNames.CameraFollowLagMs, lagMs)));
             target.Position = new Vec2(1, 1);
 
             host.Update(0.5, Dt);
 
-            Assert.Equal(0.25, camera.FollowSmoothings[0], 12);
+            // 适配层的跟随平滑恒取档案 follow_lerp，不随 follow_lag_ms 变化。
+            Assert.Equal(Profile().FollowLerp, camera.FollowSmoothings[0], 12);
+        }
+
+        [Fact]
+        public void FollowLag_WithoutAxisDamping_ActsAsTheDamping_AndAxisDampingWins()
+        {
+            const double lagMs = 250.0;
+            const double dampX = 100.0;
+            // x 轴给了阻尼、y 轴没给：x 取阻尼，y 取（已弃用的）follow_lag 作为阻尼；两者只滞后一次。
+            var (host, camera, target) = MakeHost(NonNeutral(
+                Set(FeelFieldNames.CameraFollowLagMs, lagMs), Set(FeelFieldNames.CameraDampingXMs, dampX)));
+            target.Position = new Vec2(0, 0);
+            host.Update(0.5, Dt);
+
+            target.Position = new Vec2(10, -4);
+            double x = 0, y = 0;
+            var ax = 1.0 - Math.Exp(-Dt / (dampX / 1000.0));
+            var ay = 1.0 - Math.Exp(-Dt / (lagMs / 1000.0));
+            for (var n = 1; n <= 20; n++)
+            {
+                x += (10 - x) * ax;
+                y += (-4 - y) * ay;
+                host.Update(0.5, Dt);
+                Assert.Equal(x, camera.FollowPositions[n].X, 12);
+                Assert.Equal(y, camera.FollowPositions[n].Y, 12);
+            }
         }
 
         // ------------------------------------------------------------------ 死区

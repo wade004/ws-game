@@ -206,9 +206,6 @@ namespace Core.Foundation.Feel
             (FeelFieldNames.StartBlendMs, "表现层尚未实现起步过渡"),
             (FeelFieldNames.StopBlendMs, "表现层尚未实现急停过渡"),
             (FeelFieldNames.LeanDegPerAccel, "表现层尚未实现按加速度的身体倾斜"),
-            (FeelFieldNames.TrailEnabled, "表现层缺省 sink 不渲染拖尾"),
-            (FeelFieldNames.AfterimageEnabled, "表现层缺省 sink 不渲染残影"),
-            (FeelFieldNames.TrailRef, "表现层缺省 sink 不渲染拖尾，没有读取拖尾定义的消费方"),
         };
 
         /// <summary>框架默认登记（不可变，登记顺序即遍历顺序）。</summary>
@@ -484,7 +481,7 @@ namespace Core.Foundation.Feel
                     optional: true),
 
                 // ---------- 镜头（07 第 2 节，呈现型）----------
-                Num(FeelFieldNames.CameraFollowLagMs, Cam, P, Ms, C, 0, 2000, "镜头跟随滞后"),
+                Num(FeelFieldNames.CameraFollowLagMs, Cam, P, Ms, C, 0, 2000, "镜头跟随滞后（已弃用：阻尼是唯一权威，分轴阻尼为 0 的轴取本值作为阻尼，不再另走 ICamera.Follow 平滑）"),
                 Num(FeelFieldNames.CameraLookAhead, Cam, P, BodyH, C, 0, 10, "沿速度方向的前瞻距离"),
                 Num(FeelFieldNames.CameraLookAheadLagMs, Cam, P, Ms, C, 0, 2000, "前瞻点自身的滞后，避免反转时甩动"),
                 Num(FeelFieldNames.CameraDeadZoneWidth, Cam, P, BodyH, C, 0, 10, "死区宽：目标在死区内镜头不动"),
@@ -495,9 +492,9 @@ namespace Core.Foundation.Feel
                 Num(FeelFieldNames.CameraCombatZoomBlendMs, Cam, P, Ms, C, 0, 3000, "进出战斗缩放的过渡时长"),
                 Num(FeelFieldNames.CameraImpulseGain, Cam, P, FeelUnit.ScreenHeightRatio, W, 0, 0.2, "镜头冲击基准幅度（画面高度比例）"),
                 Num(FeelFieldNames.CameraImpulseMinIntervalMs, Cam, P, Ms, C, 0, 2000, "镜头冲击合并的最小间隔"),
-                Num(FeelFieldNames.CameraShakeCap, Cam, P, FeelUnit.ScreenHeightRatio, C, 0, 0.5, "震屏与冲击叠加后的上限（画面高度比例）"),
-                Text(FeelFieldNames.CameraDistanceAttenuation, Cam, P, C, "命中点到跟随目标的距离衰减曲线引用：linear 或曲线 id"),
-                Text(FeelFieldNames.CameraUserIntensitySetting, Cam, P, C, "玩家可调整体强度开关的设置项引用", optional: true),
+                Num(FeelFieldNames.CameraShakeCap, Cam, P, FeelUnit.ScreenHeightRatio, C, 0, 0.5, "震屏与冲击叠加后的合成幅度上限（画面高度比例）：相机侧对所有仍在衰减的冲击与震屏总量截断，0 = 相机侧不限制"),
+                Text(FeelFieldNames.CameraDistanceAttenuation, Cam, P, C, "命中点到跟随目标的距离衰减：none（缺省，不衰减）、linear:<跨度身高倍数>（线性衰减到 0）或曲线 id；旧写法裸 linear 等同 none 并提示迁移"),
+                Text(FeelFieldNames.CameraUserIntensitySetting, Cam, P, C, "玩家可调强度的命名设置项引用（额外乘到该包的镜头冲击上；震屏/冲击/闪白/震动四个全局系数 feel.intensity.* 在出口统一生效，与本字段无关）", optional: true),
 
                 // ---------- 特效（05 第 3.1 节、08 第 4 节，呈现型）----------
                 IdF(FeelFieldNames.ImpactProfileRef, Fx, P, W, "打击反馈包引用（feedback.impact_profile），再按 impact_class 与命中结局选变体；缺省（无值）表示无反馈包", "feedback.impact_profile"),

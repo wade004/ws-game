@@ -63,6 +63,16 @@ namespace Presentation.FeedbackBinder.Contracts
         public override int GetHashCode() => (Particles ? 1 : 0) | (Trail ? 2 : 0);
     }
 
+    /// <summary>闪白的同步方式（变体 <c>flash.sync</c>，ADR-0148）。</summary>
+    public enum ImpactFlashSync
+    {
+        /// <summary>命中批出时立即闪（缺省，与此前逐位一致）。</summary>
+        Immediate,
+
+        /// <summary>推迟到闪白对象当前剪辑的 <c>impact</c> 标记（手感设计/04 第 5 节"受击冲击帧，闪白对齐"）；超时没有标记则照常闪。</summary>
+        ImpactMarker,
+    }
+
     /// <summary>反馈包变体里的闪白声明。</summary>
     public sealed class ImpactFlashSpec
     {
@@ -71,7 +81,15 @@ namespace Presentation.FeedbackBinder.Contracts
         /// <summary>闪白对象：<see cref="FeedbackAttachTarget.Target"/> 或 <see cref="FeedbackAttachTarget.Source"/>。</summary>
         public FeedbackAttachTarget Target { get; }
 
+        /// <summary>同步方式，缺省 <see cref="ImpactFlashSync.Immediate"/>。</summary>
+        public ImpactFlashSync Sync { get; }
+
         public ImpactFlashSpec(Id profileId, FeedbackAttachTarget target)
+            : this(profileId, target, ImpactFlashSync.Immediate)
+        {
+        }
+
+        public ImpactFlashSpec(Id profileId, FeedbackAttachTarget target, ImpactFlashSync sync)
         {
             if (target == FeedbackAttachTarget.World)
             {
@@ -79,6 +97,7 @@ namespace Presentation.FeedbackBinder.Contracts
             }
             ProfileId = profileId;
             Target = target;
+            Sync = sync;
         }
     }
 
@@ -136,8 +155,22 @@ namespace Presentation.FeedbackBinder.Contracts
 
         public double DecayMs { get; }
 
+        /// <summary>缩放脉冲峰值（比例，缺省 0 = 不做；ADR-0148）：命中瞬间可视范围收窄这么多再按 <see cref="DecayMs"/> 回落。
+        /// 幅度同样乘 <c>intensity</c> 缩放与距离衰减，需镜头适配层的 <c>ICameraZoomPunch</c> 能力才生效。</summary>
+        public double ZoomPunch { get; }
+
         public ImpactCameraSpec(double impulseGain, Id? shakeProfile, double decayMs)
+            : this(impulseGain, shakeProfile, decayMs, 0.0)
         {
+        }
+
+        public ImpactCameraSpec(double impulseGain, Id? shakeProfile, double decayMs, double zoomPunch)
+        {
+            if (!(zoomPunch >= 0) || double.IsInfinity(zoomPunch))
+            {
+                throw new ArgumentOutOfRangeException(nameof(zoomPunch), "缩放脉冲必须是非负有限数");
+            }
+            ZoomPunch = zoomPunch;
             if (!(impulseGain >= 0) || double.IsInfinity(impulseGain))
             {
                 throw new ArgumentOutOfRangeException(nameof(impulseGain), "冲击增益乘数必须是非负有限数");
@@ -152,7 +185,32 @@ namespace Presentation.FeedbackBinder.Contracts
         }
     }
 
-    /// <summary>反馈包变体里的拖尾声明（仅承载，框架缺省 sink 不渲染拖尾，见 feedback_binder/README.md）。</summary>
+    /// <summary>反馈包变体里的手柄震动声明（ADR-0148）：强度 0..1、持续毫秒数；需 <c>IRumble</c> 能力才生效。</summary>
+    public sealed class ImpactRumbleSpec
+    {
+        public double Strength { get; }
+
+        public double DurationMs { get; }
+
+        public ImpactRumbleSpec(double strength, double durationMs)
+        {
+            if (!(strength >= 0) || strength > 1.0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(strength), "震动强度必须在 [0, 1]");
+            }
+            if (!(durationMs > 0) || double.IsInfinity(durationMs))
+            {
+                throw new ArgumentOutOfRangeException(nameof(durationMs), "震动时长必须是正有限数");
+            }
+            Strength = strength;
+            DurationMs = durationMs;
+        }
+    }
+
+    /// <summary>
+    /// 反馈包变体里的拖尾声明（仅承载，不驱动渲染）：拖尾的运行期由动画剪辑的 <c>trail_start/trail_end</c> 标记与手感字段
+    /// <c>trail_enabled</c>/<c>trail_ref</c> 决定（ADR-0148，手感设计/07 第 1 节）；本声明只保留作为作者意图的记录，不再有消费方。
+    /// </summary>
     public sealed class ImpactTrailSpec
     {
         /// <summary><c>active_start</c> 或 <c>hit</c>。</summary>
@@ -218,11 +276,23 @@ namespace Presentation.FeedbackBinder.Contracts
 
         public ImpactIntensity Intensity { get; }
 
+        /// <summary>手柄震动声明（ADR-0148）；null = 不震动。</summary>
+        public ImpactRumbleSpec? Rumble { get; }
+
         public ImpactVariant(
             string impactClass, ImpactOutcome outcome, ImpactFlashSpec? flash, ImpactVfxSpec? vfx,
             IReadOnlyList<ImpactSfxSpec>? sfx, ImpactCameraSpec? camera, Id? floatingTextStyle,
             ImpactTrailSpec? trail, ImpactFreezeLayers freezeLayers, ImpactIntensity? intensity)
+            : this(impactClass, outcome, flash, vfx, sfx, camera, floatingTextStyle, trail, freezeLayers, intensity, null)
         {
+        }
+
+        public ImpactVariant(
+            string impactClass, ImpactOutcome outcome, ImpactFlashSpec? flash, ImpactVfxSpec? vfx,
+            IReadOnlyList<ImpactSfxSpec>? sfx, ImpactCameraSpec? camera, Id? floatingTextStyle,
+            ImpactTrailSpec? trail, ImpactFreezeLayers freezeLayers, ImpactIntensity? intensity, ImpactRumbleSpec? rumble)
+        {
+            Rumble = rumble;
             ImpactClass = impactClass ?? throw new ArgumentNullException(nameof(impactClass));
             Outcome = outcome;
             Flash = flash;
@@ -340,7 +410,11 @@ namespace Presentation.FeedbackBinder.Contracts
                 var attach = target == "target" ? FeedbackAttachTarget.Target
                     : target == "source" ? FeedbackAttachTarget.Source
                     : throw Bad(record, where + ".flash.target", $"取值非法：\"{target}\"（只能是 target|source）");
-                flash = new ImpactFlashSpec(ReqId(record, where + ".flash", flashObj, "profile_id"), attach);
+                var syncText = OptString(flashObj, "sync") ?? "immediate";
+                var sync = syncText == "immediate" ? ImpactFlashSync.Immediate
+                    : syncText == "impact_marker" ? ImpactFlashSync.ImpactMarker
+                    : throw Bad(record, where + ".flash.sync", $"取值非法：\"{syncText}\"（immediate|impact_marker）");
+                flash = new ImpactFlashSpec(ReqId(record, where + ".flash", flashObj, "profile_id"), attach, sync);
             }
 
             ImpactVfxSpec? vfx = null;
@@ -399,7 +473,8 @@ namespace Presentation.FeedbackBinder.Contracts
                 try
                 {
                     camera = new ImpactCameraSpec(
-                        OptNumber(camObj, "impulse_gain") ?? 1.0, shake, OptNumber(camObj, "decay_ms") ?? ImpactCameraSpec.DefaultDecayMs);
+                        OptNumber(camObj, "impulse_gain") ?? 1.0, shake, OptNumber(camObj, "decay_ms") ?? ImpactCameraSpec.DefaultDecayMs,
+                        OptNumber(camObj, "zoom_punch") ?? 0.0);
                 }
                 catch (ArgumentException ex)
                 {
@@ -451,7 +526,20 @@ namespace Presentation.FeedbackBinder.Contracts
                 }
             }
 
-            return new ImpactVariant(impactClass, outcome, flash, vfx, sfx, camera, textStyle, trail, freeze, intensity);
+            ImpactRumbleSpec? rumble = null;
+            if (TryObject(obj, "rumble", out var rumbleObj))
+            {
+                try
+                {
+                    rumble = new ImpactRumbleSpec(OptNumber(rumbleObj, "strength") ?? 1.0, OptNumber(rumbleObj, "duration_ms") ?? 120.0);
+                }
+                catch (ArgumentException ex)
+                {
+                    throw Bad(record, where + ".rumble", ex.Message);
+                }
+            }
+
+            return new ImpactVariant(impactClass, outcome, flash, vfx, sfx, camera, textStyle, trail, freeze, intensity, rumble);
         }
 
         private static ImpactOutcome ParseOutcome(DataRecord record, string where, string text)

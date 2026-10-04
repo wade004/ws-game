@@ -258,7 +258,8 @@ namespace Presentation.Render
             {
                 if (kv.Value == frame)
                 {
-                    InvokeAll(_onAnimEvent, kv.Key);
+                    // 同名重复标记在帧索引表里以 name#N 登记（AnimMarkerNames.RepeatKey），触发时去掉序号后缀（ADR-0148）。
+                    InvokeAll(_onAnimEvent, AnimMarkerNames.StripRepeat(kv.Key));
                 }
             }
         }

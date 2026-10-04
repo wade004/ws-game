@@ -49,6 +49,14 @@ namespace Presentation.ViewBinding
         private readonly SubscriptionHandle _subscription;
         private readonly SubscriptionHandle _destroyedSubscription;
 
+        /// <summary>
+        /// 抑制判定（手感设计/04 第 5 节，ADR-0148）：对返回 true 的单位不发 <c>unit.stride_completed</c>（累计位移照常维护）。
+        /// 脚步声有两个来源——动画剪辑的 <c>footstep</c> 标记与这里的几何步幅——剪辑声明了标记的单位以标记为唯一来源，
+        /// 装配根据此判定把它们的步幅事件抑制掉；没有标记的单位（静态图、未标注的美术）仍用步幅累计。缺省 null：不抑制（与此前逐位一致）。
+        /// 属性式注入（ABI 只加法）。
+        /// </summary>
+        public Func<Id, bool>? Suppress { get; set; }
+
         private readonly Dictionary<Id, Vec2> _lastPosition = new Dictionary<Id, Vec2>();
         private readonly Dictionary<Id, double> _accumulated = new Dictionary<Id, double>();
 
@@ -104,7 +112,7 @@ namespace Presentation.ViewBinding
             {
                 // 瞬移钳制：只发一条，累计清零（见类型注释"判断记录（单次位移钳制）"）。
                 _accumulated[unitId] = 0;
-                _bus.Enqueue(new UnitStrideCompletedEvent(unitId, evt.Position));
+                Emit(unitId, evt.Position);
                 return;
             }
 
@@ -112,9 +120,18 @@ namespace Presentation.ViewBinding
             while (accumulated >= strideDistance.Value)
             {
                 accumulated -= strideDistance.Value;
-                _bus.Enqueue(new UnitStrideCompletedEvent(unitId, evt.Position));
+                Emit(unitId, evt.Position);
             }
             _accumulated[unitId] = accumulated;
+        }
+
+        private void Emit(Id unitId, Vec2 position)
+        {
+            if (Suppress != null && Suppress(unitId))
+            {
+                return;
+            }
+            _bus.Enqueue(new UnitStrideCompletedEvent(unitId, position));
         }
 
         /// <summary>见类型注释"单位 → 步幅距离的解析"。</summary>

@@ -1,0 +1,150 @@
+{
+  "table": "feedback.impact_profile",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feedback.impact_profile.lab_av",
+      "variants": [
+        {
+          "class": "light",
+          "outcome": "hit",
+          "sfx": [
+            {
+              "layer": "impact"
+            }
+          ],
+          "camera": {
+            "impulse_gain": 0.6,
+            "decay_ms": 120,
+            "zoom_punch": 0.04
+          },
+          "rumble": {
+            "strength": 0.5,
+            "duration_ms": 90
+          }
+        },
+        {
+          "class": "light",
+          "outcome": "kill",
+          "sfx": [
+            {
+              "layer": "impact"
+            },
+            {
+              "layer": "sweetener"
+            }
+          ],
+          "camera": {
+            "impulse_gain": 0.6,
+            "decay_ms": 160,
+            "zoom_punch": 0.04
+          },
+          "intensity": {
+            "kill_multiplier": 2.0
+          },
+          "rumble": {
+            "strength": 0.5,
+            "duration_ms": 90
+          }
+        },
+        {
+          "class": "medium",
+          "outcome": "hit",
+          "sfx": [
+            {
+              "layer": "impact"
+            }
+          ],
+          "camera": {
+            "impulse_gain": 1.0,
+            "decay_ms": 120,
+            "zoom_punch": 0.04
+          },
+          "rumble": {
+            "strength": 0.5,
+            "duration_ms": 90
+          }
+        },
+        {
+          "class": "medium",
+          "outcome": "kill",
+          "sfx": [
+            {
+              "layer": "impact"
+            },
+            {
+              "layer": "sweetener"
+            }
+          ],
+          "camera": {
+            "impulse_gain": 1.0,
+            "decay_ms": 160,
+            "zoom_punch": 0.04
+          },
+          "intensity": {
+            "kill_multiplier": 2.0
+          },
+          "rumble": {
+            "strength": 0.5,
+            "duration_ms": 90
+          }
+        },
+        {
+          "class": "heavy",
+          "outcome": "hit",
+          "sfx": [
+            {
+              "layer": "impact"
+            }
+          ],
+          "camera": {
+            "impulse_gain": 1.6,
+            "decay_ms": 120,
+            "zoom_punch": 0.04
+          },
+          "rumble": {
+            "strength": 0.5,
+            "duration_ms": 90
+          }
+        },
+        {
+          "class": "heavy",
+          "outcome": "kill",
+          "sfx": [
+            {
+              "layer": "impact"
+            },
+            {
+              "layer": "sweetener"
+            }
+          ],
+          "camera": {
+            "impulse_gain": 1.6,
+            "decay_ms": 160,
+            "zoom_punch": 0.04
+          },
+          "intensity": {
+            "kill_multiplier": 2.0
+          },
+          "rumble": {
+            "strength": 0.5,
+            "duration_ms": 90
+          }
+        },
+        {
+          "class": "medium",
+          "outcome": "avoided"
+        },
+        {
+          "class": "medium",
+          "outcome": "whiff",
+          "sfx": [
+            {
+              "layer": "whiff"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

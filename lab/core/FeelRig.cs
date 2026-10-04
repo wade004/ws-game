@@ -66,9 +66,9 @@ namespace Lab
             // 这一套反馈就是该包，而不是实验室缺省包；既有预设没有该字段，行为与此前逐位一致。
             // 运行中切预设（脚本 preset 事件、试玩宿主的 A/B）后，这一套反馈随新预设的 impact_profile_ref 换：规则里的包 id 固定为开局那一个，
             // 解析时再看玩家当前的手感表取实际的包（装载过的缓存起来）；没有切换时与此前逐位一致。
-            var profileId = LabImpactProfile.ProfileId;
+            var profileId = profile.Id;
             var ownProfile = feelSource.Get(_playerId)?.ProfileRef;
-            if (ownProfile.HasValue && !ownProfile.Value.Equals(LabImpactProfile.ProfileId))
+            if (ownProfile.HasValue && !ownProfile.Value.Equals(profile.Id))
             {
                 profileId = ownProfile.Value;
             }
@@ -77,7 +77,7 @@ namespace Lab
             ImpactProfile CurrentProfile()
             {
                 var current = feelSource.Get(_playerId)?.ProfileRef;
-                if (!current.HasValue || current.Value.Equals(LabImpactProfile.ProfileId))
+                if (!current.HasValue || current.Value.Equals(profile.Id))
                 {
                     return profile;
                 }
@@ -95,7 +95,7 @@ namespace Lab
             {
                 FeelSource = feelSource,
                 ProfileResolver = id =>
-                    id.Equals(profileId) ? CurrentProfile() : (id.Equals(LabImpactProfile.ProfileId) ? profile : null),
+                    id.Equals(profileId) ? CurrentProfile() : (id.Equals(profile.Id) ? profile : null),
                 SfxLayers = new SfxLayerIndex(LabImpactProfile.LoadSfxRows(world.Registry)),
                 CameraOwnerResolver = () => _playerId,
                 PositionResolver = id => world.World.GetEntity(id)?.Position,
@@ -336,7 +336,19 @@ namespace Lab
             public void ImpactCamera(ImpactCameraCue cue)
             {
                 Add("camera", cue.ShakeProfileId?.Value ?? string.Empty, cue.Magnitude, cue.DecayMs, cue.HitCount);
+                if (cue.ZoomPunch > 0)
+                {
+                    // ADR-0148：缩放脉冲只在变体声明了 zoom_punch 时出批；既有脚本的反馈包没有，表现时间线逐条不变。
+                    Add("zoom_punch", FeelMetricUtil.Num(cue.ZoomPunch), cue.ZoomPunch, cue.DecayMs);
+                }
                 _tee?.ImpactCamera(cue);
+            }
+
+            public void Rumble(double strength, double durationMs)
+            {
+                // ADR-0148：手柄震动只在变体声明了 rumble 时出批；既有脚本的反馈包没有。
+                Add("rumble", FeelMetricUtil.Num(strength) + "@" + FeelMetricUtil.Num(durationMs), strength, durationMs);
+                _tee?.Rumble(strength, durationMs);
             }
 
             public void FreezePresentation(IReadOnlyList<Id> unitIds, int ticks, ImpactFreezeLayers layers)
@@ -374,6 +386,12 @@ namespace Lab
         public static readonly Id ProfileId = new Id("feedback.impact_profile.lab_default");
 
         /// <summary>
+        /// 镜头与音画反馈脚本的变体档案行（ADR-0148，随 <c>lab/fixtures/data/av_feedback</c>）：数据根里有它就用它，否则用缺省行
+        /// （既有数据集里没有它，既有脚本的行为与数据集哈希逐位不变）。
+        /// </summary>
+        public static readonly Id AvProfileId = new Id("feedback.impact_profile.lab_av");
+
+        /// <summary>
         /// 顿帧期间冻结的表现层：骨骼/序列帧恒冻，粒子也冻（引擎宿主据此验证"顿帧期间被冻结单位名下的粒子停推进"）。
         /// 判断记录：该声明只经反馈 sink 的 <c>FreezePresentation</c> 的 layers 参数传出，记录型假 sink 不记它，
         /// 因此无头宿主的表现时间线与指纹不受影响；它由实验室在读入数据档案后统一覆写到每个变体上
@@ -381,7 +399,8 @@ namespace Lab
         /// </summary>
         private static readonly ImpactFreezeLayers LabFreezeLayers = new ImpactFreezeLayers(true, false);
 
-        public static ImpactProfile Load(IDataRegistry registry) => Load(registry, ProfileId);
+        public static ImpactProfile Load(IDataRegistry registry) =>
+            Load(registry, registry.Get("feedback.impact_profile", AvProfileId) != null ? AvProfileId : ProfileId);
 
         /// <summary>按 id 读冲击档案行（实验室缺省包或手感表 <c>impact_profile_ref</c> 指到的包），同样覆写顿帧冻结层。</summary>
         public static ImpactProfile Load(IDataRegistry registry, Id profileId)
@@ -398,7 +417,7 @@ namespace Lab
             foreach (var v in loaded.Variants)
             {
                 variants.Add(new ImpactVariant(
-                    v.ImpactClass, v.Outcome, v.Flash, v.Vfx, v.Sfx, v.Camera, v.FloatingTextStyle, v.Trail, LabFreezeLayers, v.Intensity));
+                    v.ImpactClass, v.Outcome, v.Flash, v.Vfx, v.Sfx, v.Camera, v.FloatingTextStyle, v.Trail, LabFreezeLayers, v.Intensity, v.Rumble));
             }
 
             return new ImpactProfile(loaded.Id, variants);
@@ -437,6 +456,9 @@ namespace Lab
     public static class LabFeedbackCatalog
     {
         public static Id ProfileId => LabImpactProfile.ProfileId;
+
+        /// <summary>该数据集实际生效的档案行 id（有 <c>lab_av</c> 行用它，否则同 <see cref="ProfileId"/>）。</summary>
+        public static Id EffectiveProfileId(IDataRegistry registry) => LabImpactProfile.Load(registry).Id;
 
         public static ImpactProfile BuildProfile(IDataRegistry registry) => LabImpactProfile.Load(registry);
 

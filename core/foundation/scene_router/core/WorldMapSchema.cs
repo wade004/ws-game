@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Core.Foundation.DataRegistry;
 
 namespace Core.Foundation.SceneRouter
@@ -130,6 +131,19 @@ namespace Core.Foundation.SceneRouter
                     description: "heightfield（必填）：行数组（沿 y 方向，从 min 起），每行是等长的结点高度数组，至少 2 行 2 列；格内双线性插值"),
             }, description: "地形高度区域：rect {min, max, ground?, slope?, ceiling?} | polygon {shape, points, ground?, slope?, origin?, ceiling?} | heightfield {shape, min, cell, heights, ceiling?}");
 
+        /// <summary>
+        /// <c>surface_materials</c> 元素结构（ADR-0148）：与 <c>terrain</c> 同一套形状字段（几何解析复用 <see cref="MapTerrainHeights.ReadItem"/>），
+        /// 外加必填的 <c>material</c> 文本标签（对应 <c>sfx.def</c> 的 <c>feel_material</c>，如 stone/grass/wood）。
+        /// </summary>
+        private static readonly FieldSchema SurfaceMaterialItemSchema = new FieldSchema(
+            "<surface_region>", FieldKind.Object, required: true,
+            fields: new List<FieldSchema>(TerrainItemSchema.Fields!)
+            {
+                new FieldSchema("material", FieldKind.String, required: false,
+                    description: "地面材质标签（必填，由 WorldMapTerrainValidationRule 校验非空；对应 sfx.def 的 feel_material）"),
+            },
+            description: "地面材质区域：与 terrain 同形状（rect | polygon | heightfield 的几何字段）加 material 标签；后声明的盖住先声明的");
+
         public static readonly TableSchema Table = new TableSchema(
             name: "world.map",
             primaryKey: "id",
@@ -154,6 +168,9 @@ namespace Core.Foundation.SceneRouter
                     description: "可选地形高度（ADR-0130 追加决定：地面高度、地形形状）：高度区域清单（rect/polygon/heightfield 三种形状，见 terrain 元素结构），后声明的盖住先声明的；"
                         + "区域之外与未声明该字段的地图地面恒为 0、没有天花板。只在世界装配了竖直轴并声明地形能力（VerticalAxisOptions.Terrain）时被读取，"
                         + "否则忽略（平面世界逐位不变）"),
+                new FieldSchema("surface_materials", FieldKind.Array, required: false, item: SurfaceMaterialItemSchema,
+                    description: "可选地面材质区域（ADR-0148，手感设计/07 第 3 节）：与 terrain 同形状加 material 标签，后声明的盖住先声明的；"
+                        + "表现层的脚步音效按单位脚下的材质选 sfx.def 的 feel_material 行，区域之外与未声明该字段的地图按通用材质（generic）"),
                 new FieldSchema("image_transform", FieldKind.Object, required: false, fields: new[]
                 {
                     new FieldSchema("pixels_per_unit", FieldKind.Number, required: true,
@@ -345,6 +362,38 @@ namespace Core.Foundation.SceneRouter
                     }
 
                     if (failure == null || failure.Message.Contains("：期望 "))
+                    {
+                        continue;
+                    }
+
+                    var required = failure.Message.EndsWith("：必填", StringComparison.Ordinal);
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Error, WorldMapSchema.Table.Name, required ? "required_field" : ShapeCheck,
+                        failure.Message, recordKey: record.Key, field: failure.Field);
+                }
+            }
+
+            // ADR-0148：surface_materials 的条目走同一份几何解析，另要求 material 非空文本。
+            foreach (var record in view.GetAll(WorldMapSchema.Table.Name))
+            {
+                if (!record.TryGetArray(MapSurfaceMaterials.FieldName, out var items))
+                {
+                    continue;
+                }
+
+                for (var i = 0; i < items.Count; i++)
+                {
+                    DataFieldException? failure = null;
+                    try
+                    {
+                        MapSurfaceMaterials.ReadItem(record, items[i], i);
+                    }
+                    catch (DataFieldException ex)
+                    {
+                        failure = ex;
+                    }
+
+                    if (failure == null || failure.Message.Contains("：期望 Object") || failure.Message.Contains("：期望 Number"))
                     {
                         continue;
                     }

@@ -284,6 +284,12 @@ namespace Presentation.FeedbackBinder.Core
         /// <summary>手感流水线（未启用时为 null），供测试与装配根读取顿帧冻结登记等只读状态。</summary>
         public ImpactPipeline? Impact => _impact;
 
+        /// <summary>变体 <c>flash.sync = impact_marker</c> 的闪白推迟口（装配根接 <c>AnimMarkerDirector</c>）；null 时该声明退化为立即闪。属性式注入（ABI 只加法）。</summary>
+        public IAnimMarkerGate? MarkerGate { get; set; }
+
+        /// <summary>等 <c>impact</c> 标记的最长时间（秒）；到期没有标记就照常闪（剪辑没有该标记、或受击剪辑没播起来时不丢闪白）。缺省 0.25。</summary>
+        public double ImpactMarkerTimeoutSeconds { get; set; } = 0.25;
+
         /// <summary>出批并把表现计划落到 sink：逐目标的闪白/特效/音效/飘字走既有播放队列（与其它动作同一节奏门），镜头提示与顿帧
         /// 表现是时间敏感信号，直接下达不排队。任何一项失败只记诊断，不影响同批其它项。</summary>
         private void FlushImpact()
@@ -316,7 +322,17 @@ namespace Presentation.FeedbackBinder.Core
                 {
                     var entity = captured.FlashEntity.Value;
                     var profile = captured.FlashProfile.Value;
-                    _queue.Enqueue(() => _sink.Flash(entity, profile));
+                    if (captured.FlashSync == ImpactFlashSync.ImpactMarker && MarkerGate != null)
+                    {
+                        // ADR-0148：闪白对齐受击方剪辑的 impact 标记；超时没有标记则照常闪。
+                        var gate = MarkerGate;
+                        _queue.Enqueue(() => gate.DeferUntilMarker(
+                            entity, AnimMarkerNames.Impact, () => _sink.Flash(entity, profile), ImpactMarkerTimeoutSeconds));
+                    }
+                    else
+                    {
+                        _queue.Enqueue(() => _sink.Flash(entity, profile));
+                    }
                 }
 
                 if (captured.VfxId.HasValue)
@@ -368,6 +384,18 @@ namespace Presentation.FeedbackBinder.Core
                 catch (Exception ex)
                 {
                     _diagnostics.Warn($"feedback 镜头冲击下达 sink 时抛出异常，已跳过：{ex}");
+                }
+            }
+
+            if (batch.Rumble != null)
+            {
+                try
+                {
+                    _sink.Rumble(batch.Rumble.Strength, batch.Rumble.DurationMs);
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Warn($"feedback 手柄震动下达 sink 时抛出异常，已跳过：{ex}");
                 }
             }
         }

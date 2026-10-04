@@ -641,6 +641,8 @@ namespace Adapter.Unity.Bootstrap
                 // 否则顿帧会持续把传入的毫秒数当秒数用（如 40ms 顿帧变成 40 秒）。
                 OnFreeze = durationMs => Freeze?.Freeze(durationMs / 1000.0),
                 OnFlash = (entityId, profileId) => Flash?.Show(entityId, profileId),
+                // ADR-0148：反馈包变体的 rumble 经手柄震动输出落地（没有手柄时静默忽略）；强度再乘玩家强度 feel.intensity.rumble。
+                Rumble = _host.Rumble,
                 RenderOptions = renderOptions,
                 FeedbackOptions = new global::Presentation.FeedbackBinder.Contracts.FeedbackOptions { HitFrameSync = hitFrameSyncStrategy },
             };
@@ -682,7 +684,11 @@ namespace Adapter.Unity.Bootstrap
             // （见上方注释），构造期本身不会调用，顺序上没有问题。
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
             Freeze = new FreezeFrameReceiver();
-            Flash = new FlashReceiver(presentation.ViewBinder);
+            Flash = new FlashReceiver(presentation.ViewBinder)
+            {
+                // ADR-0148：玩家闪白强度（feel.intensity.flash）在接收器出口生效。
+                IntensityScale = () => presentation.FeelIntensity.Get(global::Presentation.Camera.FeelIntensityKind.Flash),
+            };
 
             // ---------------------------------------------------------
             // 6) 输入：声明动作集（见文件顶部"判断记录 3"）——从 found.input_action 表已加载的

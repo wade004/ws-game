@@ -42,6 +42,9 @@ namespace Adapter.Unity.EngineAdapter
         public UnityRenderer3D Renderer3D { get; private set; } = null!;
         public UnityCamera Camera { get; private set; } = null!;
 
+        /// <summary>手柄震动输出（<c>IRumble</c>，ADR-0148）：交给 <c>PresentationAssemblyOptions.Rumble</c> 即可让反馈包的 <c>rumble</c> 生效。</summary>
+        public UnityRumble Rumble { get; private set; } = null!;
+
         /// <summary>获取（必要时创建）全局唯一的宿主实例。测试与游戏引导代码统一走这个入口，
         /// 不直接 new UnityEngineHost（MonoBehaviour 不允许 new，也不应该有第二份实例）。</summary>
         public static UnityEngineHost Ensure()
@@ -92,6 +95,7 @@ namespace Adapter.Unity.EngineAdapter
             // (Transform root, UnityResourceLoader resourceLoader) 两参（见该类型顶部判断记录）。
             Renderer3D = new UnityRenderer3D(transform, ResourceLoader);
             Camera = new UnityCamera(cameraComponent);
+            Rumble = new UnityRumble();
 
             SpatialQuery.SetLineOfSightBlocker((from, to) => Navigation2D.Raycast(DefaultMapId, from, to) != null);
 
@@ -145,6 +149,7 @@ namespace Adapter.Unity.EngineAdapter
             var deltaSeconds = (double)Time.unscaledDeltaTime;
             Clock.TickFrame(deltaSeconds);
             Camera.Tick(deltaSeconds);
+            Rumble.Tick(deltaSeconds);
             Audio.Tick(deltaSeconds);
             ResourceLoader.Tick();
             // H5b 根治新增（游戏侧复核发现 1）：见 UnityRenderer3D.Tick 判断记录——逐 model 实例检测
@@ -159,6 +164,7 @@ namespace Adapter.Unity.EngineAdapter
 
         private void OnApplicationQuit()
         {
+            Rumble?.Stop();
             Input.Dispose();
             Application.logMessageReceived -= HandleUnityLogMessage;
         }

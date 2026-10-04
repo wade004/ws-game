@@ -1635,3 +1635,11 @@ GameBootstrap.cs` 同样两根合并（`data/_framework` + 游戏自己的 `data
 3. **图标加载路径**：`UnityResourceLoader.ResolvePath` 对 `icon` 类别的图片资源转发 `AssetRefConventions.IconFile`；`toolchain/resource_layout_map.json` 新增 `icons` 映射（同步到 `StreamingAssets/GameFoundation/icons`）。
 4. **GPU 帧耗时探针**（`Runtime/LabHost/GpuFrameProbe.cs`，仅实验室引擎宿主）：渲染到离屏纹理并等回读完成；`-nographics` 下不可用。
 5. **复现/不变量（PlayMode）**：`UnityCameraTests`（缺省逐位恒等、偏航朝向与真实相机轴一致、俯仰压扁 cos(俯仰)、透视半高、冲击峰值按 `VisibleHalfHeight`）、`AnimationLayerTests`（两个播放器的时间源与缺省 `Time.deltaTime`）、`UnityResourceLoaderTests`（图标路径与加载）、`EngineLabHostMechanismTests`（原生相机相对输入对每个偏航与俯仰、GPU 状态度量、命中对齐根因）。
+
+### 手感落地 M5-S5：镜头与音画反馈的引擎侧（2026-10-04，ADR-0148）
+
+- `UnityCamera` 实现 `ICameraZoomPunch`（恒支持；多次脉冲按比例相加、合计收窄上限 0.5；`EffectiveZoom = 基准缩放 × (1 − 合计)`，镜头冲击的画面比例仍按基准缩放换算）。`UnityRumble`（`Runtime/EngineAdapter/UnityRumble.cs`）实现 `IRumble`：经 Input System 手柄马达输出（低频全强度、高频 0.6 倍），可注入马达输出以便无设备测试；`UnityEngineHost.Rumble` 逐帧推进、退出时归零。
+- `FlashReceiver.IntensityScale`：玩家闪白强度系数（0 = 不闪、不计入 `TriggerCount`）；三个启动入口（`GameFoundationBootstrap`、`FrameworkResidentHost`、`games/_template` 的 `GameBootstrap`）都覆盖了 `OnFlash`，系数在这里取 `presentation.FeelIntensity`。
+- 精灵残影：`UnitySpriteView` 实现 `IAfterimageTarget`，开启时在精灵根挂 `AfterimageEmitter`（每 0.05 秒留一份根下全部 `SpriteRenderer` 的半透明副本，起始不透明度 0.5、线性淡出、寿命 0.2 秒）；`UnityModelView` 不实现，开关静默忽略（没有可复用的副本机制，已知限制）。
+- `UnityViewFactory.ComputeKeyframes`：剪辑里同名事件（走路剪辑的两次 `footstep`）以"名#序号"登记，此前互相覆盖只剩一次；模型路线 `UnityRenderer3D.RaiseAnimEvent` 原本就把 `:` 换成 `.`，`anim_event.fx.<id>` 由表现层标准化为 `fx:<id>`。
+- 测试：`Tests/Runtime/AvFeedbackPlayModeTests.cs`（缩放脉冲峰值/过半/叠加上限、震动马达输出与叠加规则、闪白系数 1/0.5/0、重复关键帧、残影生成与淡出）。

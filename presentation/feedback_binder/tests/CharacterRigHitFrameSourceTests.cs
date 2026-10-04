@@ -16,9 +16,13 @@ namespace Tests.Presentation.FeedbackBinder
         /// PJ130-04：命中帧不再是 <see cref="ICharacterRig"/> 强制成员，本假实现额外实现
         /// <see cref="IHitFrameEmitter"/> 以验证"支持命中帧同步的 rig"这一路径；见下方
         /// <see cref="FakeRigWithoutHitFrame"/> 覆盖"不支持"的另一路径。</summary>
-        private sealed class FakeRig : ICharacterRig, IHitFrameEmitter
+        private sealed class FakeRig : ICharacterRig, IHitFrameEmitter, IAnimMarkerEmitter
         {
             public event Action<Id>? HitFrameReached;
+
+            public event Action<Id, string>? AnimMarker;
+
+            public void FireMarker(string marker) => AnimMarker?.Invoke(EntityId, marker);
 
             public Id EntityId { get; } = new Id("unit.fake");
 
@@ -109,6 +113,37 @@ namespace Tests.Presentation.FeedbackBinder
 
             Assert.Null(ex);
             Assert.False(source.HasRig(rig.EntityId));
+        }
+
+        [Fact]
+        public void RigAnimMarker_ForwardsAsAggregateMarkerEvent_AndStopsAfterUnregister()
+        {
+            // ADR-0148：同一个来源既聚合命中帧、也聚合动画表现标记（脚步/拖尾/fx/impact）。
+            var source = new CharacterRigHitFrameSource();
+            var rig = new FakeRig();
+            source.RegisterRig(rig.EntityId, rig);
+            var received = new List<(Id Entity, string Marker)>();
+            ((global::Presentation.FeedbackBinder.Contracts.IAnimMarkerSource)source).AnimMarkerReached += (id, m) => received.Add((id, m));
+
+            rig.FireMarker("footstep");
+            rig.FireMarker("fx:vfx.spark");
+            Assert.Equal(new[] { (rig.EntityId, "footstep"), (rig.EntityId, "fx:vfx.spark") }, received);
+
+            source.UnregisterRig(rig.EntityId);
+            rig.FireMarker("footstep");
+            Assert.Equal(2, received.Count);
+        }
+
+        [Fact]
+        public void RigWithoutMarkerEmitter_RegistersWithoutError_AndEmitsNoMarkers()
+        {
+            var source = new CharacterRigHitFrameSource();
+            var rig = new FakeRigWithoutHitFrame();
+            var count = 0;
+            ((global::Presentation.FeedbackBinder.Contracts.IAnimMarkerSource)source).AnimMarkerReached += (_, _) => count++;
+
+            Assert.Null(Record.Exception(() => source.RegisterRig(rig.EntityId, rig)));
+            Assert.Equal(0, count);
         }
 
         [Fact]
