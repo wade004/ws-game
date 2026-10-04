@@ -64,7 +64,7 @@ namespace Adapter.Unity.Tests.LabHost
             {
                 // 批处理模式下引擎不派发 OnGUI（没有可重绘的窗口），量不到真实布局；有窗口的编辑器里照常跑。批处理下的守卫见 LabPanelFlowTests。
                 // 不用 Ignore：门禁要求 PlayMode 跳过数为 0，批处理下本用例按"本环境量不到"直接通过（不是空转的证据，证据是 LabPanelFlowTests 与窗口模式运行）。
-                Assert.Pass("批处理模式不派发 OnGUI 重绘，真实布局度量只在窗口模式下执行。");
+                Assert.Pass("批处理无界面事件，真实布局未执行：度量只在窗口模式下运行；门禁里实际执行的是 LabPanelFlowTests 的纯函数折行用例（同一折行逻辑）。");
             }
 
             pg.Model.PanelVisible = true;
