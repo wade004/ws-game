@@ -495,6 +495,9 @@ namespace Adapter.Unity.Ui
             }
         }
 
+        /// <summary>该对象（精灵/纹理/字体资产）是否由本包装载并持有（<see cref="UiVisuals.IsRetiredSkinSprite"/> 判断精灵是否属于被换下的旧包用）。</summary>
+        public bool Owns(UnityEngine.Object? obj) => obj != null && _owned.Contains(obj);
+
         public void Dispose()
         {
             foreach (var o in _owned)

@@ -190,6 +190,7 @@ namespace Adapter.Unity.Ui.Panels
             var fillRect = (RectTransform)fillGo.transform; fillRect.SetParent(fillArea, false);
             fillRect.anchorMin = Vector2.zero; fillRect.anchorMax = new Vector2(0.5f, 1f); fillRect.offsetMin = Vector2.zero; fillRect.offsetMax = Vector2.zero;
             var fillImage = fillGo.GetComponent<Image>(); fillImage.sprite = UiSkin.FlatSprite; fillImage.color = UiSkin.AccentColor;
+            UiSkinBindings.TrackAccentFill(fillImage);        // 换皮肤时跟着换（ADR-0155）
             slider.fillRect = fillRect; slider.targetGraphic = bgRect.GetComponent<Image>();
             slider.value = initialValue > 0 ? (float)initialValue : 1f;
             slider.onValueChanged.AddListener(v => onChanged(v));

@@ -3,6 +3,7 @@
     "width": 144,
     "height": 144
   },
+  "pixels_per_unit": 32,
   "directions": {
     "front": {
       "grip": [

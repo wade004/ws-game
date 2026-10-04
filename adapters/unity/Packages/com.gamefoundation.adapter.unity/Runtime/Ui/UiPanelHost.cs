@@ -49,8 +49,10 @@ namespace Adapter.Unity.Ui
 
         /// <summary>
         /// 悬停提示框与拖放穿脱（ADR-0152）：背包与装备面板共用；穿脱动作转发 <see cref="UiIntents"/>。<see cref="Initialize"/> 之后可用。
-        /// 判断记录：运行期换皮肤走 <see cref="UiVisuals.SwitchSkin"/>，背包、装备、提示框、拖拽订阅 <see cref="UiVisuals.SkinChanged"/> 自行重建；
-        /// 其余面板（HUD、动作条等）不订阅，保持建出来时的外观（ADR-0082"不回溯重建"的取舍沿用）。
+        /// 判断记录（ADR-0155）：运行期换皮肤走 <see cref="UiVisuals.SwitchSkin"/>，所有面板都会换成新皮肤——持有皮肤包精灵的部件（背包、装备、提示框、拖拽）订阅
+        /// <see cref="UiVisuals.SkinChanged"/> 自行重建；其余面板（HUD、动作条、任务日志等）经 <see cref="UiWidgets"/> 建控件，由 <see cref="UiSkinBindings.ReapplyAll"/>
+        /// 在换皮肤时统一换底图、按钮图、字体与配色，不必自己订阅。（此前这些面板保持建出来时的旧外观，ADR-0082"不回溯重建"的取舍只对直接调
+        /// <see cref="UiSkin.Install"/>/<see cref="UiSkin.Reset"/> 仍成立。）
         /// </summary>
         public UiInteraction? Interaction { get; private set; }
 
@@ -91,9 +93,9 @@ namespace Adapter.Unity.Ui
             Visuals.L10n ??= presentation.L10n;
 
             // 非缺省皮肤包把主题配色/面板底图/字体装成 UiSkin 覆盖；缺省皮肤不装任何覆盖（逐位不变）。调用方自己装过覆盖时以调用方的为准。
-            if (!UiSkin.IsOverrideInstalled && Visuals.Pack.CreateOverride() is { } skinOverride)
+            // 装上之后覆盖归 UiVisuals 持有（ADR-0155），宿主只记"是我让它装的"，销毁时对调用方注入的 Visuals 撤掉，自己建的随 Dispose 撤。
+            if (Visuals.InstallSkinOverride(onlyIfFree: true))
             {
-                UiSkin.Install(skinOverride);
                 _installedSkin = true;
             }
 
@@ -221,10 +223,10 @@ namespace Adapter.Unity.Ui
 
         private void OnDestroy()
         {
-            // 只撤自己装的皮肤覆盖与自己建的资源入口；调用方注入的 Visuals 由调用方释放。
+            // 只撤自己让装的皮肤覆盖与自己建的资源入口；调用方注入的 Visuals 由调用方释放。
             if (_installedSkin)
             {
-                UiSkin.Reset();
+                Visuals?.ReleaseSkinOverride();
                 _installedSkin = false;
             }
 
@@ -240,6 +242,11 @@ namespace Adapter.Unity.Ui
 
         private void Update()
         {
+            if (Visuals != null && Visuals.RetiredPackCount > 0)
+            {
+                Visuals.ReleaseRetiredPacks();      // ADR-0155：换肤后没有存活部件再引用的旧皮肤包尽快释放
+            }
+
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {

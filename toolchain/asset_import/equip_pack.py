@@ -26,6 +26,8 @@
 
 - ``equip_opaque_coverage_low``：图标/静态层图的不透明像素覆盖率低于清单（``skin_manifest.json`` 的 ``icons.coverage`` /
   ``paperdoll.static_layer_coverage``）写的阈值——几乎看不见（细线条武器、画得太小），阈值写在清单里；
+- ``equip_layer_density_mismatch``：层精灵集（带 ``anchors.json``）的顶层 ``pixels_per_unit`` 与身体精灵集（``ui_layout_definition`` 行
+  ``preview_body_set``）的不一致或没声明——运行期合成里层与身体按各自密度换算，装备相对身体画得偏大或偏小，预览区（两者同一个缩放）看不出来（ADR-0155）；
 - ``equip_layer_clip_missing_recommended``：推荐键层剪辑缺失（回落静态层图）；
 - ``equip_override_clip_layer_missing``：武器表现档案的攻击/施法覆盖剪辑没有该装备的逐层剪辑（回落整身剪辑）；
 - ``equip_family_without_pose_keys``：``feel.weapon.family`` 在姿势集里没有任何键（全部回落到基础键）；
@@ -93,6 +95,7 @@ CHECK_OPAQUE_COVERAGE_LOW = "equip_opaque_coverage_low"
 CHECK_ANCHOR_OUT_OF_BOUNDS = "equip_anchor_out_of_bounds"
 CHECK_ANCHOR_INVALID = "equip_anchor_invalid"
 CHECK_BEHIND_DIRECTION_INVALID = "equip_behind_direction_invalid"
+CHECK_LAYER_DENSITY_MISMATCH = "equip_layer_density_mismatch"
 
 CHECK_NAMES: tuple[str, ...] = (
     CHECK_ICON_UNRESOLVED, CHECK_ICON_FILE_MISSING, CHECK_ICON_SIZE_INVALID, CHECK_VISUAL_MISSING,
@@ -103,7 +106,7 @@ CHECK_NAMES: tuple[str, ...] = (
     CHECK_SFX_REF_MISSING, CHECK_TRAIL_REF_MISSING, CHECK_ANIM_SET_MISSING, CHECK_ICON_ALPHA_INVALID,
     CHECK_LAYER_IMAGE_INVALID, CHECK_LAYER_FRAME_COUNT_MISMATCH, CHECK_LAYER_FRAME_SIZE_MISMATCH,
     CHECK_LAYER_ATLAS_MISMATCH, CHECK_OPAQUE_COVERAGE_LOW, CHECK_ANCHOR_OUT_OF_BOUNDS, CHECK_ANCHOR_INVALID,
-    CHECK_BEHIND_DIRECTION_INVALID,
+    CHECK_BEHIND_DIRECTION_INVALID, CHECK_LAYER_DENSITY_MISMATCH,
 )
 
 TABLE_ITEM = "item.template"
@@ -120,6 +123,8 @@ ICON_MAX_SIDE = skin_manifest.load_manifest()["icons"]["size"]["max"]
 ICON_COVERAGE = skin_manifest.load_manifest()["icons"]["coverage"]
 LAYER_COVERAGE = skin_manifest.load_manifest()["paperdoll"]["static_layer_coverage"]
 ANCHOR_NAME_GRIP = "grip"
+TABLE_UI_LAYOUT = "ui_layout_definition"
+FIELD_PREVIEW_BODY_SET = "preview_body_set"
 
 GAITS = ("walk", "run", "sprint")
 STANCES = ("peace", "combat")
@@ -481,8 +486,9 @@ class EquipValidator:
     """对一组数据表 + 资产目录跑装备资产包校验。"""
 
     def __init__(self, tables: dict[str, list[dict]], assets_dir: Path, *, anim_set: Optional[str] = None,
-                 direction_count: int = DEFAULT_DIRECTION_COUNT) -> None:
+                 direction_count: int = DEFAULT_DIRECTION_COUNT, body_set: Optional[str] = None) -> None:
         self.tables = tables
+        self.body_set = body_set
         self.assets = Path(assets_dir)
         self.direction_count = direction_count
         self.dirs = directions.canonical_slot_names(direction_count)
@@ -716,6 +722,7 @@ class EquipValidator:
                             field_path="mesh_ref", path=str(self.assets / rel), fallback="照常使用（装备层几乎看不见）",
                             table=TABLE_EQUIP_VISUAL)
         self._check_layer_anchors(ir, mesh_ref, layer)
+        self._check_layer_density(ir, mesh_ref)
         if not self.clips:
             return
         family = ir.family if ir.is_weapon else None
@@ -792,6 +799,53 @@ class EquipValidator:
                 self._issue(ir, SEVERITY_ERROR, CHECK_ANCHOR_OUT_OF_BOUNDS,
                             f"{where} = [{x}, {y}] 落在层图 {image.relative_to(self.assets).as_posix()}（{size[0]}x{size[1]}）画布之外",
                             field_path="mesh_ref", path=str(file), table=TABLE_EQUIP_VISUAL)
+
+    def _body_set(self) -> Optional[str]:
+        """身体精灵集目录名：构造时显式给的 ``body_set``，否则 ``ui_layout_definition`` 行 ``fields.preview_body_set`` 声明的第一个（装备面板预览用的同一份约定）；都没有返回 None（不核对密度）。"""
+        if self.body_set:
+            return self.body_set
+        for row in self.tables.get(TABLE_UI_LAYOUT, []):
+            fields = row.get("fields")
+            value = fields.get(FIELD_PREVIEW_BODY_SET) if isinstance(fields, dict) else None
+            if isinstance(value, str) and value:
+                return value
+        return None
+
+    @staticmethod
+    def _declared_density(file: Path) -> Optional[float]:
+        """精灵集 anchors.json 顶层的 ``pixels_per_unit``（正数）；文件缺失/解析失败/没声明/非法返回 None。"""
+        try:
+            doc = json.loads(file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        value = doc.get("pixels_per_unit") if isinstance(doc, dict) else None
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value)
+        return None
+
+    def _check_layer_density(self, ir: ItemReport, mesh_ref: str) -> None:
+        """警告 ``equip_layer_density_mismatch``：层精灵集与身体精灵集的像素密度（anchors.json 顶层 ``pixels_per_unit``）不一致时，运行期合成里
+        层与身体按各自密度换算世界尺寸，装备相对身体画得偏大或偏小（预览区对两者用同一个缩放，所以预览看不出来）。只在层精灵集自己带 anchors.json
+        （声明过锚点/密度，参与对齐）且身体精灵集声明了密度时核对；层集没声明密度也算不一致（运行期落在引擎缺省密度）。没有 anchors.json 的层集与没声明密度的身体集不报。"""
+        body = self._body_set()
+        mesh_set = strip_category_prefix(mesh_ref)
+        if not body or body == mesh_set:
+            return
+        layer_file = self.assets / "sprites" / mesh_set / "anchors.json"
+        body_file = self.assets / "sprites" / body / "anchors.json"
+        if not layer_file.is_file() or not body_file.is_file():
+            return
+        body_density = self._declared_density(body_file)
+        if body_density is None:
+            return
+        layer_density = self._declared_density(layer_file)
+        if layer_density is not None and abs(layer_density - body_density) <= 1e-6:
+            return
+        shown = "没有声明 pixels_per_unit（运行期落在引擎缺省密度）" if layer_density is None else f"pixels_per_unit = {layer_density:g}"
+        self._issue(ir, SEVERITY_WARNING, CHECK_LAYER_DENSITY_MISMATCH,
+                    f"层精灵集 sprites/{mesh_set}/anchors.json {shown}，与身体精灵集 sprites/{body}/anchors.json 的 pixels_per_unit = {body_density:g} 不一致："
+                    f"运行期合成里该装备相对身体会画得偏大或偏小（预览区看不出来）",
+                    field_path="mesh_ref", path=str(layer_file), fallback="照常使用（运行期比例与身体不一致）", table=TABLE_EQUIP_VISUAL)
 
     def _clip_level(self, mesh_stem: str, clip_stem: str, direction: str, layer: str) -> int:
         """ADR-0100 两级探测：1 = 带方向命中，2 = 不带方向命中，0 = 都不命中。"""
