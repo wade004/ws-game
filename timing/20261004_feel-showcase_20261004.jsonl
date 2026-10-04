@@ -1,0 +1,3 @@
+{"task": "真实美术手感演示场景（ADR-0154）", "branch": "feature/feel-showcase_20261004", "phase": "编码", "step": "美术管线与运行时装配", "start": "2026-10-04T19:00:00", "end": "2026-10-04T22:40:00", "seconds": 13200, "result": "DONE", "note": "起止为估算（会话压缩后无逐步时间戳）"}
+{"task": "真实美术手感演示场景（ADR-0154）", "branch": "feature/feel-showcase_20261004", "phase": "等待", "step": "等协调方放行引擎（发版全量门禁占用）", "start": "2026-10-04T22:50:00", "end": "2026-10-05T03:30:00", "seconds": 16800, "result": "DONE", "note": "起止为估算；期间只做不需要引擎的修复"}
+{"task": "真实美术手感演示场景（ADR-0154）", "branch": "feature/feel-showcase_20261004", "phase": "编码", "step": "放行后收口：编译修复、静止靶子动画、截图与回归", "start": "2026-10-05T03:30:00", "end": "2026-10-05T04:05:00", "seconds": 2100, "result": "DONE", "note": "起止为估算"}

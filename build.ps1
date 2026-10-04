@@ -1253,6 +1253,7 @@ if (Test-Path $templateDataGameDir) {
 $placeholderMirrorResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "assets\_placeholder")) -DestDir (Join-Path $StreamingAssetsRoot "assets\_placeholder")
 Write-Host ("  assets/_placeholder -> StreamingAssets/GameFoundation/assets/_placeholder（整体镜像）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $placeholderMirrorResult.Total, $placeholderMirrorResult.Copied, $placeholderMirrorResult.Skipped, $placeholderMirrorResult.Removed)
 
+# 演示场景美术（assets/_showcase，ADR-0154）同样按这张映射并入同一棵目标目录树（只同步进工作台，不进 dist）。
 # sprites/audio/vfx 三处同时同步 assets/_placeholder/<x>（占位素材）与 assets/_sample/<x>
 # （toolchain/import_sample_assets.py 导入的样例资产）到同一棵目标目录树，见上方 4 节头注释。
 # 判断记录（P07 根治，2026-09-07，审计 audit-7e63d66-20260907/
@@ -1270,7 +1271,7 @@ $resourceLayoutMap = (Get-Content -Path $resourceLayoutMapPath -Raw -Encoding UT
 foreach ($mapping in $resourceLayoutMap.mappings) {
     $sourceSubdir = $mapping.source
     $targetSubdir = $mapping.target
-    $mappingSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot ("assets\_placeholder\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_sample\" + $sourceSubdir))) -DestDir (Join-Path $StreamingAssetsRoot $targetSubdir)
+    $mappingSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot ("assets\_placeholder\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_sample\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_showcase\" + $sourceSubdir))) -DestDir (Join-Path $StreamingAssetsRoot $targetSubdir)
     Write-Host ("  assets/_placeholder/{0} + assets/_sample/{0} -> StreamingAssets/GameFoundation/{1}（加载器路径规则，见 toolchain/resource_layout_map.json）：共 {2} 个文件，拷贝 {3}，跳过 {4}，删除 {5}" -f $sourceSubdir, $targetSubdir, $mappingSyncResult.Total, $mappingSyncResult.Copied, $mappingSyncResult.Skipped, $mappingSyncResult.Removed)
 }
 
