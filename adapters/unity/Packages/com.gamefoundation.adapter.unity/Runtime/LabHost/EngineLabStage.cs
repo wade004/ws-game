@@ -77,7 +77,9 @@ namespace Adapter.Unity.LabHost
         private SfxPlayer? _sfx;
         private CompositeFeedbackSink? _sink;
         private CharacterRigHitFrameSource? _hitSource;
-        private StageDisplayRegistry? _display;
+        private IDisplayInfoRegistry? _display;
+        private ShowcaseDisplayRegistry? _showcaseDisplay;
+        private ShowcaseDirector? _showcase;
         private bool _broken;
         private bool _disposed;
         private int _eventCursor;
@@ -113,6 +115,12 @@ namespace Adapter.Unity.LabHost
         public Camera? StageCamera => _camera;
 
         public UnityCamera? StageUnityCamera => _unityCamera;
+
+        /// <summary>演示场景导演（ADR-0154）；只有选项 <see cref="EngineLabOptions.Showcase"/> 开着且舞台装配成功时才有。</summary>
+        public ShowcaseDirector? Showcase => _showcase;
+
+        /// <summary>演示场景的外形登记（测试查每个逻辑 id 被解析成哪个外形）。</summary>
+        public ShowcaseDisplayRegistry? ShowcaseDisplay => _showcaseDisplay;
 
         /// <summary>当前生效的模板取景（基础预设是 <c>feel.preset.tpl_*</c> 时取同名 <c>camera_profile.tpl_*</c> 行；否则 <see cref="CameraFraming.None"/>）。试玩模式才会更新。</summary>
         public CameraFraming TemplateFraming { get; private set; } = CameraFraming.None;
@@ -265,6 +273,7 @@ namespace Adapter.Unity.LabHost
                 while (_eventCursor < events.Count)
                 {
                     var evt = events[_eventCursor++];
+                    _showcase?.OnLogicEvent(evt, tick);
                     if (evt is ActionMarkerEvent marker
                         && (string.Equals(marker.Name, "hit", StringComparison.Ordinal)
                             || string.Equals(marker.Name, "hit_frame", StringComparison.Ordinal)))
@@ -377,12 +386,20 @@ namespace Adapter.Unity.LabHost
             {
                 // 人手试玩：舞台相机真正渲染到屏幕（缺省是关着、只在测 GPU 时离屏渲染一次）；带音频监听器；背景用深灰，地面网格在下面建。
                 _camera.enabled = true;
+                // 判断记录（相机次序，ADR-0154 顺带修复）：宿主相机（深度 0、清屏）会在舞台相机之后清掉整个屏幕，所以试玩时舞台相机排在所有相机之后画
+                // （深度 100）；宿主相机的遮罩已摘掉隔离层，不会重复画舞台内容。
+                _camera.depth = 100;
                 _camera.backgroundColor = new Color(0.09f, 0.10f, 0.12f);
                 _cameraGo.AddComponent<AudioListener>();
                 _unityCamera.SetZoom(_options.InteractiveZoom);
                 _followSmoothing = _options.InteractiveFollowSmoothing;
             }
 
+            // 判断记录（宿主相机先于遮罩摘除，ADR-0154 顺带修复）：引擎宿主（UnityEngineHost）第一次 Ensure 时才创建它自己的相机
+            // （GameFoundation.Camera，剔除遮罩 = 全部层）。此前这一步排在摘遮罩循环之后，空场景里宿主相机晚于循环出生，
+            // 遮罩里仍带着隔离层，于是宿主相机（可视半高 5、不跟随）把舞台相机画好的画面整个盖掉——试玩画面被缩成一半、也不跟随玩家。
+            // 现在先确保宿主存在，再对包括宿主相机在内的全部其它相机摘掉隔离层。
+            _loader = UnityEngineHost.Ensure().ResourceLoader;
             foreach (var other in Camera.allCameras)
             {
                 if (other == _camera)
@@ -394,13 +411,22 @@ namespace Adapter.Unity.LabHost
                 other.cullingMask &= ~(1 << layer);
             }
 
-            _loader = UnityEngineHost.Ensure().ResourceLoader;
             _r2d = new UnityRenderer2D(_root.transform, _loader);
             _r2d.EffectTimeSource = _clock;
             _r3d = new UnityRenderer3D(_root.transform, _loader);
             _audio = new UnityAudio(_root.transform, _loader);
 
-            _display = new StageDisplayRegistry(ctx.DisplayInfo, ctx.Cell.Form);
+            if (_options.Showcase)
+            {
+                // 演示场景（ADR-0154）：只换呈现——外形登记按单位种类给真实美术外形，武器风格行换成演示用的一行；逻辑一概不动。
+                _showcaseDisplay = new ShowcaseDisplayRegistry(ctx.DisplayInfo);
+                _display = _showcaseDisplay;
+            }
+            else
+            {
+                _display = new StageDisplayRegistry(ctx.DisplayInfo, ctx.Cell.Form);
+            }
+
             var directionCount = string.Equals(ctx.Cell.Facing, "flip", StringComparison.Ordinal) ? 2 : 8;
             var renderOptions = new RenderOptions
             {
@@ -411,7 +437,18 @@ namespace Adapter.Unity.LabHost
             _hitSource.HitFrameReached += OnEngineHitFrame;
             _unityFactory = new UnityViewFactory(
                 _r2d, new RenderConventionHost(renderOptions), _display, _loader, ctx.World.Bus, ctx.World.Registry, _r3d,
-                _hitSource, new LabWeaponStyleSource(ctx.World.Registry, ctx.Cell.Form), renderOptions);
+                _hitSource, new LabWeaponStyleSource(ctx.World.Registry, ctx.Cell.Form, _options.Showcase), renderOptions);
+
+            // 判断记录（ADR-0154）：生产装配里受击反应查询由表现装配交给视图工厂，动画状态机据此进反应驱动模式
+            // （受击姿势按裁决事件选子键 hit.light/heavy/knockback/knockdown/getup，反应为 none/霸体不播受击动画）；
+            // 舞台自己建视图工厂，原先漏了这一步，只会播基础 hit——实验室舞台与生产表现不一致是舞台自己的缺陷。
+            // 所以所有舞台（原试玩场景与演示场景）都交付，口径与 PresentationAssembly 相同（手感受击裁决已装配且处于活动状态才交付）；
+            // 只读查询，不碰逻辑。
+            var hitReactions = ctx.World.Gameplay.Feel?.Rules.HitFeel.Host;
+            if (hitReactions != null && hitReactions.Active)
+            {
+                _unityFactory.SetHitReactionQuery(hitReactions);
+            }
 
             // 特效与音效：目录由实验室内核的手感音效表（LabFeedbackCatalog）与一个宿主自有的探针特效组成，资源引用换成占位美术里真实存在的文件。
             var vfxCatalog = new Dictionary<Id, VfxDef>
@@ -452,7 +489,15 @@ namespace Adapter.Unity.LabHost
 
             if (_options.Interactive)
             {
-                BuildGround(ctx);
+                if (_options.Showcase)
+                {
+                    _showcase = new ShowcaseDirector(_root.transform, _options.IsolationLayer, _loader, ctx, ShowcaseFlash);
+                    _showcase.BuildScene(ctx);
+                }
+                else
+                {
+                    BuildGround(ctx);
+                }
             }
 
             // 预加载：探针特效与手感音效用到的两份音频，避免第一次播放走"等待加载"的慢路径而改变观测窗口。
@@ -555,6 +600,11 @@ namespace Adapter.Unity.LabHost
 
             try
             {
+                if (_showcaseDisplay != null && _ctx != null && entityId.Equals(_ctx.PlayerId))
+                {
+                    _showcaseDisplay.MarkPlayer(displayId);
+                }
+
                 var view = _unityFactory.CreateView(kind, displayId, entityId);
                 if (_options.Interactive)
                 {
@@ -589,6 +639,7 @@ namespace Adapter.Unity.LabHost
                                     || string.Equals(marker, ReleaseMarker, StringComparison.Ordinal))
                                 {
                                     EnqueueEngineHit(hitEntity);
+                                    _showcase?.OnSwing(hitEntity);
                                 }
                             });
                         }
@@ -682,6 +733,98 @@ namespace Adapter.Unity.LabHost
         }
 
         /// <summary>试玩模式的闪白落地：精灵型视图过曝 0.15 秒（与 FlashReceiver 同一默认值）；模型型视图没有闪白着色参数，只计数不落地。</summary>
+        /// <summary>试玩模式下实际落到精灵视图上的闪白次数（测试/诊断用）。</summary>
+        public int FlashesApplied { get; private set; }
+
+        /// <summary>每个精灵单位当前渲染的精灵名（资源加载器给的名字是 <c>&lt;资源引用&gt;_frame&lt;序号&gt;</c>）；测试用来核对"画出来的是演示美术、不是占位"。</summary>
+        public List<KeyValuePair<Id, string>> RenderedSprites()
+        {
+            var list = new List<KeyValuePair<Id, string>>();
+            if (_r2d == null)
+            {
+                return list;
+            }
+
+            foreach (var pair in _entries)
+            {
+                if (!(pair.Value.View is UnitySpriteView sv))
+                {
+                    continue;
+                }
+
+                var layers = _r2d.GetLayersRoot(sv.EngineHandle);
+                if (layers == null)
+                {
+                    continue;
+                }
+
+                foreach (var r in layers.GetComponentsInChildren<SpriteRenderer>(false))
+                {
+                    if (r.enabled && r.sprite != null)
+                    {
+                        list.Add(new KeyValuePair<Id, string>(pair.Key, r.sprite.name));
+                    }
+                }
+            }
+
+            return list;
+        }
+
+        /// <summary>某个精灵单位已显示方向的槽位与镜像（测试/诊断用）；不是精灵视图时为 null。</summary>
+        public (string Slot, bool FlipX)? DisplayedDirectionOf(Id entity)
+        {
+            if (_entries.TryGetValue(entity, out var entry) && entry.View is UnitySpriteView sv)
+            {
+                var d = sv.DisplayedDirection;
+                return (d.SlotId.Value, d.FlipX);
+            }
+
+            return null;
+        }
+
+        /// <summary>每个精灵单位当前渲染的精灵名与水平翻转（测试用：核对敌人选用的方向视图与镜像）。</summary>
+        public List<(Id Entity, string Sprite, bool FlipX)> RenderedSpriteFlips()
+        {
+            var list = new List<(Id Entity, string Sprite, bool FlipX)>();
+            if (_r2d == null)
+            {
+                return list;
+            }
+
+            foreach (var pair in _entries)
+            {
+                if (!(pair.Value.View is UnitySpriteView sv))
+                {
+                    continue;
+                }
+
+                var layers = _r2d.GetLayersRoot(sv.EngineHandle);
+                if (layers == null)
+                {
+                    continue;
+                }
+
+                foreach (var r in layers.GetComponentsInChildren<SpriteRenderer>(false))
+                {
+                    if (r.enabled && r.sprite != null)
+                    {
+                        list.Add((pair.Key, r.sprite.name, r.flipX));
+                    }
+                }
+            }
+
+            return list;
+        }
+
+        /// <summary>演示场景导演的受击闪白：同样受试玩面板的"闪白"效果开关管（关 = 不闪）。</summary>
+        private void ShowcaseFlash(Id entityId)
+        {
+            if (_effects == null || _effects.IsOn(LabEffectFilter.Flash))
+            {
+                OnFlash(entityId);
+            }
+        }
+
         private void OnFlash(Id entityId)
         {
             if (!_options.Interactive || !_entries.TryGetValue(entityId, out var entry) || !(entry.View is UnitySpriteView sprite))
@@ -690,6 +833,7 @@ namespace Adapter.Unity.LabHost
             }
 
             sprite.SetFlash(1.0);
+            FlashesApplied++;
             _flashFx.Add(new FlashFx { View = sprite, Remaining = 0.15 });
         }
 
@@ -1120,6 +1264,7 @@ namespace Adapter.Unity.LabHost
 
             _r2d?.StepEffects();
             _vfx?.Update(dt);
+            _showcase?.Update(dt);
             _sfx?.Update(dt);
             _audio?.Tick(dt);
             _r3d?.Tick();
@@ -1333,6 +1478,8 @@ namespace Adapter.Unity.LabHost
             }
             finally
             {
+                _showcase?.Dispose();
+                _showcase = null;
                 _gpu?.Dispose();
                 _gpu = null;
                 foreach (var saved in _savedMasks)
@@ -1405,7 +1552,8 @@ namespace Adapter.Unity.LabHost
             public void SyncPose(Vec2 pos, Direction facing, double height)
             {
                 _recording.SyncPose(pos, facing, height);
-                Guard("SyncPose", () => _engine.SyncPose(pos, facing, height));
+                var engineFacing = _stage._showcase != null ? _stage._showcase.FacingFor(_recording.EntityId, pos, facing) : facing;
+                Guard("SyncPose", () => _engine.SyncPose(pos, engineFacing, height));
             }
 
             public void Destroy()
@@ -1441,9 +1589,9 @@ namespace Adapter.Unity.LabHost
         {
             private readonly Id? _row;
 
-            public LabWeaponStyleSource(Core.Foundation.DataRegistry.IDataRegistryView registry, string form)
+            public LabWeaponStyleSource(Core.Foundation.DataRegistry.IDataRegistryView registry, string form, bool showcase = false)
             {
-                var id = new Id("display.weapon_style.lab_" + (string.Equals(form, "model", StringComparison.Ordinal) ? "model" : "sprite"));
+                var id = new Id("display.weapon_style." + (showcase ? "show_" : "lab_") + (string.Equals(form, "model", StringComparison.Ordinal) ? "model" : "sprite"));
                 _row = registry.Get("display.weapon_style", id) != null ? id : (Id?)null;
             }
 

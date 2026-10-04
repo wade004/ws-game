@@ -40,6 +40,14 @@ namespace Adapter.Unity.LabHost
         [SerializeField] private string repoRoot = string.Empty;
         [SerializeField] private bool autoStart = true;
 
+        /// <summary>演示场景的数据根（只含外形表：动画集与武器风格行；不含任何逻辑表）。</summary>
+        public const string ShowcaseDataRoot = "data/_showcase";
+
+        /// <summary>演示场景（ADR-0154）：同一套逻辑与手感运行时，换真实美术呈现 + 游戏内 HUD，调试面板缺省收起。</summary>
+        [SerializeField] private bool showcase;
+
+        private ShowcaseHud? _hud;
+
         private EngineLabHost? _host;
         private EngineLabStage? _stage;
         private LabEffectFilter? _filter;
@@ -79,6 +87,16 @@ namespace Adapter.Unity.LabHost
         public EngineLabHost? Host => _host;
 
         public LabEffectFilter? Effects => _filter;
+
+        /// <summary>演示场景开关；必须在 <see cref="Begin"/> 之前设置。</summary>
+        public bool Showcase
+        {
+            get => showcase;
+            set => showcase = value;
+        }
+
+        /// <summary>演示场景的游戏内 HUD（非演示场景为 null）。</summary>
+        public ShowcaseHud? Hud => _hud;
 
         public string RepoRoot => _repoRoot;
 
@@ -153,6 +171,11 @@ namespace Adapter.Unity.LabHost
                     roots.Add(LocalPresetRoot);
                 }
 
+                if (showcase && !roots.Contains(ShowcaseDataRoot))
+                {
+                    roots.Add(ShowcaseDataRoot);
+                }
+
                 var script = LabLive.CreateScript("playground_" + cell + "_" + stamp, 60, 60, roots, dummySet);
                 _filter = new LabEffectFilter();
                 _filter.Submitted += OnFeedbackSubmitted;
@@ -163,10 +186,18 @@ namespace Adapter.Unity.LabHost
                     HonorCellCameraMode = true,
                     GpuTiming = false,
                     ProbeParticles = false,
+                    Showcase = showcase,
                 };
                 _stage = new EngineLabStage(options);
                 Session = _host.Runner.StartLive(script, cell, null, _stage);
                 BuildModel();
+                if (showcase)
+                {
+                    // 演示场景：调试面板缺省收起（F1 展开），屏上只留游戏内 HUD。
+                    Model.PanelVisible = false;
+                    _hud = ShowcaseHud.Create(_stage, transform);
+                }
+
                 InputSource ??= UnityEngineHost.Ensure().Input;
                 var ctx = Session.Context!;
                 _actions.Clear();
@@ -867,6 +898,12 @@ namespace Adapter.Unity.LabHost
             finally
             {
                 _ended = true;
+                if (_hud != null)
+                {
+                    Destroy(_hud.gameObject);
+                    _hud = null;
+                }
+
                 _stage?.Dispose();
             }
 
@@ -934,7 +971,18 @@ namespace Adapter.Unity.LabHost
 
                 if (!Model.PanelVisible)
                 {
-                    GUI.Label(new UnityEngine.Rect(12, Screen.height / scale - 28, 600, 24), "F1 显示面板　J 攻击　K 闪避　L 技能　U 蓄力（按住）　WASD/方向键 移动");
+                    if (showcase)
+                    {
+                        // 演示场景：一条角落小字（右上），不占画面。
+                        _small ??= new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
+                        var corner = new GUIStyle(_small) { alignment = TextAnchor.UpperRight };
+                        GUI.Label(new UnityEngine.Rect(Screen.width / scale - 612, 6, 600, 20), "F1 展开调试面板　F12 切页　J 攻击　K 闪避　L 重击　U 蓄力　G 精英出手", corner);
+                    }
+                    else
+                    {
+                        GUI.Label(new UnityEngine.Rect(12, Screen.height / scale - 28, 600, 24), "F1 显示面板　J 攻击　K 闪避　L 技能　U 蓄力（按住）　WASD/方向键 移动");
+                    }
+
                     return;
                 }
 
@@ -951,6 +999,28 @@ namespace Adapter.Unity.LabHost
             }
         }
 
+        /// <summary>重绘时测得的面板滚动区内容宽（逻辑像素）与面板宽；内容比面板宽就会出现横向滚动，居中的按钮文字被挤出可见区（"按钮文字空白"缺陷的度量）。</summary>
+        public float PanelContentWidth { get; private set; }
+
+        public float PanelViewportWidth { get; private set; }
+
+        public LabTab PanelLayoutTab { get; private set; }
+
+        /// <summary>已采到的重绘样本数（OnGUI 在无图形的环境里不会被调用，样本数为 0）。</summary>
+        public int PanelLayoutSamples { get; private set; }
+
+        private void ProbePanelLayout(float panelWidth)
+        {
+            var r = GUILayoutUtility.GetRect(0f, 0f);
+            if (Event.current.type == EventType.Repaint)
+            {
+                PanelContentWidth = r.width;
+                PanelViewportWidth = panelWidth;
+                PanelLayoutTab = Model.Tab;
+                PanelLayoutSamples++;
+            }
+        }
+
         private void DrawPanel(float scale)
         {
             var width = PanelWidth;
@@ -963,6 +1033,7 @@ namespace Adapter.Unity.LabHost
             if (Model.Tab != LabTab.Scene)
             {
                 DrawTabContent();
+                ProbePanelLayout(width);
                 GUILayout.EndScrollView();
                 GUILayout.EndArea();
                 return;
@@ -1002,29 +1073,38 @@ namespace Adapter.Unity.LabHost
             GUILayout.EndHorizontal();
 
             GUILayout.Label("武器 (F3)：" + LabLiveModel.FriendlyName(Model.Weapon) + "　体型 (F4)：" + LabLiveModel.FriendlyName(Model.Archetype));
-            GUILayout.BeginHorizontal();
+            var flow = new List<KeyValuePair<string, bool>>();
+            var picks = new List<Action>();
             foreach (var w in Model.Weapons)
             {
-                if (GUILayout.Toggle(w.Id == Model.Weapon, w.Label, "Button") && w.Id != Model.Weapon) SetWeapon(w.Id);
+                var weapon = w;
+                flow.Add(new KeyValuePair<string, bool>(weapon.Label, weapon.Id == Model.Weapon));
+                picks.Add(() => SetWeapon(weapon.Id));
             }
 
-            GUILayout.EndHorizontal();
-            GUILayout.BeginHorizontal();
+            DrawToggleFlow(flow, picks, width);
+            flow.Clear();
+            picks.Clear();
             foreach (var a in Model.Archetypes)
             {
-                if (GUILayout.Toggle(a.Id == Model.Archetype, a.Label, "Button") && a.Id != Model.Archetype) SetArchetype(a.Id);
+                var archetype = a;
+                flow.Add(new KeyValuePair<string, bool>(archetype.Label, archetype.Id == Model.Archetype));
+                picks.Add(() => SetArchetype(archetype.Id));
             }
 
-            GUILayout.EndHorizontal();
+            DrawToggleFlow(flow, picks, width);
 
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("时间尺度 ([ ])", GUILayout.Width(100));
-            foreach (var s in TimeScales)
+            GUILayout.Label("时间尺度 ([ ])");
+            flow.Clear();
+            picks.Clear();
+            foreach (var ts in TimeScales)
             {
-                if (GUILayout.Toggle(Math.Abs(Model.TimeScale - s) < 1e-9, "×" + s.ToString("0.##"), "Button") && Math.Abs(Model.TimeScale - s) > 1e-9) SetTimeScale(s);
+                var scaleValue = ts;
+                flow.Add(new KeyValuePair<string, bool>("×" + scaleValue.ToString("0.##"), Math.Abs(Model.TimeScale - scaleValue) < 1e-9));
+                picks.Add(() => SetTimeScale(scaleValue));
             }
 
-            GUILayout.EndHorizontal();
+            DrawToggleFlow(flow, picks, width);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button(Model.Paused ? "继续 (P)" : "暂停 (P)")) TogglePause();
             if (GUILayout.Button("单步 tick (.)")) StepTick();
@@ -1032,15 +1112,18 @@ namespace Adapter.Unity.LabHost
             GUILayout.EndHorizontal();
 
             GUILayout.Label("效果开关（关 = 该项不播）");
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Toggle(Model.HitStopOn, "顿帧(F8)", "Button") != Model.HitStopOn) SetHitStop(!Model.HitStopOn);
+            flow.Clear();
+            picks.Clear();
+            flow.Add(new KeyValuePair<string, bool>("顿帧(F8)", Model.HitStopOn));
+            picks.Add(() => SetHitStop(!Model.HitStopOn));
             foreach (var channel in Model.EffectChannels)
             {
-                var on = Model.EffectOn(channel);
-                if (GUILayout.Toggle(on, EffectLabel(channel), "Button") != on) ToggleEffect(channel);
+                var ch = channel;
+                flow.Add(new KeyValuePair<string, bool>(EffectLabel(ch), Model.EffectOn(ch)));
+                picks.Add(() => ToggleEffect(ch));
             }
 
-            GUILayout.EndHorizontal();
+            DrawToggleFlow(flow, picks, width, false);
             if (GUILayout.Toggle(Model.CornerFlash, "输入瞬间角落闪块 (F11，外接相机测延迟)") != Model.CornerFlash) ToggleCornerFlash();
             foreach (var channel in Model.EffectChannels)
             {
@@ -1077,8 +1160,39 @@ namespace Adapter.Unity.LabHost
                 GUILayout.Label(HelpText(), _small);
             }
 
+            ProbePanelLayout(width);
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        /// <summary>
+        /// 一组切换按钮按面板宽折行（缺陷修复，ADR-0154）：此前每组是一整排不换行的按钮，模板多时那一排比面板宽几十倍，
+        /// 滚动区内容宽被撑大，同页其它按钮跟着被拉宽、居中的文字落到可见区外。折行规划是纯函数（<see cref="LabPanelFlow"/>），宽度按按钮样式实测。
+        /// </summary>
+        private void DrawToggleFlow(IReadOnlyList<KeyValuePair<string, bool>> items, IReadOnlyList<Action> picks, float panelWidth, bool radio = true)
+        {
+            var widths = new float[items.Count];
+            for (var i = 0; i < widths.Length; i++)
+            {
+                widths[i] = GUI.skin.button.CalcSize(new GUIContent(items[i].Key)).x;
+            }
+
+            var rows = LabPanelFlow.Plan(widths, panelWidth - LabPanelFlow.PanelChrome, LabPanelFlow.Spacing);
+            foreach (var row in rows)
+            {
+                GUILayout.BeginHorizontal();
+                foreach (var index in row)
+                {
+                    var on = items[index].Value;
+                    var now = GUILayout.Toggle(on, items[index].Key, "Button", GUILayout.ExpandWidth(false));
+                    if (radio ? now && !on : now != on)
+                    {
+                        picks[index]();
+                    }
+                }
+
+                GUILayout.EndHorizontal();
+            }
         }
 
         private string FindKind(string preferred)

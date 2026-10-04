@@ -65,6 +65,13 @@ namespace Adapter.Unity.LabHost
         public bool ThrowOnEngineError { get; set; }
 
         /// <summary>
+        /// 演示场景（ADR-0154，只在 <see cref="Interactive"/> 下生效）：同一套逻辑与手感运行时，只把呈现换成真实美术——
+        /// 外形登记按单位种类给英雄/小怪/精英/木桩外形，地面与场景道具换成美术资源，命中火花/挥砍拖影/尘土/冲击波环与 HUD 数据由
+        /// <see cref="ShowcaseDirector"/> 只读逻辑事件驱动。关着（缺省）时舞台与原来逐位一致。
+        /// </summary>
+        public bool Showcase { get; set; }
+
+        /// <summary>
         /// 人手试玩模式（缺省 false，关着时舞台与此前逐位一致）：舞台相机真正渲染到屏幕并跟随玩家、带音频监听器与地面网格、
         /// 震屏与闪白落到引擎（缺省它们是空实现）；不再测 GPU 帧耗时。逻辑不受影响（表现不回流逻辑）。
         /// </summary>
