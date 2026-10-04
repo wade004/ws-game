@@ -92,7 +92,7 @@ namespace Presentation.Ui
                 return string.IsNullOrEmpty(value) ? fallback : value;
             }
 
-            var name = row.TryGetId("name_key", out var nameKey) ? Localize(nameKey, ShortName(template)) : ShortName(template);
+            var name = ItemName(registry, template, text);
 
             var qualityShort = string.Empty;
             var qualityText = string.Empty;
@@ -107,16 +107,7 @@ namespace Presentation.Ui
                 }
             }
 
-            var slotText = string.Empty;
-            if (row.TryGetId("slot", out var slot))
-            {
-                slotText = EquipmentViewModel.SlotShortName(slot);
-                var slotRow = registry.Get("item.slot_definition", slot);
-                if (slotRow != null && slotRow.TryGetId("name_key", out var slotKey))
-                {
-                    slotText = Localize(slotKey, slotText);
-                }
-            }
+            var slotText = row.TryGetId("slot", out var slot) ? SlotText(registry, slot, text) : string.Empty;
 
             var rows = new List<ItemTooltipRow>();
             if (slotText.Length > 0)
@@ -172,6 +163,42 @@ namespace Presentation.Ui
         {
             var row = registry.Get("item.template", template);
             return row != null && row.TryGetId("slot", out var slot) && slot.Equals(slotId);
+        }
+
+        /// <summary>
+        /// 物品显示名：<c>item.template.name_key</c> 经 <paramref name="text"/> 本地化；没有模板行、没有键、没有文本函数或取不到文案时退回模板 id 的短名（如 <c>std_bow</c>）。
+        /// 背包行标签、提示框标题与拖拽相关的取名共用这一处，各处物品名因此一致。
+        /// </summary>
+        public static string ItemName(IDataRegistryView? registry, Id template, Func<Id, string>? text = null)
+        {
+            var row = registry?.Get("item.template", template);
+            if (text != null && row != null && row.TryGetId("name_key", out var key))
+            {
+                var value = text(key);
+                if (!string.IsNullOrEmpty(value))
+                {
+                    return value;
+                }
+            }
+
+            return ShortName(template);
+        }
+
+        /// <summary>
+        /// 槽位显示名：槽位定义（<c>item.slot_definition</c>）的 <c>name_key</c> 经 <paramref name="text"/> 本地化；没有定义行、没有键、没有文本函数或取不到文案时退回槽位短名（如 <c>std_main_hand</c>）。
+        /// 提示框的槽位行与装备面板的槽位标签共用这一处，两处的槽位名因此一致。
+        /// </summary>
+        public static string SlotText(IDataRegistryView registry, Id slot, Func<Id, string>? text = null)
+        {
+            var fallback = EquipmentViewModel.SlotShortName(slot);
+            var slotRow = registry.Get("item.slot_definition", slot);
+            if (text == null || slotRow == null || !slotRow.TryGetId("name_key", out var slotKey))
+            {
+                return fallback;
+            }
+
+            var value = text(slotKey);
+            return string.IsNullOrEmpty(value) ? fallback : value;
         }
 
         private static double Number(JsonObject obj, string key) =>

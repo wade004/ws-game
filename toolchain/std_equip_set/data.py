@@ -148,7 +148,7 @@ def tables() -> dict[str, dict]:
     t["ui/ui_layout_definition.json"] = _doc("ui_layout_definition", [
         {"id": "ui_layout_definition.std_character_stats", "panel": "character_stats", "fields": {"anchor": "top_left"},
          "skin_ref": C.SKIN_REF},
-        {"id": "ui_layout_definition.std_inventory", "panel": "inventory", "fields": {"anchor": "top_right"},
+        {"id": "ui_layout_definition.std_inventory", "panel": "inventory", "fields": {"anchor": "top_right", "cell_size": 48},
          "skin_ref": C.SKIN_REF},
         {"id": "ui_layout_definition.std_action_bar", "panel": "action_bar", "slots": 8,
          "fields": {"anchor": "bottom_center"}, "skin_ref": C.SKIN_REF},

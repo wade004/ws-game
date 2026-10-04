@@ -64,6 +64,35 @@ namespace Tests.PresentationUi
         }
 
         [Fact]
+        public void ItemName_AndSlotText_AreTheSingleNamingPath_BackpackLabelTooltipTitleAndSlotLabelAgree()
+        {
+            var registry = BuildRegistry();
+
+            // 复现：背包行标签与提示框标题曾各取各的名（一处显示 id 短名，一处显示本地化名）；现在都走 ItemName / SlotText，同一输入同一输出。
+            foreach (var id in new[] { "item.sword", "item.plate" })
+            {
+                var template = new Id(id);
+                Assert.Equal(ItemTooltipBuilder.ItemName(registry, template, Text), ItemTooltipBuilder.Build(registry, template, Text)!.Name);
+                Assert.Equal(ItemTooltipBuilder.ItemName(registry, template, null), ItemTooltipBuilder.Build(registry, template, null)!.Name);
+            }
+
+            Assert.Equal("T:l10n.item.sword", ItemTooltipBuilder.ItemName(registry, new Id("item.sword"), Text));
+            Assert.Equal("T:l10n.slot.main_hand", ItemTooltipBuilder.SlotText(registry, new Id("item.slot.main_hand"), Text));
+            Assert.Equal(ItemTooltipBuilder.Build(registry, new Id("item.sword"), Text)!.SlotText, ItemTooltipBuilder.SlotText(registry, new Id("item.slot.main_hand"), Text));
+
+            // 不变量：缺显示名才回落 id 短名——没有文本函数、没有 name_key、文本函数返回空、没有数据行，四种缺法都回落，不抛异常。
+            Assert.Equal("sword", ItemTooltipBuilder.ItemName(registry, new Id("item.sword"), null));
+            Assert.Equal("sword", ItemTooltipBuilder.ItemName(registry, new Id("item.sword"), _ => string.Empty));
+            Assert.Equal("plate", ItemTooltipBuilder.ItemName(registry, new Id("item.plate"), Text));
+            Assert.Equal("unknown", ItemTooltipBuilder.ItemName(registry, new Id("item.unknown"), Text));
+            Assert.Equal("unknown", ItemTooltipBuilder.ItemName(null, new Id("item.unknown"), Text));
+            Assert.Equal("main_hand", ItemTooltipBuilder.SlotText(registry, new Id("item.slot.main_hand"), null));
+            Assert.Equal("main_hand", ItemTooltipBuilder.SlotText(registry, new Id("item.slot.main_hand"), _ => string.Empty));
+            Assert.Equal("chest", ItemTooltipBuilder.SlotText(registry, new Id("item.slot.chest"), Text));
+            Assert.Equal("ghost", ItemTooltipBuilder.SlotText(registry, new Id("item.slot.ghost"), Text));
+        }
+
+        [Fact]
         public void Build_Armor_HasNoDamageRows_AndFormatsEachStatOperation()
         {
             var content = ItemTooltipBuilder.Build(BuildRegistry(), new Id("item.plate"), null)!;

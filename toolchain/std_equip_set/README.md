@@ -63,6 +63,7 @@ data/_equip/                                                    item.* / display
    取舍：没有选"在校验器里按槽位名猜哪些槽位无外观"（名字是游戏自己的约定，猜必错），也没有选"让游戏补空外观行"（空行没有语义，还会被当成真的外观去校验层图）。
 
 10. **武器的背面层序由数据声明**（ADR-0152）：`config.py` 的 `BACK_DIRECTIONS`（`back_side_r`、`back`）写进五把武器 `display.equip_visual` 行的 `behind_directions`
+11. **背包格子边长由布局数据声明**（ADR-0152）：`data.py` 的 `ui_layout_definition.std_inventory` 行声明 `cell_size: 48`（占位槽位框的原生边长；背包行里的图标取格子减 4 px，参考包下清晰可辨）。没有布局行时背包取缺省 32 px，`cell_size: 0` 取皮肤槽位框原生边长。
     （胸甲不声明）：背面两档武器画在身体之后，其余方向不变；占位美术与参考美术共用这份数据（`data/_equip` 是共享数据来源），镜像方向（`back_side_l`）跟随 `back_side_r`。
 
 ## 范围与边界（设计决定，M4 清扫由"已知限制"改写）

@@ -14,7 +14,8 @@
       "id": "ui_layout_definition.std_inventory",
       "panel": "inventory",
       "fields": {
-        "anchor": "top_right"
+        "anchor": "top_right",
+        "cell_size": 48
       },
       "skin_ref": "skin.default"
     },
