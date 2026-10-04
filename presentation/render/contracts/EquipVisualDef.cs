@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 
@@ -49,6 +50,11 @@ namespace Presentation.Render
         /// 方向槽位 id 如 <c>dir.front_side_r</c>）；缺省为 null，表示取姿势集的正面档。纯新增可选字段。</summary>
         public Id? PreviewDirection { get; }
 
+        /// <summary>逐方向层序（<c>behind_directions</c>，手感设计/08 第 5 节、ADR-0152）：该装备层在这些方向档
+        /// （方向槽位 id，如 <c>dir.back</c>）上画在全部其余纸娃娃层之后（身体后面）；其余方向保持现行顺序。
+        /// 缺省为空 = 所有方向都是现行顺序（逐位不变）。纯新增可选字段。</summary>
+        public IReadOnlyList<Id> BehindDirections { get; }
+
         public EquipVisualDef(Id id, Id itemId, EquipVisualMode mode, Id? slotId, Id? meshRef, Id? socketId, Id? modelRef)
             : this(id, itemId, mode, slotId, meshRef, socketId, modelRef, null)
         {
@@ -57,6 +63,13 @@ namespace Presentation.Render
         /// <summary>带预览方向档的重载（ABI 只新增：保留七参数构造并转调本重载）。</summary>
         public EquipVisualDef(Id id, Id itemId, EquipVisualMode mode, Id? slotId, Id? meshRef, Id? socketId, Id? modelRef,
             Id? previewDirection)
+            : this(id, itemId, mode, slotId, meshRef, socketId, modelRef, previewDirection, null)
+        {
+        }
+
+        /// <summary>带逐方向层序的重载（ABI 只新增：保留八参数构造并转调本重载）。</summary>
+        public EquipVisualDef(Id id, Id itemId, EquipVisualMode mode, Id? slotId, Id? meshRef, Id? socketId, Id? modelRef,
+            Id? previewDirection, IReadOnlyList<Id>? behindDirections)
         {
             Id = id;
             ItemId = itemId;
@@ -66,6 +79,7 @@ namespace Presentation.Render
             SocketId = socketId;
             ModelRef = modelRef;
             PreviewDirection = previewDirection;
+            BehindDirections = behindDirections ?? System.Array.Empty<Id>();
         }
 
         /// <summary>从一条已加载的 <c>display.equip_visual</c> <see cref="DataRecord"/> 构造（假设记录
@@ -80,7 +94,8 @@ namespace Presentation.Render
             var socketId = record.TryGetId("socket_id", out var socketVal) ? (Id?)socketVal : null;
             var modelRef = record.TryGetId("model_ref", out var modelVal) ? (Id?)modelVal : null;
             var previewDirection = record.TryGetId("preview_direction", out var previewVal) ? (Id?)previewVal : null;
-            return new EquipVisualDef(id, itemId, mode, slotId, meshRef, socketId, modelRef, previewDirection);
+            var behind = record.TryGetIdList("behind_directions", out var behindList) ? behindList : null;
+            return new EquipVisualDef(id, itemId, mode, slotId, meshRef, socketId, modelRef, previewDirection, behind);
         }
 
         private static EquipVisualMode ParseMode(DataRecord record, string value) => value switch

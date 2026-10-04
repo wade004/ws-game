@@ -325,8 +325,8 @@ def test_quality_frames_have_clear_center_and_distinct_tier_colors():
 
 
 def test_static_layers_sit_on_the_body_under_canvas_center_alignment():
-    """预览区把静态层与身体静态层按画布中心叠放（框架不读锚点对位）：胸甲盖在躯干上、武器握点落在身体 hand_main 锚点上。
-    占位层图是 144 画布里脚底对齐的动画帧几何，叠到 64x96 的身体上整体偏下；参考层图按身体几何摆，预览才看得出穿在身上。"""
+    """运行期合成把各层画布按中心叠放（枢轴相同）：胸甲盖在躯干上、武器握点落在身体 hand_main 锚点上。
+    占位层图是 144 画布里脚底对齐的动画帧几何，叠到 64x96 的身体上整体偏下；参考层图按身体几何预摆，居中叠放才看得出穿在身上（预览区另按 anchors.json 的 grip 声明对位，见下面的锚点用例，两种摆法在参考包里是同一个结果）。"""
     pd = SPEC["paperdoll"]
     off_x = (pd["canvas"] - pd["body_canvas"][0]) // 2
     off_y = (pd["canvas"] - pd["body_canvas"][1]) // 2
@@ -491,3 +491,159 @@ def test_neg_real_static_layer_opaque_square(equip_composite):
     report = equip_cmd.run_equip(DATA_ROOTS, equip_composite)
     hits = [i for i in report.issues if i.record_key == "item.std_sword_1h"]
     assert [i.check for i in hits] == [E.CHECK_LAYER_IMAGE_INVALID]
+
+
+# ---------------------------------------------------------------------------
+# 逐方向层序（display.equip_visual.behind_directions）、层锚点（anchors.json 的 grip）、不透明覆盖率
+# ---------------------------------------------------------------------------
+
+BACK_DIRS = ("back_side_r", "back")
+FIVE_DIRS = ("front", "front_side_r", "side_r", "back_side_r", "back")
+
+
+def _validate(tables, assets):
+    return E.EquipValidator(tables, assets).run()
+
+
+def _hits(report, item_id, check):
+    return [i for i in report.issues if i.record_key == item_id and i.check == check]
+
+
+def test_weapons_declare_the_back_directions_behind_the_body_and_nothing_else_does(tables):
+    """复现 + 不变量：占位装备数据里武器在背面两档画在身体后面（拼图里背面列武器不再盖在身体前），胸甲与未声明的行不带该字段（缺省 = 现行顺序）。"""
+    rows = {r["item_id"]: r for r in tables["display.equip_visual"]}
+    weapons = [i for i in rows if i != "item.std_chestplate"]
+    assert len(weapons) == 5
+    for item in weapons:
+        assert rows[item]["behind_directions"] == ["dir." + d for d in BACK_DIRS], item
+    assert "behind_directions" not in rows["item.std_chestplate"]
+
+
+def test_behind_directions_default_and_declared_rows_validate_clean(equip_composite, tables):
+    report = _validate(tables, equip_composite)
+    assert report.error_count == 0 and report.warning_count == 0
+    t = {k: list(v) for k, v in tables.items()}
+    t["display.equip_visual"] = [{k: v for k, v in r.items() if k != "behind_directions"} for r in t["display.equip_visual"]]
+    clean = _validate(t, equip_composite)                       # 缺省（没声明）零错误零警告：旧数据零改动合法
+    assert clean.error_count == 0 and clean.warning_count == 0
+
+
+@pytest.mark.parametrize("value", [["dir.nope"], ["back"], "dir.back", [3]])
+def test_neg_behind_directions_must_be_a_list_of_declared_directions(equip_composite, tables, value):
+    t = {k: list(v) for k, v in tables.items()}
+    t["display.equip_visual"] = [dict(r, behind_directions=value) if r["item_id"] == "item.std_dagger" else r
+                                 for r in t["display.equip_visual"]]
+    report = _validate(t, equip_composite)
+    hits = _hits(report, "item.std_dagger", E.CHECK_BEHIND_DIRECTION_INVALID)
+    assert len(hits) == 1 and hits[0].severity == "error", [i.render_text() for i in report.issues]
+    assert [i.check for i in report.issues if i.record_key != "item.std_dagger"] == []
+
+
+def test_reference_weapon_grip_anchors_equal_the_body_hand_anchor_plus_canvas_offset():
+    """参考包给每个武器集声明握点：不变量由数据算出（身体 hand_main 锚点 + 画布偏移），不写死像素；胸甲不声明（居中叠放）。"""
+    pd = SPEC["paperdoll"]
+    off = ((pd["canvas"] - pd["body_canvas"][0]) // 2, (pd["canvas"] - pd["body_canvas"][1]) // 2)
+    body = json.loads((PLACEHOLDER / "sprites" / "placeholder_hero" / "anchors.json").read_text(encoding="utf-8"))["directions"]
+    for item, spec in pd["items"].items():
+        path = REF / "sprites" / f"item_{item}" / "anchors.json"
+        if "length" not in spec:
+            assert not path.exists(), item
+            continue
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        assert set(doc["directions"]) == set(FIVE_DIRS)
+        for d in FIVE_DIRS:
+            grip = doc["directions"][d]["grip"]
+            assert grip == [body[d]["hand_main"][0] + off[0], body[d]["hand_main"][1] + off[1]], (item, d)
+            w, h = Image.open(REF / "sprites" / f"item_{item}" / d / f"{spec['layer']}.png").size
+            assert 0 <= grip[0] <= w and 0 <= grip[1] <= h
+
+
+def _write_grip(assets: Path, item: str, direction: str, value) -> None:
+    path = assets / "sprites" / f"item_{item}" / "anchors.json"
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc["directions"][direction]["grip"] = value
+    path.write_text(json.dumps(doc), encoding="utf-8")
+
+
+@pytest.mark.parametrize("value", [[500, 20], [20, -3], [144.5, 72]])
+def test_neg_grip_anchor_outside_the_layer_canvas(equip_composite, tables, value):
+    _write_grip(equip_composite, "std_sword_1h", "side_r", value)
+    report = _validate(tables, equip_composite)
+    hits = _hits(report, "item.std_sword_1h", E.CHECK_ANCHOR_OUT_OF_BOUNDS)
+    assert len(hits) == 1 and hits[0].severity == "error"
+    assert "directions.side_r.grip" in hits[0].message and "144x144" in hits[0].message
+    assert [i.check for i in report.issues if i.record_key == "item.std_sword_1h"] == [E.CHECK_ANCHOR_OUT_OF_BOUNDS]
+
+
+@pytest.mark.parametrize("value", ["78,82", [78], [78, "x"], [True, 5]])
+def test_neg_grip_anchor_malformed(equip_composite, tables, value):
+    _write_grip(equip_composite, "std_sword_1h", "front", value)
+    report = _validate(tables, equip_composite)
+    hits = _hits(report, "item.std_sword_1h", E.CHECK_ANCHOR_INVALID)
+    assert len(hits) == 1 and hits[0].severity == "error", [i.render_text() for i in report.issues]
+
+
+def test_grip_anchor_on_the_boundary_and_missing_anchor_file_are_fine(equip_composite, tables):
+    _write_grip(equip_composite, "std_sword_1h", "front", [0, 144])                 # 恰在画布边界上：合法
+    (equip_composite / "sprites" / "item_std_dagger" / "anchors.json").unlink()      # 没有锚点文件：居中叠放，不报任何东西
+    report = _validate(tables, equip_composite)
+    assert [i.render_text() for i in report.issues] == []
+
+
+def test_manifest_declares_the_coverage_thresholds_and_the_new_diagnostics(names):
+    m = M.load_manifest()
+    assert 0 < m["icons"]["coverage"]["min_opaque_ratio"] < 1 and m["icons"]["coverage"]["alpha_cutoff"] == 128
+    assert 0 < m["paperdoll"]["static_layer_coverage"]["min_opaque_ratio"] < 1
+    for name in (E.CHECK_OPAQUE_COVERAGE_LOW, E.CHECK_ANCHOR_OUT_OF_BOUNDS, E.CHECK_ANCHOR_INVALID, E.CHECK_BEHIND_DIRECTION_INVALID):
+        assert name in m["diagnostics"] and name in E.CHECK_NAMES
+    assert "equip_opaque_coverage_low" in M.render_checklist(*names)
+
+
+def test_reference_icons_and_layers_clear_the_coverage_thresholds_with_margin():
+    """不变量：参考包每张图标/静态层图的覆盖率都在清单阈值之上（弓曾是 5.3%，低于图标阈值 6% 就是"几乎看不见"）。"""
+    ic, ly = M.load_manifest()["icons"]["coverage"], M.load_manifest()["paperdoll"]["static_layer_coverage"]
+    for p in sorted((REF / "icons" / "item").glob("*.png")):
+        ratio = E.opaque_ratio(p, ic["alpha_cutoff"])
+        assert ratio is not None and ratio >= ic["min_opaque_ratio"], (p.name, ratio)
+    bow = E.opaque_ratio(REF / "icons" / "item" / "std_bow.png", ic["alpha_cutoff"])
+    assert bow >= 2 * 0.053                                       # 重出的弓（粗弓身）覆盖率至少是旧弓（5.3%）的两倍
+    for p in sorted(REF.glob("sprites/item_*/*/*.png")):
+        ratio = E.opaque_ratio(p, ly["alpha_cutoff"])
+        assert ratio is not None and ratio >= ly["min_opaque_ratio"], (p.relative_to(REF).as_posix(), ratio)
+
+
+def _thin_out(path: Path, keep_rows: int = 2) -> None:
+    """只留下主体里很窄的一条（保持透明边距与贴边规则），模拟"画成一根细线"。"""
+    im = _rgba(path)
+    a = im.getchannel("A")
+    x0, y0, x1, y1 = a.getbbox()
+    out = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    mid = (y0 + y1) // 2
+    out.paste(im.crop((x0, mid, x1, mid + keep_rows)), (x0, mid))
+    out.save(path)
+
+
+def test_neg_icon_with_too_little_opaque_area_warns_with_the_measured_ratio(equip_composite, tables):
+    _thin_out(equip_composite / "icons" / "item" / "std_bow.png")
+    report = _validate(tables, equip_composite)
+    hits = _hits(report, "item.std_bow", E.CHECK_OPAQUE_COVERAGE_LOW)
+    assert len(hits) == 1 and hits[0].severity == "warning" and hits[0].table == "item.template"
+    assert "覆盖率" in hits[0].message and "6.00%" in hits[0].message
+    assert report.error_count == 0 and report.is_validated("item.std_bow")      # 只是警告：不阻断
+    assert [i.check for i in report.issues if i.record_key != "item.std_bow"] == []
+
+
+def test_neg_static_layer_with_too_little_opaque_area_warns_per_direction(equip_composite, tables):
+    for d in ("front", "back"):
+        _thin_out(equip_composite / "sprites" / "item_std_staff" / d / "hand_main.png")
+    report = _validate(tables, equip_composite)
+    hits = _hits(report, "item.std_staff", E.CHECK_OPAQUE_COVERAGE_LOW)
+    assert len(hits) == 2 and all(h.severity == "warning" for h in hits)
+    assert {("'front'" in h.message, "'back'" in h.message) for h in hits} == {(True, False), (False, True)}
+    assert report.error_count == 0
+
+
+def test_icon_coverage_check_is_skipped_when_the_icon_already_fails_a_hard_rule(equip_composite, tables):
+    Image.new("RGBA", (128, 128), (0, 0, 0, 0)).save(equip_composite / "icons" / "item" / "std_bow.png")
+    report = _validate(tables, equip_composite)
+    assert [i.check for i in report.issues if i.record_key == "item.std_bow"] == [E.CHECK_ICON_ALPHA_INVALID]

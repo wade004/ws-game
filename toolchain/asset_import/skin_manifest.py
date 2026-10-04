@@ -206,7 +206,8 @@ def render_checklist(slots: list[str], qualities: list[str], manifest: Optional[
         lines.append(f"| `{n['key']}` | {_REQ_TEXT[n['requirement']]} | {n['use']}（正整数，缺省 {n['default']}） |")
     ic = m["icons"]
     lines += ["", "## 图标", "", f"路径 `{ic['path']}`；{ic['path_note']}。",
-              f"尺寸：正方形，边长 {ic['size']['min']}～{ic['size']['max']} 内 2 的幂；{ic['margin']}。", ""]
+              f"尺寸：正方形，边长 {ic['size']['min']}～{ic['size']['max']} 内 2 的幂；{ic['margin']}。",
+              f"覆盖率：不透明像素（alpha >= {ic['coverage']['alpha_cutoff']}）占比不低于 {ic['coverage']['min_opaque_ratio']}（否则警告 equip_opaque_coverage_low）。", ""]
     for c in ic["categories"]:
         lines.append(f"- `{c['name']}`（{_REQ_TEXT[c['requirement']]}）：{c['use']}")
     pd = m["paperdoll"]
@@ -214,6 +215,8 @@ def render_checklist(slots: list[str], qualities: list[str], manifest: Optional[
               f"- 静态层图：`{pd['layer_static']}`（每个方向档一张，须有透明像素）",
               f"- 逐层剪辑：`{pd['layer_clip']}`，不命中退一级 `{pd['layer_clip_nodir']}`",
               f"- 身体剪辑（帧数基准）：`{pd['body_clip']}`",
+              f"- 静态层覆盖率：不透明像素占画布比例不低于 {pd['static_layer_coverage']['min_opaque_ratio']}（否则警告 equip_opaque_coverage_low）",
+              f"- 逐方向层序：{pd['layer_order']}", f"- 层锚点：{pd['layer_anchor']}",
               f"- 方向档：{pd['directions']}", f"- 姿势键：{pd['pose_keys']}"]
     for r in pd["frame_rules"]:
         lines.append(f"- 帧规则：{r}")

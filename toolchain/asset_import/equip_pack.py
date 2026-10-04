@@ -17,10 +17,15 @@
   ``display.map`` 登记的 ``slots``/``sockets`` 里（14 第 4.3 节：命名逐字一致）；
 - ``equip_weapon_pair_missing`` / ``equip_weapon_id_mismatch``：武器的 ``display.weapon_style`` 与
   ``feel.weapon`` 缺其一，或二者不同 id（同 id 分表，05 第 2 节）；
-- ``equip_preview_direction_invalid``：``display.equip_visual.preview_direction`` 不是该游戏声明的方向档。
+- ``equip_preview_direction_invalid``：``display.equip_visual.preview_direction`` 不是该游戏声明的方向档；
+- ``equip_behind_direction_invalid``：``display.equip_visual.behind_directions``（可选，逐方向层序）不是方向槽位 id 列表，或含该游戏没声明的方向档；
+- ``equip_anchor_invalid`` / ``equip_anchor_out_of_bounds``：层精灵集 ``sprites/<mesh>/anchors.json`` 里可选的 ``directions.<方向>.grip``
+  不是 ``[x, y]`` 数字对，或落在该方向静态层图画布之外（预览按它把层对到身体挂接点，越界会把层摆出画面）。
 
 警告级（报告记录回落目标，不阻断）：
 
+- ``equip_opaque_coverage_low``：图标/静态层图的不透明像素覆盖率低于清单（``skin_manifest.json`` 的 ``icons.coverage`` /
+  ``paperdoll.static_layer_coverage``）写的阈值——几乎看不见（细线条武器、画得太小），阈值写在清单里；
 - ``equip_layer_clip_missing_recommended``：推荐键层剪辑缺失（回落静态层图）；
 - ``equip_override_clip_layer_missing``：武器表现档案的攻击/施法覆盖剪辑没有该装备的逐层剪辑（回落整身剪辑）；
 - ``equip_family_without_pose_keys``：``feel.weapon.family`` 在姿势集里没有任何键（全部回落到基础键）；
@@ -84,6 +89,10 @@ CHECK_LAYER_IMAGE_INVALID = "equip_layer_image_invalid"
 CHECK_LAYER_FRAME_COUNT_MISMATCH = "equip_layer_frame_count_mismatch"
 CHECK_LAYER_FRAME_SIZE_MISMATCH = "equip_layer_frame_size_mismatch"
 CHECK_LAYER_ATLAS_MISMATCH = "equip_layer_atlas_mismatch"
+CHECK_OPAQUE_COVERAGE_LOW = "equip_opaque_coverage_low"
+CHECK_ANCHOR_OUT_OF_BOUNDS = "equip_anchor_out_of_bounds"
+CHECK_ANCHOR_INVALID = "equip_anchor_invalid"
+CHECK_BEHIND_DIRECTION_INVALID = "equip_behind_direction_invalid"
 
 CHECK_NAMES: tuple[str, ...] = (
     CHECK_ICON_UNRESOLVED, CHECK_ICON_FILE_MISSING, CHECK_ICON_SIZE_INVALID, CHECK_VISUAL_MISSING,
@@ -93,7 +102,8 @@ CHECK_NAMES: tuple[str, ...] = (
     CHECK_PREVIEW_DIRECTION_INVALID, CHECK_FAMILY_WITHOUT_POSE_KEYS, CHECK_SFX_MATERIAL_MISSING,
     CHECK_SFX_REF_MISSING, CHECK_TRAIL_REF_MISSING, CHECK_ANIM_SET_MISSING, CHECK_ICON_ALPHA_INVALID,
     CHECK_LAYER_IMAGE_INVALID, CHECK_LAYER_FRAME_COUNT_MISMATCH, CHECK_LAYER_FRAME_SIZE_MISMATCH,
-    CHECK_LAYER_ATLAS_MISMATCH,
+    CHECK_LAYER_ATLAS_MISMATCH, CHECK_OPAQUE_COVERAGE_LOW, CHECK_ANCHOR_OUT_OF_BOUNDS, CHECK_ANCHOR_INVALID,
+    CHECK_BEHIND_DIRECTION_INVALID,
 )
 
 TABLE_ITEM = "item.template"
@@ -106,6 +116,10 @@ SFX_MATERIAL_LAYERS = ("swing", "impact")
 # 图标规格取自界面资源契约清单（skin_manifest.json 的 icons 段），不在这里另抄一份。
 ICON_MIN_SIDE = skin_manifest.load_manifest()["icons"]["size"]["min"]
 ICON_MAX_SIDE = skin_manifest.load_manifest()["icons"]["size"]["max"]
+# 不透明像素覆盖率阈值同样取自清单，不在这里另抄一份。
+ICON_COVERAGE = skin_manifest.load_manifest()["icons"]["coverage"]
+LAYER_COVERAGE = skin_manifest.load_manifest()["paperdoll"]["static_layer_coverage"]
+ANCHOR_NAME_GRIP = "grip"
 
 GAITS = ("walk", "run", "sprint")
 STANCES = ("peace", "combat")
@@ -410,6 +424,31 @@ def check_icon_image(path: Path) -> Optional[tuple[str, str]]:
     return None
 
 
+def opaque_ratio(path: Path, alpha_cutoff: int) -> Optional[float]:
+    """不透明像素（alpha >= ``alpha_cutoff``）占整张图的比例；读不出（或没有 Pillow）为 None（不做覆盖率核对）。"""
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            alpha = im.convert("RGBA").getchannel("A")
+            histogram = alpha.histogram()
+            total = alpha.width * alpha.height
+    except Exception:  # noqa: BLE001 - 图本身读不出由其它检查（尺寸/透明度）报
+        return None
+    if total <= 0:
+        return None
+    return sum(histogram[alpha_cutoff:]) / total
+
+
+def coverage_problem(path: Path, spec: dict) -> Optional[str]:
+    """覆盖率低于清单阈值时返回人读原因，否则 None。"""
+    ratio = opaque_ratio(path, int(spec["alpha_cutoff"]))
+    if ratio is None or ratio >= float(spec["min_opaque_ratio"]):
+        return None
+    return (f"不透明像素覆盖率 {ratio * 100:.2f}% 低于清单阈值 {float(spec['min_opaque_ratio']) * 100:.2f}%"
+            f"（alpha >= {spec['alpha_cutoff']} 的像素占比；几乎看不见，请加粗/放大主体）")
+
+
 def _image_size(path: Path) -> Optional[tuple[int, int]]:
     try:
         from PIL import Image
@@ -536,6 +575,11 @@ class EquipValidator:
         if problem:
             self._issue(ir, SEVERITY_ERROR, problem[0], f"图标 {rel} 不合规：{problem[1]}",
                         field_path="display_ref", path=str(file))
+            return
+        low = coverage_problem(file, ICON_COVERAGE)
+        if low:
+            self._issue(ir, SEVERITY_WARNING, CHECK_OPAQUE_COVERAGE_LOW, f"图标 {rel} {low}",
+                        field_path="display_ref", path=str(file), fallback="照常使用（图标在格子里几乎看不见）")
 
     def _check_weapon(self, ir: ItemReport, item: dict, ws_id: Optional[str], fw_id: Optional[str]) -> Optional[dict]:
         """返回该武器的 display.weapon_style 行（缺失为 None），供覆盖剪辑逐层核对。"""
@@ -605,6 +649,18 @@ class EquipValidator:
             self._issue(ir, SEVERITY_ERROR, CHECK_PREVIEW_DIRECTION_INVALID,
                         f"preview_direction '{preview}' 不在该游戏声明的 {self.direction_count} 方向档里",
                         field_path="preview_direction", table=TABLE_EQUIP_VISUAL)
+        behind = v.get("behind_directions")
+        if behind is not None:
+            if not isinstance(behind, list):
+                shown = "不是列表"
+            else:
+                bad = [b for b in behind
+                       if not isinstance(b, str) or not b.startswith(DIRECTION_SLOT_ID_PREFIX) or _bare(b) not in self.all_dirs]
+                shown = ("含未声明的方向档 " + ", ".join(repr(b) for b in bad)) if bad else ""
+            if shown:
+                self._issue(ir, SEVERITY_ERROR, CHECK_BEHIND_DIRECTION_INVALID,
+                            f"behind_directions {shown}（须是 dir.<档位> 列表，档位在该游戏声明的 {self.direction_count} 方向档里）",
+                            field_path="behind_directions", table=TABLE_EQUIP_VISUAL)
         if category == "paperdoll":
             ir.mode = "sprite"
             self._check_paperdoll(ir, v, mesh_ref, ws_row)
@@ -653,6 +709,13 @@ class EquipValidator:
             if reason:
                 self._issue(ir, SEVERITY_ERROR, CHECK_LAYER_IMAGE_INVALID, f"方向档 '{d}' 的静态层图 {rel} {reason}",
                             field_path="mesh_ref", path=str(self.assets / rel), table=TABLE_EQUIP_VISUAL)
+                continue
+            low = coverage_problem(self.assets / rel, LAYER_COVERAGE)
+            if low:
+                self._issue(ir, SEVERITY_WARNING, CHECK_OPAQUE_COVERAGE_LOW, f"方向档 '{d}' 的静态层图 {rel} {low}",
+                            field_path="mesh_ref", path=str(self.assets / rel), fallback="照常使用（装备层几乎看不见）",
+                            table=TABLE_EQUIP_VISUAL)
+        self._check_layer_anchors(ir, mesh_ref, layer)
         if not self.clips:
             return
         family = ir.family if ir.is_weapon else None
@@ -696,6 +759,39 @@ class EquipValidator:
                             field_path="mesh_ref", fallback=static_target, table=TABLE_EQUIP_VISUAL)
         if weapon_layer:
             self._check_override_clips(ir, ws_row, mesh_stem, layer, set(needed))
+
+    def _check_layer_anchors(self, ir: ItemReport, mesh_ref: str, layer: str) -> None:
+        """层精灵集 anchors.json 里可选的 ``directions.<方向>.grip``：必须是 ``[x, y]`` 数字对，且落在该方向静态层图画布之内。
+        没有该文件/没有 grip 声明 = 按画布居中叠放（不报任何东西，与此前逐位一致）。"""
+        file = self.assets / "sprites" / strip_category_prefix(mesh_ref) / "anchors.json"
+        if not file.is_file():
+            return
+        try:
+            doc = json.loads(file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return          # 解析失败由精灵导入的 check 子命令负责（pixels_per_unit 等），这里只核对 grip
+        by_direction = doc.get("directions") if isinstance(doc, dict) else None
+        if not isinstance(by_direction, dict):
+            return
+        for d, anchors in sorted(by_direction.items()):
+            if not isinstance(anchors, dict) or ANCHOR_NAME_GRIP not in anchors:
+                continue
+            value = anchors[ANCHOR_NAME_GRIP]
+            where = f"{file.relative_to(self.assets).as_posix()} 的 directions.{d}.{ANCHOR_NAME_GRIP}"
+            if not (isinstance(value, list) and len(value) == 2
+                    and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in value)):
+                self._issue(ir, SEVERITY_ERROR, CHECK_ANCHOR_INVALID, f"{where} 不是 [x, y] 数字对（实际 {value!r}）",
+                            field_path="mesh_ref", path=str(file), table=TABLE_EQUIP_VISUAL)
+                continue
+            image = self.assets / paperdoll_equip_layer_file(mesh_ref, d, layer)
+            size = _image_size(image) if image.is_file() else None
+            if size is None:
+                continue
+            x, y = value
+            if not (0 <= x <= size[0] and 0 <= y <= size[1]):
+                self._issue(ir, SEVERITY_ERROR, CHECK_ANCHOR_OUT_OF_BOUNDS,
+                            f"{where} = [{x}, {y}] 落在层图 {image.relative_to(self.assets).as_posix()}（{size[0]}x{size[1]}）画布之外",
+                            field_path="mesh_ref", path=str(file), table=TABLE_EQUIP_VISUAL)
 
     def _clip_level(self, mesh_stem: str, clip_stem: str, direction: str, layer: str) -> int:
         """ADR-0100 两级探测：1 = 带方向命中，2 = 不带方向命中，0 = 都不命中。"""

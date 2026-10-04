@@ -123,6 +123,8 @@ def tables() -> dict[str, dict]:
                "slot_id": f"slot.{it.layer}", "mesh_ref": it.mesh_ref}
         if it.preview_direction:
             row["preview_direction"] = f"dir.{it.preview_direction}"
+        if it.behind_directions:
+            row["behind_directions"] = [f"dir.{d}" for d in it.behind_directions]
         ev.append(row)
     t["display/display.equip_visual.json"] = _doc("display.equip_visual", ev)
 

@@ -230,7 +230,7 @@ def make_layer(art: np.ndarray, item: dict, direction: str, hand_anchor) -> np.n
     ah, aw = art.shape[:2]
     if weapon:
         nh = item["length"]
-        nw = max(2, int(round(aw * nh / ah * DIR_WIDTH[direction])))
+        nw = max(2, int(round(aw * nh / ah * DIR_WIDTH[direction] * item.get("thick", 1.0))))
         x = hand_anchor[0] + off_x - nw / 2
         y = hand_anchor[1] + off_y - item["grip"] * nh
     else:
@@ -244,6 +244,16 @@ def make_layer(art: np.ndarray, item: dict, direction: str, hand_anchor) -> np.n
     ox, oy = int(round(x)), int(round(y))
     canvas[oy:oy + nh, ox:ox + nw] = img
     return finish(canvas)
+
+
+def grip_anchors(spec: dict, anchors: dict) -> dict:
+    """武器集 anchors.json：每个方向的握点（层图像素坐标，原点左上）= 身体该方向 hand_main 锚点 + 画布偏移（见 make_layer）。
+    预览区按它把层的握点对到身体的 hand_main 上（框架契约：skin_manifest 的 paperdoll.layer_anchor）。"""
+    off_x = (PD["canvas"] - PD["body_canvas"][0]) // 2
+    off_y = (PD["canvas"] - PD["body_canvas"][1]) // 2
+    return {"canvas": {"width": PD["canvas"], "height": PD["canvas"]},
+            "directions": {d: {"grip": [anchors[d]["hand_main"][0] + off_x, anchors[d]["hand_main"][1] + off_y]}
+                           for d in DIR_WIDTH}}
 
 
 def layer_files(raw_dir: Path) -> dict[str, np.ndarray]:
@@ -323,6 +333,13 @@ def build(raw_dir: Path, out: Path) -> list[str]:
         put(f"icons/item/{item}.png", make_icon(raw_dir, item), out)
     for rel, img in layer_files(raw_dir).items():
         put(rel, img, out)
+    anchors = json.loads((PLACEHOLDER_SPRITES / "placeholder_hero" / "anchors.json").read_text(encoding="utf-8"))["directions"]
+    for item, spec in PD["items"].items():
+        if "length" not in spec:
+            continue            # 非武器层（胸甲）按画布居中叠放，不声明握点
+        path = out / "sprites" / f"item_{item}" / "anchors.json"
+        path.write_text(json.dumps(grip_anchors(spec, anchors), indent=2) + "\n", encoding="utf-8", newline="\n")
+        written.append(str(path.relative_to(out)).replace("\\", "/"))
     return sorted(written)
 
 

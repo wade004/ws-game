@@ -190,7 +190,12 @@
     ],
     "size": {"min": 16, "max": 512, "aspect": "1:1", "power_of_two": true},
     "alpha": "visible",
-    "margin": "主体四周留透明边距（不贴边），且图标不含品质框（14 第 7 节）"
+    "margin": "主体四周留透明边距（不贴边），且图标不含品质框（14 第 7 节）",
+    "coverage": {
+      "alpha_cutoff": 128,
+      "min_opaque_ratio": 0.06,
+      "note": "不透明像素（alpha >= alpha_cutoff）占整张图的比例低于 min_opaque_ratio 时警告 equip_opaque_coverage_low：图标在格子里几乎看不见（细线条武器、画得太小）。警告不阻断，阈值写在这里供出图工具自查"
+    }
   },
   "paperdoll": {
     "layer_static": "sprites/{mesh}/{direction}/{layer}.png",
@@ -200,6 +205,13 @@
     "directions": "该游戏声明的方向档（canonical 方向段，来自数据的方向档数）",
     "pose_keys": "必备/推荐键由 display.anim_set 的键集与 04 第 3 节清单推出（equip_pack.needed_pose_keys）",
     "static_layer_alpha": "has_transparency",
+    "static_layer_coverage": {
+      "alpha_cutoff": 128,
+      "min_opaque_ratio": 0.002,
+      "note": "静态层图不透明像素占整张画布的比例低于 min_opaque_ratio 时警告 equip_opaque_coverage_low：装备层在预览与游戏里几乎看不见（武器画得太小、线条过细）"
+    },
+    "layer_order": "display.equip_visual.behind_directions（可选，方向槽位 id 列表）：命中的方向档上该装备层画在身体及其余层之后；缺省 = 所有方向现行叠放次序",
+    "layer_anchor": "sprites/{mesh}/anchors.json 的 directions.<方向>.grip（可选，[x, y] 层图自己的像素坐标，原点左上）：预览把它对到身体精灵集 anchors.json 里同层名的锚点（如 hand_main）上；缺省按画布居中。落在该层图画布之外时 equip_anchor_out_of_bounds",
     "frame_rules": [
       "逐层剪辑的帧数 = 同姿势同方向的身体剪辑帧数（层与身体逐帧对齐）",
       "逐层剪辑的帧宽高 = 身体剪辑的帧宽高",
@@ -211,6 +223,7 @@
     "equip_skin_panel_layout_missing", "equip_skin_ref_invalid", "equip_skin_theme_invalid", "equip_skin_theme_token_missing",
     "equip_skin_theme_color_invalid", "equip_skin_image_unreadable", "equip_skin_size_invalid", "equip_skin_size_group_mismatch",
     "equip_skin_nineslice_invalid", "equip_skin_alpha_invalid", "equip_icon_size_invalid", "equip_icon_alpha_invalid", "equip_layer_image_invalid",
-    "equip_layer_frame_count_mismatch", "equip_layer_frame_size_mismatch", "equip_layer_atlas_mismatch"
+    "equip_layer_frame_count_mismatch", "equip_layer_frame_size_mismatch", "equip_layer_atlas_mismatch",
+    "equip_opaque_coverage_low", "equip_anchor_out_of_bounds", "equip_anchor_invalid", "equip_behind_direction_invalid"
   ]
 }

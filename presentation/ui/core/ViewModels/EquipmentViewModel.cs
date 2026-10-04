@@ -78,8 +78,17 @@ namespace Presentation.Ui
         /// <summary>装备外观行声明的预览方向档（<c>preview_direction</c>，如 <c>dir.front_side_r</c>）；缺省为 null。</summary>
         public Id? PreviewDirection { get; }
 
+        /// <summary>该层画在身体后面的方向档（<c>behind_directions</c>，方向槽位 id，如 <c>dir.back</c>）；缺省空 = 所有方向现行顺序。</summary>
+        public IReadOnlyList<Id> BehindDirections { get; }
+
         public EquipmentPaperdollLayer(string layer, Id meshRef, Id itemId, Id slotId, Id? previewDirection)
+            : this(layer, meshRef, itemId, slotId, previewDirection, null)
         {
+        }
+
+        public EquipmentPaperdollLayer(string layer, Id meshRef, Id itemId, Id slotId, Id? previewDirection, IReadOnlyList<Id>? behindDirections)
+        {
+            BehindDirections = behindDirections ?? Array.Empty<Id>();
             Layer = layer;
             MeshRef = meshRef;
             ItemId = itemId;
@@ -267,7 +276,8 @@ namespace Presentation.Ui
             {
                 var layer = layerSlot.StartsWith(LayerSlotPrefix, StringComparison.Ordinal) ? layerSlot.Substring(LayerSlotPrefix.Length) : layerSlot;
                 var preview = visual.TryGetId("preview_direction", out var dir) ? (Id?)dir : null;
-                _layers.Add(new EquipmentPaperdollLayer(layer, mesh, template, slotId, preview));
+                var behind = visual.TryGetIdList("behind_directions", out var behindList) ? behindList : null;
+                _layers.Add(new EquipmentPaperdollLayer(layer, mesh, template, slotId, preview, behind));
                 return;
             }
 

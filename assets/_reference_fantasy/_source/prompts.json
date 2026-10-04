@@ -284,9 +284,12 @@
       "h": 1024,
       "seeds": [
         431,
-        432
+        432,
+        433,
+        434,
+        435
       ],
-      "text": "A fantasy recurve longbow made of polished dark wood with gold-capped limb tips and a taut pale bowstring."
+      "text": "A bold chunky fantasy longbow with a thick wide curved limb of polished dark wood, broad gold-capped limb tips and a thick golden bowstring, large heavy silhouette that fills the frame."
     },
     {
       "key": "icon_std_staff",

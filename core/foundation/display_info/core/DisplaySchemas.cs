@@ -206,6 +206,11 @@ namespace Core.Foundation.DisplayInfo
                 // 同一套局部 id 空间，不指向已登记表）；缺省取姿势集的正面档。
                 new FieldSchema("preview_direction", FieldKind.Id, required: false,
                     description: "装备面板预览区使用的方向档（方向槽位 id，如 dir.front_side_r）；缺省取姿势集的正面档，见 手感设计/08 第 3/4 节"),
+                // 手感设计/08 第 5 节、ADR-0152：逐方向层序。纯新增可选字段，不升 currentSchemaVersion；缺省空 = 现行顺序。
+                new FieldSchema("behind_directions", FieldKind.Array, required: false,
+                    item: new FieldSchema("<direction>", FieldKind.Id, required: true,
+                        description: "方向槽位 id，dir.<裸档位名>"),
+                    description: "该装备层画在身体（全部其余层）后面的方向档列表（方向槽位 id，如 dir.back）；缺省空 = 所有方向现行顺序，见 手感设计/08 第 5 节"),
             },
             migrations: Array.Empty<TableMigration>())
             .WithOwnership(SchemaLayer.Foundation, "display");

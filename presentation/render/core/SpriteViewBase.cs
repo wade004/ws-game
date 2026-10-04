@@ -111,8 +111,8 @@ namespace Presentation.Render
         /// 引用"），装备/卸下事件增删本表后重新调用 <see cref="RebuildEquippedLayers"/>——命中覆盖的层
         /// 改经 <see cref="ResolveEquipLayerResourceId"/> 按当前朝向换算，不再是本表存什么就直接用
         /// 什么。</summary>
-        private readonly Dictionary<Id, (string LayerName, Id EquipLayerSetRef)> _equipOverridesBySlot =
-            new Dictionary<Id, (string, Id)>();
+        private readonly Dictionary<Id, (string LayerName, Id EquipLayerSetRef, IReadOnlyList<Id> BehindDirections)> _equipOverridesBySlot =
+            new Dictionary<Id, (string, Id, IReadOnlyList<Id>)>();
 
         /// <summary><see cref="SyncPose"/> 最近一次收到的朝向，供 <see cref="RebuildEquippedLayers"/>
         /// 重算未被装备覆盖的层的方向档位资源 Id（装备事件与 SyncPose 异步到达，不能假设装备事件自带
@@ -311,7 +311,7 @@ namespace Presentation.Render
             }
 
             var layerName = LayerNameFromSlotId(def.SlotId.Value);
-            _equipOverridesBySlot[slot] = (layerName, def.MeshRef.Value);
+            _equipOverridesBySlot[slot] = (layerName, def.MeshRef.Value, def.BehindDirections);
             RebuildEquippedLayers();
         }
 
@@ -340,12 +340,25 @@ namespace Presentation.Render
                     if (_equipVisuals.TryGetValue(item.ItemInstanceId, out var def)
                         && def.Mode == EquipVisualMode.SlotMesh && def.SlotId != null && def.MeshRef != null)
                     {
-                        _equipOverridesBySlot[item.Slot] = (LayerNameFromSlotId(def.SlotId.Value), def.MeshRef.Value);
+                        _equipOverridesBySlot[item.Slot] = (LayerNameFromSlotId(def.SlotId.Value), def.MeshRef.Value, def.BehindDirections);
                     }
                 }
             }
 
             RebuildEquippedLayers();
+        }
+
+        private static bool ContainsId(IReadOnlyList<Id> list, Id id)
+        {
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (list[i].Equals(id))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static string LayerNameFromSlotId(Id slotId)
@@ -422,9 +435,15 @@ namespace Presentation.Render
         private IReadOnlyList<SpriteComposedLayer> ComposeEquipAwareLayers(IReadOnlyList<string> baseLayerNamesInOrder, Direction facing)
         {
             var overridesByLayerName = new Dictionary<string, Id>(StringComparer.Ordinal);
+            Dictionary<string, IReadOnlyList<Id>>? behindByLayerName = null;
             foreach (var kv in _equipOverridesBySlot)
             {
                 overridesByLayerName[kv.Value.LayerName] = kv.Value.EquipLayerSetRef;
+                if (kv.Value.BehindDirections.Count > 0)
+                {
+                    behindByLayerName ??= new Dictionary<string, IReadOnlyList<Id>>(StringComparer.Ordinal);
+                    behindByLayerName[kv.Value.LayerName] = kv.Value.BehindDirections;
+                }
             }
 
             var coveredLayerNames = new HashSet<string>(baseLayerNamesInOrder, StringComparer.Ordinal);
@@ -446,6 +465,10 @@ namespace Presentation.Render
             var placements = Conventions.ComposeSpriteLayers(allLayerNames, DisplayInfo.Sprite!, facing);
             var composedLayers = new List<SpriteComposedLayer>(placements.Count);
 
+            // 逐方向层序（display.equip_visual.behind_directions，缺省空 = 现行顺序）：命中的装备层在该方向档上排到
+            // 全部其余层之前（画在身体后面），其余层保持原相对顺序；没有任何命中时 composedLayers 与改动前逐项一致。
+            List<SpriteComposedLayer>? behindLayers = null;
+
             for (var i = 0; i < placements.Count; i++)
             {
                 var placement = placements[i];
@@ -456,7 +479,21 @@ namespace Presentation.Render
                     ? ResolveEquipLayerResourceId(placement, equipMeshRef.Value)
                     : ResolveLayerResourceId(placement);
 
-                composedLayers.Add(new SpriteComposedLayer(placement.LayerName, resourceId, equipMeshRef));
+                var composed = new SpriteComposedLayer(placement.LayerName, resourceId, equipMeshRef);
+                if (equipMeshRef.HasValue && behindByLayerName != null
+                    && behindByLayerName.TryGetValue(placement.LayerName, out var behindDirections)
+                    && ContainsId(behindDirections, placement.DirectionSlotId))
+                {
+                    (behindLayers ??= new List<SpriteComposedLayer>()).Add(composed);
+                    continue;
+                }
+
+                composedLayers.Add(composed);
+            }
+
+            if (behindLayers != null)
+            {
+                composedLayers.InsertRange(0, behindLayers);
             }
 
             return composedLayers;

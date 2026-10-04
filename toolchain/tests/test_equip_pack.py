@@ -415,7 +415,8 @@ def test_preview_direction_must_be_declared_direction(real_tables, tmp_path):
 
 def test_direction_count_four_needs_only_four_direction_canonicals(real_tables, tmp_path):
     t = _only_item(real_tables, SWORD)
-    t["display.equip_visual"] = [{k: v for k, v in r.items() if k != "preview_direction"} for r in t["display.equip_visual"]]
+    t["display.equip_visual"] = [{k: v for k, v in r.items() if k not in ("preview_direction", "behind_directions")}
+                                 for r in t["display.equip_visual"]]
     r4 = _run(t, _sword_assets(tmp_path), direction_count=4)     # front/side_r/back 都有，4 方向更宽松
     assert _checks(r4, "error") == []
     # 层剪辑槽 = 键数 × 方向档数：4 方向只要 3 个 canonical 档（front/side_r/back），默认 8 方向要 5 个；键数由姿势集推，不写死

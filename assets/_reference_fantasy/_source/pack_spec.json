@@ -14,19 +14,19 @@
     "row": [192, 24],
     "preview": [256, 384]
   },
-  "icon": {"size": 128, "max_extent": 100},
+  "icon": {"size": 128, "max_extent": 112},
   "font": "fonts/noto_sans_cjk_sc.otf",
   "paperdoll": {
-    "_comment": "静态层与身体静态层在预览区里按画布中心对齐（框架不读锚点对位），所以层图按身体层几何摆放：身体画布 64x96、层画布 144x144，身体坐标 +(40,24) = 层画布坐标。torso 是身体躯干包围盒（身体坐标），长度单位像素；hand_main 手握点取占位精灵集 anchors.json 的 hand_main。",
+    "_comment": "运行期合成里各层画布按中心叠放（枢轴相同），所以层图按身体层几何预摆放；同时每个武器集的 anchors.json 声明 directions.<方向>.grip（握点在层图里的像素坐标），预览区据此把握点对到身体的 hand_main 锚点上（两者一致，对位结果与居中叠放相同，锚点声明让别的美术摆位也能对准）：身体画布 64x96、层画布 144x144，身体坐标 +(40,24) = 层画布坐标。torso 是身体躯干包围盒（身体坐标），长度单位像素；hand_main 手握点取占位精灵集 anchors.json 的 hand_main。",
     "canvas": 144,
     "body_canvas": [64, 96],
     "torso": [22, 30, 43, 67],
     "items": {
-      "std_sword_1h": {"layer": "hand_main", "length": 27, "grip": 0.16},
-      "std_greatsword": {"layer": "hand_main", "length": 48, "grip": 0.12},
-      "std_dagger": {"layer": "hand_main", "length": 17, "grip": 0.2},
-      "std_bow": {"layer": "hand_main", "length": 37, "grip": 0.5},
-      "std_staff": {"layer": "hand_main", "length": 59, "grip": 0.62},
+      "std_sword_1h": {"layer": "hand_main", "length": 36, "grip": 0.16},
+      "std_greatsword": {"layer": "hand_main", "length": 62, "grip": 0.12},
+      "std_dagger": {"layer": "hand_main", "length": 26, "grip": 0.2, "thick": 1.5},
+      "std_bow": {"layer": "hand_main", "length": 48, "grip": 0.5, "thick": 1.2},
+      "std_staff": {"layer": "hand_main", "length": 76, "grip": 0.62, "thick": 1.3},
       "std_chestplate": {"layer": "chest", "size": 32}
     }
   },
@@ -54,7 +54,7 @@
     "icon_std_sword_1h": 401,
     "icon_std_greatsword": 411,
     "icon_std_dagger": 421,
-    "icon_std_bow": 431,
+    "icon_std_bow": 434,
     "icon_std_staff": 441,
     "icon_std_chestplate": 451
   }

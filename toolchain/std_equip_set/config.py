@@ -39,6 +39,7 @@ class ItemDef:
     zh_name: str
     item_level: int = 1
     preview_direction: Optional[str] = None   # 装备面板预览区方向档（裸档位名）
+    behind_directions: tuple = ()             # 逐方向层序：这些方向档（裸档位名）上该层画在身体后面（display.equip_visual.behind_directions）
 
     @property
     def item_id(self) -> str:
@@ -69,15 +70,18 @@ class ItemDef:
         return self.weapon_id is not None
 
 
+#: 背面两个方向档（镜像侧由运行期镜像解析到它们）：武器在这些方向上画在身体后面（手在身体另一侧、被身体挡住）。
+BACK_DIRECTIONS = ("back_side_r", "back")
+
 ITEMS: tuple[ItemDef, ...] = (
     ItemDef("std_sword_1h", "sword_1h", "std_main_hand", LAYER_WEAPON, "1h", "sword_1h", "std_common", "metal_light",
-            "占位单手剑", preview_direction="front_side_r"),
+            "占位单手剑", preview_direction="front_side_r", behind_directions=BACK_DIRECTIONS),
     ItemDef("std_greatsword", "greatsword", "std_main_hand", LAYER_WEAPON, "2h", "greatsword", "std_rare", "metal_heavy",
-            "占位双手巨剑", item_level=5),
+            "占位双手巨剑", item_level=5, behind_directions=BACK_DIRECTIONS),
     ItemDef("std_dagger", "dagger", "std_main_hand", LAYER_WEAPON, "1h", "dagger", "std_common", "metal_light",
-            "占位匕首"),
-    ItemDef("std_bow", "bow", "std_main_hand", LAYER_WEAPON, "2h", "bow", "std_common", "wood", "占位弓"),
-    ItemDef("std_staff", "staff", "std_main_hand", LAYER_WEAPON, "2h", "staff", "std_common", "wood", "占位法杖"),
+            "占位匕首", behind_directions=BACK_DIRECTIONS),
+    ItemDef("std_bow", "bow", "std_main_hand", LAYER_WEAPON, "2h", "bow", "std_common", "wood", "占位弓", behind_directions=BACK_DIRECTIONS),
+    ItemDef("std_staff", "staff", "std_main_hand", LAYER_WEAPON, "2h", "staff", "std_common", "wood", "占位法杖", behind_directions=BACK_DIRECTIONS),
     ItemDef("std_chestplate", "chestplate", "std_chest", LAYER_CHEST, None, None, "std_rare", None, "占位胸甲",
             item_level=5),
 )
