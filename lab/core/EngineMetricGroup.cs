@@ -41,6 +41,12 @@ namespace Lab
             MetricSpec.Exact("control_samples", MetricClass.Presentation, "相机相对输入的样本数"),
             MetricSpec.Absolute("control_max_error_deg", MetricClass.Presentation, 0.01, "输入方向 × 相机偏航 → 世界移动方向与真实相机轴期望方向的最大夹角误差（度）"),
             MetricSpec.Absolute("control_max_screen_error_deg", MetricClass.Presentation, 0.01, "世界移动方向经真实相机投影到屏幕后与摇杆方向的最大夹角误差（度）"),
+            MetricSpec.Exact("clip_transitions", MetricClass.Presentation, "引擎侧 rig 实际播放过的剪辑切换（单位标签:剪辑 id，按发生顺序，相邻重复不记）"),
+            MetricSpec.Exact("clip_transition_count", MetricClass.Presentation, "上一项的条数"),
+            MetricSpec.Exact("input_visible_count", MetricClass.Presentation, "玩家攻击/闪避/技能类按下的次数（引擎侧首次可见响应度量的输入数）"),
+            MetricSpec.Exact("input_visible_missing", MetricClass.Presentation, "按下之后引擎里玩家 rig 没有出现新的剪辑切换的次数（同一剪辑被再次触发时不产生切换，也计入）"),
+            MetricSpec.Absolute("input_visible_ms", MetricClass.Presentation, 1.0, "每次有响应的按下：从按下 tick 的起点到玩家 rig 第一次剪辑切换（该帧驱动完成时刻）的毫秒数，按下顺序"),
+            MetricSpec.Absolute("input_visible_ms_max", MetricClass.Presentation, 1.0, "上一项最大值（没有为 -1）"),
             MetricSpec.Exact("engine_errors", MetricClass.Presentation, "引擎侧装配/驱动中被吞掉的异常与诊断条数（应为 0）"),
             MetricSpec.Exact("layer_audit_count", MetricClass.Presentation, "换装场景核对的图层/图标数"),
             MetricSpec.Exact("layer_audit_mismatch", MetricClass.Presentation, "实际加载结果与期望不一致的图层/图标数"),
@@ -164,6 +170,7 @@ namespace Lab
             sink.Add("control_samples", engine.Controls.Count);
             sink.Add("control_max_error_deg", controlMax);
             sink.Add("control_max_screen_error_deg", screenMax);
+            ComputeInputVisible(recording, engine, sink);
             sink.Add("engine_errors", engine.Errors.Count);
 
             var mismatches = 0;
@@ -213,6 +220,62 @@ namespace Lab
             }
 
             return sorted[rank];
+        }
+
+        /// <summary>
+        /// 引擎侧"输入 → 首次可见响应"（06 第 3.3 节响应行表现半边、第 5 层"差值=适配层引入的延迟"）：对每个玩家的攻击/闪避/技能类按下，
+        /// 取其按下 tick 起点时刻之后玩家 rig 的第一次剪辑切换，换算毫秒。输入类别取自手感记录（<see cref="FeelRecording.InputClasses"/>）；
+        /// 没有手感记录或没有时刻记录的运行，按下数为 0 或全部算"没有响应"。
+        /// </summary>
+        private static void ComputeInputVisible(LabRecording recording, EngineRecording engine, MetricSink sink)
+        {
+            var transitions = new List<string>(engine.ClipTransitions);
+            sink.Add("clip_transitions", string.Join(";", transitions));
+            sink.Add("clip_transition_count", transitions.Count);
+
+            var count = 0;
+            var missing = 0;
+            var ms = new List<double>();
+            var max = -1.0;
+            var feel = recording.Feel;
+            if (feel != null)
+            {
+                foreach (var e in recording.InjectedInputs)
+                {
+                    if (e.Kind != ScriptEventKind.Press || e.Actor.Length != 0
+                        || !feel.InputClasses.TryGetValue(e.Action, out var cls) || !(cls == "attack" || cls == "dodge" || cls == "skill"))
+                    {
+                        continue;
+                    }
+
+                    count++;
+                    var pressSeconds = e.Tick * recording.StepSeconds;
+                    var found = double.NaN;
+                    for (var i = 0; i < transitions.Count && i < engine.ClipTransitionSeconds.Count; i++)
+                    {
+                        if (transitions[i].StartsWith("player:", StringComparison.Ordinal) && engine.ClipTransitionSeconds[i] > pressSeconds)
+                        {
+                            found = engine.ClipTransitionSeconds[i];
+                            break;
+                        }
+                    }
+
+                    if (double.IsNaN(found))
+                    {
+                        missing++;
+                        continue;
+                    }
+
+                    var value = (found - pressSeconds) * 1000.0;
+                    ms.Add(value);
+                    max = Math.Max(max, value);
+                }
+            }
+
+            sink.Add("input_visible_count", count);
+            sink.Add("input_visible_missing", missing);
+            sink.Add("input_visible_ms", ms);
+            sink.Add("input_visible_ms_max", max);
         }
     }
 }

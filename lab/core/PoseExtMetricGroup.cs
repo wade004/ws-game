@@ -31,7 +31,8 @@ namespace Lab
 
         public bool AppliesTo(LabRecording recording)
         {
-            if (recording.Feel == null)
+            // 只有脚本声明了姿势观测选项（meta.poseExt）才算：声明 latency 度量组的脚本也会装姿势观测装置，但不因此多出本组（M5-S7）。
+            if (recording.Feel == null || recording.Script.Meta.PoseExt == null)
             {
                 return false;
             }

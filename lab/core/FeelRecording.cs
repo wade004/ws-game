@@ -186,6 +186,9 @@ namespace Lab
 
         public List<FeelEventRecord> Events { get; } = new List<FeelEventRecord>();
 
+        /// <summary>输入动作 id → 类别（<c>attack</c>/<c>dodge</c>/<c>skill</c>/<c>move</c>…，取自 <c>found.input_action.class</c>）；可选度量组 <c>latency</c> 给输入分类用，不进任何既有度量。</summary>
+        public Dictionary<string, string> InputClasses { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
         public List<FeelTickSample> Ticks { get; } = new List<FeelTickSample>();
 
         public List<FeelPresentationRecord> Presentation { get; } = new List<FeelPresentationRecord>();
@@ -211,6 +214,12 @@ namespace Lab
         public static LabRunVariant Default { get; } = new LabRunVariant();
 
         public bool? StripTimelines { get; set; }
+
+        /// <summary>
+        /// 表现时钟的时间尺度（M5-S7，缺省 1）：每个表现帧推进 <c>脚本帧长 × 尺度</c> 的模拟时间；只缩放表现，固定步序列与逻辑类度量逐位不变
+        /// （见 <see cref="LabSession.RunToEnd(double)"/>）。不影响数据集（<see cref="DatasetKey"/> 不含它）。
+        /// </summary>
+        public double TimeScale { get; set; } = 1.0;
 
         public string? PresetId { get; set; }
 

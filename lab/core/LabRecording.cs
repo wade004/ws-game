@@ -149,6 +149,15 @@ namespace Lab
 
         public double StepSeconds { get; }
 
+        /// <summary>
+        /// 表现帧的模拟时间步长（秒）：缺省 0 表示取脚本帧长 <c>1 / frameRateCap</c>；慢放重放（<c>LabSession.RunToEnd(timeScale)</c>）时宿主写入缩放后的帧距。
+        /// 只供表现类度量换算帧时刻，不进任何既有度量。
+        /// </summary>
+        public double FrameSeconds { get; set; }
+
+        /// <summary>该次运行有效的表现帧步长（秒）。</summary>
+        public double EffectiveFrameSeconds => FrameSeconds > 0.0 ? FrameSeconds : 1.0 / Script.Meta.FrameRateCap;
+
         public List<TickSample> Ticks { get; } = new List<TickSample>();
 
         /// <summary>脚本事件注入记录（实际按 tick 注入的事件，含 tick 之外的原样值）。</summary>

@@ -382,7 +382,7 @@ namespace Tests.Lab
                     return null;
                 }
 
-                // 第一个格子改成体积空间（06 第 10 节勘误 9：不再是预留，可运行）；第二个格子声明缺失的适配层能力。
+                // 第一个格子改成体积空间（06 第 1.2 节：不再是预留，可运行）；第二个格子声明缺失的适配层能力。
                 var first = text.IndexOf("\"space\": \"plane\"", StringComparison.Ordinal);
                 var rewritten = text.Substring(0, first) + "\"space\": \"volume\"" + text.Substring(first + "\"space\": \"plane\"".Length);
                 var marker = "\"hit_shape\": \"shape_2d\",";

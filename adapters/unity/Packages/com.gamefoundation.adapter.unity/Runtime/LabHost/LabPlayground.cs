@@ -177,6 +177,7 @@ namespace Adapter.Unity.LabHost
 
                 _poller = new LabLiveInput(InputSource, _actions, "input.action.move", PadReader);
                 _ended = false;
+                _replay = false;
                 InitPanels();
                 Model.Note("试玩会话已开始（" + cell + "）。F1 显示/隐藏面板，F12 切页（场景/调参/时间轴/轨迹/评分）。");
                 return true;
@@ -273,6 +274,12 @@ namespace Adapter.Unity.LabHost
         {
             if (!IsBegun)
             {
+                return;
+            }
+
+            if (_replay)
+            {
+                TickReplay(realDeltaSeconds);
                 return;
             }
 
@@ -438,6 +445,12 @@ namespace Adapter.Unity.LabHost
                 return;
             }
 
+            if (_replay)
+            {
+                PollReplayHotkeys(kb);
+                return;
+            }
+
             PollTabHotkey(kb);
             if (kb.f1Key.wasPressedThisFrame) Model.PanelVisible = !Model.PanelVisible;
             if (kb.f2Key.wasPressedThisFrame) Model.HelpVisible = !Model.HelpVisible;
@@ -472,6 +485,12 @@ namespace Adapter.Unity.LabHost
 
         private void Inject(ScriptEventKind kind, string action, Vec2 value = default, string actor = "")
         {
+            if (!Session!.Live)
+            {
+                // 脚本回放会话不接受实时事件：暂停/单步/时间尺度在回放里只改控制器自己的推进，不写标记事件。
+                return;
+            }
+
             Session!.Inject(new ScriptEvent(0, action, kind, value, null, actor));
         }
 
@@ -782,9 +801,18 @@ namespace Adapter.Unity.LabHost
             try
             {
                 _timeline.Follow();
+                if (_replay && Session!.Tick >= Session.DurationTicks)
+                {
+                    return;
+                }
+
                 AdvanceSession(seconds);
                 AfterAdvance();
                 Model.Tick = Session!.Tick;
+                if (_replay && Session.Tick >= Session.DurationTicks)
+                {
+                    FinishReplay();
+                }
             }
             catch (Exception ex)
             {
@@ -831,7 +859,7 @@ namespace Adapter.Unity.LabHost
 
                 FinalRecording = Session.Finish();
                 _ended = true;
-                if (Session.Script.Events.Count > 0)
+                if (!_replay && Session.Script.Events.Count > 0)
                 {
                     saved = SaveRecording("last_session.script.json");
                 }
@@ -874,6 +902,12 @@ namespace Adapter.Unity.LabHost
                     GUI.Label(new UnityEngine.Rect(12, 12, 900, 60), Model.Status);
                 }
 
+                return;
+            }
+
+            if (_replay)
+            {
+                DrawReplayHud();
                 return;
             }
 

@@ -1,0 +1,36 @@
+{
+  "table": "arch.class",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "arch.class.matrix_heavy",
+      "name_key": "l10n.arch.lab_hero.name",
+      "primary_stat": "stat.lab_power",
+      "base_stats": { "stat.lab_power": 10, "stat.stamina": 100 },
+      "power_types": ["arch.power.health"],
+      "skill_book_ref": "skill.book.lab_hero",
+      "level_curve_ref": "prog.curve.lab_default",
+      "feel_archetype_ref": "feel.archetype.heavy"
+    },
+    {
+      "id": "arch.class.matrix_light",
+      "name_key": "l10n.arch.lab_hero.name",
+      "primary_stat": "stat.lab_power",
+      "base_stats": { "stat.lab_power": 10, "stat.stamina": 100 },
+      "power_types": ["arch.power.health"],
+      "skill_book_ref": "skill.book.lab_hero",
+      "level_curve_ref": "prog.curve.lab_default",
+      "feel_archetype_ref": "feel.archetype.light"
+    },
+    {
+      "id": "arch.class.matrix_medium",
+      "name_key": "l10n.arch.lab_hero.name",
+      "primary_stat": "stat.lab_power",
+      "base_stats": { "stat.lab_power": 10, "stat.stamina": 100 },
+      "power_types": ["arch.power.health"],
+      "skill_book_ref": "skill.book.lab_hero",
+      "level_curve_ref": "prog.curve.lab_default",
+      "feel_archetype_ref": "feel.archetype.medium"
+    }
+  ]
+}

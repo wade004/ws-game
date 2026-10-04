@@ -81,7 +81,8 @@ namespace Lab
                 results.AddRange(CheckPlanarCombos(runner, script));
                 results.AddRange(CheckActionStripped(runner, script));
                 // 手感装配透明性只对"经典预设"成立：脚本钉死了非缺省预设（体积阻挡等本身就改变行为的档案）不在比较范围。
-                if (script.Meta.Feel && string.IsNullOrEmpty(script.Meta.PresetId))
+                // 同理，脚本经职业行取体型原型或用 loadout 事件叠加武器（体型 × 武器矩阵，M5-S7）时，装备/体型档案只在手感装配下有意义（旧路径下没有对应系统），也不在比较范围。
+                if (script.Meta.Feel && string.IsNullOrEmpty(script.Meta.PresetId) && !UsesFeelLoadout(script))
                 {
                     results.AddRange(CheckFeelTransparent(runner, script));
                 }
@@ -90,6 +91,25 @@ namespace Lab
             }
 
             return results;
+        }
+
+        /// <summary>脚本是否依赖手感装配才有意义的体型/武器档案：声明了玩家职业，或含 <c>loadout</c> 事件。</summary>
+        public static bool UsesFeelLoadout(InputScript script)
+        {
+            if (script.Meta.PlayerClass.Length > 0)
+            {
+                return true;
+            }
+
+            foreach (var e in script.Events)
+            {
+                if (e.Kind == ScriptEventKind.Loadout)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public static List<InvariantResult> CheckPlanarCombos(LabRunner runner, InputScript script)
