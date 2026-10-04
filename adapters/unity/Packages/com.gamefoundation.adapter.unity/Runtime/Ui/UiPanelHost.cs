@@ -242,6 +242,11 @@ namespace Adapter.Unity.Ui
 
         private void Update()
         {
+            if (Visuals != null && Visuals.RetiredPackCount > 0)
+            {
+                Visuals.ReleaseRetiredPacks();      // ADR-0155：换肤后没有存活部件再引用的旧皮肤包尽快释放
+            }
+
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {

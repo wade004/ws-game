@@ -17,7 +17,7 @@
   "icon": {"size": 128, "max_extent": 112},
   "font": "fonts/noto_sans_cjk_sc.otf",
   "paperdoll": {
-    "_comment": "运行期合成里各层画布按中心叠放（枢轴相同），所以层图按身体层几何预摆放；同时每个武器集的 anchors.json 声明 directions.<方向>.grip（握点在层图里的像素坐标），预览区据此把握点对到身体的 hand_main 锚点上（两者一致，对位结果与居中叠放相同，锚点声明让别的美术摆位也能对准）：身体画布 64x96、层画布 144x144，身体坐标 +(40,24) = 层画布坐标。torso 是身体躯干包围盒（身体坐标），长度单位像素；hand_main 手握点取占位精灵集 anchors.json 的 hand_main。",
+    "_comment": "层图按身体层几何预摆放；每个武器集的 anchors.json 声明 directions.<方向>.grip（握点在层图里的像素坐标），预览区与运行期合成（ADR-0155）据此把握点对到身体的 hand_main 锚点上（参考包的层图已预摆放，所以对位结果与居中叠放的相对摆位相同，锚点声明让别的美术摆位也能对准）；所有层精灵集（含只有密度的胸甲）声明与身体一致的 pixels_per_unit，运行期里层与身体才是同一个比例（equip_layer_density_mismatch）：身体画布 64x96、层画布 144x144，身体坐标 +(40,24) = 层画布坐标。torso 是身体躯干包围盒（身体坐标），长度单位像素；hand_main 手握点取占位精灵集 anchors.json 的 hand_main。",
     "canvas": 144,
     "body_canvas": [64, 96],
     "torso": [22, 30, 43, 67],

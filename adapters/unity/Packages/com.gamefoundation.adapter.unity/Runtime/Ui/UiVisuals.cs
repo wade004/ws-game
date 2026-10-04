@@ -19,7 +19,10 @@
 //   3) 经统一失效入口 <see cref="UiSkinBindings.ReapplyAll"/> 把所有经 <see cref="UiWidgets"/> 建出来的控件（HUD、动作条、任务日志等不订阅本事件的面板，以及主菜单、实验室控制条）
 //      换成新皮肤的底图、按钮图、字体与配色——新增面板只要用 UiWidgets 建控件就自动在内，不必自己订阅；
 //   4) 发出 <see cref="SkinChanged"/>，持有皮肤包精灵的部件（背包、装备、提示框、拖拽）订阅后整体重建；
-//   5) 旧皮肤包不立即销毁（挂在退役清单里，随本对象 <see cref="Dispose"/> 一起释放）：同一帧里被销毁的旧面板子树与外部持有旧精灵的调用方不会变成空白。
+//   5) 旧皮肤包不立即销毁而是挂进退役清单（同一帧里被销毁的旧面板子树还要用它的精灵，不会变成空白），之后在"没有任何存活部件仍引用它"时释放：
+//      <see cref="ReleaseRetiredPacks"/> 扫描存活的图像、按钮状态图与文字字体，凡不再被引用的退役包立即销毁；只在退役之后的帧里尝试（宿主与衣橱场景每帧调用，
+//      换肤的下一帧就回到只持有当前一份），下一次 <see cref="SwitchSkin"/> 开头也会先尝试一次（双缓冲兜底：没人驱动时最多多留上一代，连续换 N 次持有的包数 ≤ 2）；
+//      仍被引用的退役包保留并过一阵再试，最迟随本对象 <see cref="Dispose"/> 释放（ADR-0155）。
 using System;
 using System.Collections.Generic;
 using Adapter.Unity.EngineAdapter;
@@ -139,7 +142,15 @@ namespace Adapter.Unity.Ui
         private readonly HashSet<Id> _requested = new HashSet<Id>();
         private readonly HashSet<Id> _failed = new HashSet<Id>();
         private readonly HashSet<Id> _stalePending = new HashSet<Id>();
-        private readonly List<UiSkinPack> _retiredPacks = new List<UiSkinPack>();
+        private sealed class RetiredPack
+        {
+            public UiSkinPack Pack = null!;
+            public int Frame;
+        }
+
+        private readonly List<RetiredPack> _retiredPacks = new List<RetiredPack>();
+        private int _nextReleaseAttemptFrame;
+        private const int ReleaseRetryFrames = 10;
         private UnityResourceLoader? _loader;
         private int _generation;
         private bool _ownsSkinOverride;
@@ -285,7 +296,9 @@ namespace Adapter.Unity.Ui
 
             UiSkin.Reset();
             _ownsSkinOverride = false;
-            _retiredPacks.Add(Pack);
+            _nextReleaseAttemptFrame = 0;
+            ReleaseRetiredPacks();      // 上一代（早于本次切换退役的）此时已过了至少一帧，旧面板子树已销毁：没人引用就先释放
+            _retiredPacks.Add(new RetiredPack { Pack = Pack, Frame = Time.frameCount });
             Pack = UiSkinPack.Load(skinRef, contentRoot);
             InstallSkinOverride();
 
@@ -328,6 +341,93 @@ namespace Adapter.Unity.Ui
             }
         }
 
+        /// <summary>本对象当前持有的皮肤包数：当前一份 + 退役清单里还没释放的（连续换肤后空闲时恒为 1，见 <see cref="ReleaseRetiredPacks"/>）。</summary>
+        public int LivePackCount => 1 + _retiredPacks.Count;
+
+        /// <summary>退役清单里还没释放的旧皮肤包数。</summary>
+        public int RetiredPackCount => _retiredPacks.Count;
+
+        /// <summary>
+        /// 释放"没有任何存活部件仍引用"的退役皮肤包，返回本次释放的个数。只处理在更早的帧退役的包（同一帧里被销毁的旧面板子树要到帧末才真正消失，
+        /// 那一帧还在引用它）；仍被引用的包保留，约 10 帧后再试，免得每帧全场景扫描。引用判定：存活的图像（含隐藏的）的精灵、按钮状态图、文字字体属于该包。
+        /// 宿主（<c>UiPanelHost</c>）与衣橱场景每帧在退役清单非空时调用；<see cref="SwitchSkin"/> 开头也调用一次。
+        /// </summary>
+        public int ReleaseRetiredPacks()
+        {
+            if (_retiredPacks.Count == 0 || Time.frameCount < _nextReleaseAttemptFrame)
+            {
+                return 0;
+            }
+
+            var candidates = new List<RetiredPack>();
+            foreach (var retired in _retiredPacks)
+            {
+                if (retired.Frame < Time.frameCount)
+                {
+                    candidates.Add(retired);
+                }
+            }
+
+            if (candidates.Count == 0)
+            {
+                return 0;
+            }
+
+            var referenced = new HashSet<RetiredPack>();
+            void Mark(UnityEngine.Object? asset)
+            {
+                if (asset == null)
+                {
+                    return;
+                }
+
+                foreach (var c in candidates)
+                {
+                    if (c.Pack.Owns(asset))
+                    {
+                        referenced.Add(c);
+                    }
+                }
+            }
+
+            foreach (var image in UnityEngine.Object.FindObjectsByType<UnityEngine.UI.Image>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                Mark(image.sprite);
+            }
+
+            foreach (var button in UnityEngine.Object.FindObjectsByType<UnityEngine.UI.Button>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                var state = button.spriteState;
+                Mark(state.highlightedSprite);
+                Mark(state.pressedSprite);
+                Mark(state.selectedSprite);
+                Mark(state.disabledSprite);
+            }
+
+            foreach (var text in UnityEngine.Object.FindObjectsByType<TMPro.TMP_Text>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                Mark(text.font);
+            }
+
+            var released = 0;
+            foreach (var c in candidates)
+            {
+                if (!referenced.Contains(c))
+                {
+                    c.Pack.Dispose();
+                    _retiredPacks.Remove(c);
+                    released++;
+                }
+            }
+
+            if (referenced.Count > 0)
+            {
+                _nextReleaseAttemptFrame = Time.frameCount + ReleaseRetryFrames;
+            }
+
+            return released;
+        }
+
         /// <summary>
         /// 该精灵是否属于被换下的旧皮肤包（<see cref="SwitchSkin"/> 退役的包）：换皮肤之后仍持有这种精灵的界面部件就是"漏网"的（诊断/用例用）。
         /// </summary>
@@ -340,7 +440,7 @@ namespace Adapter.Unity.Ui
 
             foreach (var retired in _retiredPacks)
             {
-                if (retired.Owns(sprite))
+                if (retired.Pack.Owns(sprite))
                 {
                     return true;
                 }
@@ -399,7 +499,7 @@ namespace Adapter.Unity.Ui
 
             foreach (var retired in _retiredPacks)
             {
-                retired.Dispose();
+                retired.Pack.Dispose();
             }
 
             _retiredPacks.Clear();

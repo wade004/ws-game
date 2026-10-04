@@ -381,15 +381,17 @@ namespace Adapter.Unity.Tests.Runtime
         /// </summary>
         private static List<string> StaleSkinSprites(Transform content, UiVisuals visuals, HashSet<Sprite> previousGeneration, HashSet<Sprite> currentGeneration)
         {
+            // 已被释放的精灵（引用还在、对象已销毁）也算漏网：旧皮肤包释放后仍有部件引用它，画面上就是空白。
             bool IsStale(Sprite? sprite) =>
-                sprite != null && !currentGeneration.Contains(sprite) && (visuals.IsRetiredSkinSprite(sprite) || previousGeneration.Contains(sprite));
+                (object?)sprite != null && (sprite == null || (!currentGeneration.Contains(sprite) && (visuals.IsRetiredSkinSprite(sprite) || previousGeneration.Contains(sprite))));
+            string Name(Sprite? sprite) => sprite == null ? "(已释放)" : sprite.name;
 
             var leaks = new List<string>();
             foreach (var image in content.GetComponentsInChildren<Image>(true))
             {
                 if (IsStale(image.sprite))
                 {
-                    leaks.Add(PathUnder(image.transform, content) + ": " + image.sprite.name);
+                    leaks.Add(PathUnder(image.transform, content) + ": " + Name(image.sprite));
                 }
             }
 
@@ -400,7 +402,7 @@ namespace Adapter.Unity.Tests.Runtime
                 {
                     if (IsStale(sprite))
                     {
-                        leaks.Add(PathUnder(button.transform, content) + " (spriteState): " + sprite.name);
+                        leaks.Add(PathUnder(button.transform, content) + " (spriteState): " + Name(sprite));
                     }
                 }
             }
@@ -539,6 +541,91 @@ namespace Adapter.Unity.Tests.Runtime
 
             Assert.IsFalse(UiSkin.IsOverrideInstalled, "Dispose 撤掉自己持有的覆盖");
             yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator SwitchSkin_RepeatedSwitches_ReleaseRetiredPacks_AndNeverLeaveReleasedSprites()
+        {
+            var skinRoot = BuildSkinRoot();
+            UiSkin.Reset();
+            var pack = UiSkinPack.Load(null, skinRoot);
+            UiVisuals visuals = null!;
+            var (host, root, _) = BuildHost(asm =>
+            {
+                visuals = new UiVisuals(pack, asm.Registry, asm.Presentation.DisplayInfo);
+                _disposables.Add(visuals);
+                return visuals;
+            });
+            yield return null;
+            Assert.AreEqual(1, visuals.LivePackCount);
+
+            const int Switches = 8;
+            var maxLive = 1;
+            for (var i = 0; i < Switches; i++)
+            {
+                var previous = CurrentSkinSprites();
+                visuals.SwitchSkin(i % 2 == 0 ? ReferenceSkinRef : null, skinRoot);
+                maxLive = Math.Max(maxLive, visuals.LivePackCount);
+                Assert.LessOrEqual(visuals.LivePackCount, 2, $"第 {i + 1} 次切换后：当前一份 + 刚退役的一份（旧面板子树要到帧末才销毁，还在用它）");
+                yield return null;
+                yield return null;      // 宿主 Update 在退役之后的帧里释放没人引用的旧包
+                Assert.AreEqual(1, visuals.LivePackCount, $"第 {i + 1} 次切换后两帧：旧皮肤包应已释放，只剩当前一份");
+                Assert.AreEqual(0, visuals.RetiredPackCount);
+
+                var current = CurrentSkinSprites();
+                var leaks = StaleSkinSprites(root.Content, visuals, previous, current);
+                Assert.IsEmpty(leaks, $"第 {i + 1} 次切换后：仍引用旧皮肤或已释放精灵的部件：" + string.Join("; ", leaks));
+                foreach (var sprite in current)
+                {
+                    Assert.IsTrue(sprite != null, "现行皮肤的精灵没有被误释放");
+                }
+            }
+
+            TestContext.Out.WriteLine($"[skin-packs] switches={Switches} maxLivePacks={maxLive} finalLivePacks={visuals.LivePackCount}");
+        }
+
+        [UnityTest]
+        public IEnumerator SwitchSkin_WithoutAnyDriver_StaysWithinTwoPacks_AndKeepsPacksThatAreStillReferenced()
+        {
+            // 没有宿主每帧驱动时靠下一次 SwitchSkin 开头的释放兜底（双缓冲）：连续换 N 次（每次隔一帧）持有的包数 ≤ 2。
+            var skinRoot = BuildSkinRoot();
+            UiSkin.Reset();
+            var loader = new Adapter.Unity.EngineAdapter.UnityResourceLoader();
+            var visuals = new UiVisuals(UiSkinPack.Load(null, skinRoot), null, null, loader);
+            _disposables.Add(visuals);
+            for (var i = 0; i < 6; i++)
+            {
+                visuals.SwitchSkin(i % 2 == 0 ? ReferenceSkinRef : null, skinRoot);
+                Assert.LessOrEqual(visuals.LivePackCount, 2, $"第 {i + 1} 次切换后");
+                yield return null;
+            }
+
+            // 仍有存活部件引用旧包时不释放：造一个图像持有当前包的面板底图，换肤后它就是旧包的引用者。
+            visuals.SwitchSkin(ReferenceSkinRef, skinRoot);
+            yield return null;
+            var holderGo = new GameObject("Holder", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            _spawned.Add(holderGo);
+            var held = visuals.Pack.PanelBackground();
+            Assert.IsNotNull(held);
+            holderGo.GetComponent<Image>().sprite = held;
+            visuals.SwitchSkin(null, skinRoot);
+            for (var i = 0; i < 5; i++)
+            {
+                yield return null;
+                visuals.ReleaseRetiredPacks();
+            }
+
+            Assert.AreEqual(1, visuals.RetiredPackCount, "旧包仍被一个存活图像引用：不释放，该图像的精灵没有变成已释放");
+            Assert.IsTrue(holderGo.GetComponent<Image>().sprite != null);
+
+            UnityEngine.Object.Destroy(holderGo);
+            for (var i = 0; i < 20 && visuals.RetiredPackCount > 0; i++)
+            {
+                yield return null;
+                visuals.ReleaseRetiredPacks();
+            }
+
+            Assert.AreEqual(0, visuals.RetiredPackCount, "引用者销毁后（重试间隔内）旧包释放");
         }
 
         private static string Short(Id id)

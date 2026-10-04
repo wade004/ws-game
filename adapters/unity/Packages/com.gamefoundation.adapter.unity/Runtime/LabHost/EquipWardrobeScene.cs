@@ -249,6 +249,11 @@ namespace Adapter.Unity.LabHost
 
         private void Update()
         {
+            if (Visuals != null && Visuals.RetiredPackCount > 0)
+            {
+                Visuals.ReleaseRetiredPacks();      // ADR-0155
+            }
+
             if (Stage == null || Panel == null || _ended)
             {
                 return;

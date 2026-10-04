@@ -462,7 +462,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ### 新增
 
-- **皮肤遗留两项（[ADR-0155](architecture/adr/0155-皮肤遗留两项运行期纸娃娃读锚点与面板换皮统一刷新.md)，收口 ADR-0152 决策 8、10 的两项已知限制）**：①运行期纸娃娃合成读锚点——适配层 2D 渲染器的 `SetLayers` 在装备层精灵集声明了 `grip`、身体集声明了同层名挂接点且两张图都已加载时，把层平移到挂接点上（新增公共 `PaperdollAnchors.AttachOffset`，预览区与运行期共用同一条公式；加载器新增 `TryGetSpriteSetAnchor` 读同一份按集缓存；镜像时 x 取反；逐层动画帧不平移）；未声明锚点的数据集本地位置恒为原点、逐位不变。②换皮肤时所有面板统一刷新——新增登记表 `UiSkinBindings`（`UiWidgets` 建的底板、按钮、标签、进度条自动登记，`UiVisuals.SwitchSkin` 在 `SkinChanged` 前调用 `ReapplyAll`），HUD、动作条、任务日志、技能书、角色属性、设置、存档、暂停、商店、对话、主菜单、实验室控制条不再停在旧皮肤上；`SwitchSkin` 接管全局 `UiSkin` 覆盖（新增 `UiVisuals.InstallSkinOverride/ReleaseSkinOverride/OwnsSkinOverride`，宿主与衣橱场景各自的"是不是我装的"标志删除）。纯加法，缺省行为与未换过皮肤的游戏逐位不变。已知限制：只对静态层图对齐、参考包物品集未声明像素密度导致游戏里武器比预览小（既有数据缺口）、旧皮肤包保留到 `Dispose`。
+- **皮肤遗留两项（[ADR-0155](architecture/adr/0155-皮肤遗留两项运行期纸娃娃读锚点与面板换皮统一刷新.md)，收口 ADR-0152 决策 8、10 的两项已知限制）**：①运行期纸娃娃合成读锚点——适配层 2D 渲染器的 `SetLayers` 在装备层精灵集声明了 `grip`、身体集声明了同层名挂接点且两张图都已加载时，把层平移到挂接点上（新增公共 `PaperdollAnchors.AttachOffset`，预览区与运行期共用同一条公式；加载器新增 `TryGetSpriteSetAnchor` 读同一份按集缓存；镜像时 x 取反；逐层动画帧不平移）；未声明锚点的数据集本地位置恒为原点、逐位不变。②换皮肤时所有面板统一刷新——新增登记表 `UiSkinBindings`（`UiWidgets` 建的底板、按钮、标签、进度条自动登记，`UiVisuals.SwitchSkin` 在 `SkinChanged` 前调用 `ReapplyAll`），HUD、动作条、任务日志、技能书、角色属性、设置、存档、暂停、商店、对话、主菜单、实验室控制条不再停在旧皮肤上；`SwitchSkin` 接管全局 `UiSkin` 覆盖（新增 `UiVisuals.InstallSkinOverride/ReleaseSkinOverride/OwnsSkinOverride`，宿主与衣橱场景各自的"是不是我装的"标志删除）。纯加法，缺省行为与未换过皮肤的游戏逐位不变。③换肤后旧皮肤包在没有存活部件引用时释放（`UiVisuals.ReleaseRetiredPacks`，宿主与衣橱场景每帧驱动，连续切换持有的包数 ≤ 2、空闲时恒为 1）。④参考包六个物品精灵集补 `pixels_per_unit`（与身体一致，运行期装备相对身体的尺寸与预览一致），导入校验新增警告 `equip_layer_density_mismatch`（层精灵集带 `anchors.json` 时密度与身体不一致或没声明）。已知限制：只对静态层图对齐；无握点的层运行期按精灵枢轴叠放（既有行为）。
 
 ## [1.98.0] - 2026-10-04
 

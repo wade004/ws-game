@@ -224,6 +224,6 @@
     "equip_skin_theme_color_invalid", "equip_skin_image_unreadable", "equip_skin_size_invalid", "equip_skin_size_group_mismatch",
     "equip_skin_nineslice_invalid", "equip_skin_alpha_invalid", "equip_icon_size_invalid", "equip_icon_alpha_invalid", "equip_layer_image_invalid",
     "equip_layer_frame_count_mismatch", "equip_layer_frame_size_mismatch", "equip_layer_atlas_mismatch",
-    "equip_opaque_coverage_low", "equip_anchor_out_of_bounds", "equip_anchor_invalid", "equip_behind_direction_invalid"
+    "equip_opaque_coverage_low", "equip_anchor_out_of_bounds", "equip_anchor_invalid", "equip_behind_direction_invalid", "equip_layer_density_mismatch"
   ]
 }

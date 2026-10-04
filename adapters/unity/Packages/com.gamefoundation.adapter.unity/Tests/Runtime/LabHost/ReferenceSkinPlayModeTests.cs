@@ -1060,46 +1060,74 @@ namespace Adapter.Unity.Tests.LabHost
         }
 
         [Test]
-        public void Runtime_RelativeLayout_MatchesThePreview_WhenBothSetsShareTheSameDensity()
+        public void Runtime_ReferenceItems_ShareTheBodyDensity_SoRelativeSizeAndPlacementMatchThePreview()
         {
-            // 参考武器集没有声明 pixels_per_unit（运行期落在加载器默认密度，与身体的 32 不同——见 ADR-0155 已知限制）；
-            // 这里在临时根里给武器集补上与身体相同的密度，验证"同一份锚点数据、同一条规则"下运行期的相对摆位 = 预览区的相对摆位。
-            var anchorsPath = Path.Combine(_root, "sprites", "item_std_sword_1h", "anchors.json");
-            var text = File.ReadAllText(anchorsPath);
-            var open = text.IndexOf('{');
-            File.WriteAllText(anchorsPath, text.Substring(0, open + 1) + "\"pixels_per_unit\": 32," + text.Substring(open + 1));
-            var bodyPpu = (float)((Core.Foundation.Common.Json.JsonNumber)((Core.Foundation.Common.Json.JsonObject)Core.Foundation.Common.Json.JsonReader.Parse(
-                File.ReadAllText(Path.Combine(_root, "sprites", "placeholder_hero", "anchors.json"))))["pixels_per_unit"]).Value;
-
+            // 参考包每个层精灵集（含不声明握点的胸甲）都声明与身体一致的 pixels_per_unit（ADR-0155）：运行期层与身体按同一个密度换算，
+            // 所以"装备相对身体的尺寸"与预览区（两者同一个缩放）一致；位置也一致（预览区对身体居中、层中心 = anchoredPosition）。
             var stage = NewStage();
             var uiRoot = NewUiRoot();
             var (preview, _, previewLoader) = NewPreview(stage, uiRoot, "front");
             var rig = NewRuntimeRig();
-            var layers = new List<EquipmentPaperdollLayer>
+            var bodyPpu = (float)((Core.Foundation.Common.Json.JsonNumber)((Core.Foundation.Common.Json.JsonObject)Core.Foundation.Common.Json.JsonReader.Parse(
+                File.ReadAllText(Path.Combine(_root, "sprites", "placeholder_hero", "anchors.json"))))["pixels_per_unit"]).Value;
+            var checkedItems = 0;
+            foreach (var entry in stage.Entries.Where(e => e.IsPaperdoll))
             {
-                new EquipmentPaperdollLayer("hand_main", new Id("paperdoll.item.std_sword_1h"), new Id("item.std_sword_1h"), new Id("slot.hand_main"), null),
-            };
-            foreach (var direction in PaperdollPreview.Directions)
-            {
-                preview.SetDirection(direction);
-                SettlePreview(preview, layers, previewLoader);
-                var ids = new List<Id> { BodyId(direction), LayerOf("item_std_sword_1h", direction, "hand_main") };
-                LoadAll(rig, ids);
-                Place(rig, ids, false);
-                var body = rig.LayerRenderer(0);
-                var weapon = rig.LayerRenderer(1);
-                Assert.AreEqual(bodyPpu, weapon.sprite.pixelsPerUnit, 1e-4f, "武器集已补同密度");
+                stage.UnequipAll();
+                Assert.IsTrue(stage.Equip(entry.ItemId));
+                var layers = stage.Panel.PaperdollLayers.ToList();
+                var (layerName, setName) = (layers.Single().Layer, UiVisuals.SetName(layers.Single().MeshRef.Value));
+                foreach (var direction in PaperdollPreview.Directions)
+                {
+                    preview.SetDirection(direction);
+                    SettlePreview(preview, layers, previewLoader);
+                    var ids = new List<Id> { BodyId(direction), LayerOf(setName, direction, layerName) };
+                    LoadAll(rig, ids);
+                    Place(rig, ids, false);
+                    var body = rig.LayerRenderer(0);
+                    var item = rig.LayerRenderer(1);
+                    Assert.AreEqual(bodyPpu, item.sprite.pixelsPerUnit, 1e-4f, entry.ItemId + "/" + direction + " 层集与身体同一个像素密度");
 
-                // 预览区：两张图同一个缩放 k，身体居中（位置 0），武器层中心 = 其 anchoredPosition。
-                var bodySprite = preview.BodyImage!.sprite;
-                var k = preview.Root.sizeDelta.y * 0.9f / bodySprite.rect.height;
-                var previewRelative = ((RectTransform)preview.EquipmentLayers.Single().Image.transform).anchoredPosition / k;
-                // 运行期：武器画布中心相对身体画布中心的世界位移 × 密度 = 以身体图像素为单位的位移。
-                var runtimeRelative = (WorldCenter(weapon) - WorldCenter(body)) * bodyPpu;
-                Assert.AreEqual(previewRelative.x, runtimeRelative.x, 0.01f, direction + " x");
-                Assert.AreEqual(previewRelative.y, runtimeRelative.y, 0.01f, direction + " y");
-                TestContext.Out.WriteLine($"[runtime-vs-preview] {direction} preview=({previewRelative.x:F4},{previewRelative.y:F4}) runtime=({runtimeRelative.x:F4},{runtimeRelative.y:F4})");
+                    var previewBody = preview.BodyImage!;
+                    var previewItem = preview.EquipmentLayers.Single().Image;
+                    var previewSizeRatio = ((RectTransform)previewItem.transform).sizeDelta.x / ((RectTransform)previewBody.transform).sizeDelta.x;
+                    var runtimeSizeRatio = (item.sprite.rect.width / item.sprite.pixelsPerUnit) / (body.sprite.rect.width / body.sprite.pixelsPerUnit);
+                    Assert.AreEqual(previewSizeRatio, runtimeSizeRatio, 1e-4f, entry.ItemId + "/" + direction + " 相对宽度");
+
+                    if (!rig.Loader.TryGetSpriteSetAnchor(setName, direction, "grip", out _))
+                    {
+                        // 没声明握点的层（胸甲）：运行期按各精灵枢轴叠放（既有行为，ADR-0155 不改），相对位置不与预览（画布居中）比较，只比尺寸。
+                        continue;
+                    }
+
+                    var k = preview.Root.sizeDelta.y * 0.9f / previewBody.sprite.rect.height;
+                    var previewRelative = ((RectTransform)previewItem.transform).anchoredPosition / k;
+                    var runtimeRelative = (WorldCenter(item) - WorldCenter(body)) * bodyPpu;
+                    Assert.AreEqual(previewRelative.x, runtimeRelative.x, 0.01f, entry.ItemId + "/" + direction + " 相对位置 x");
+                    Assert.AreEqual(previewRelative.y, runtimeRelative.y, 0.01f, entry.ItemId + "/" + direction + " 相对位置 y");
+                    checkedItems++;
+                }
             }
+
+            Assert.Greater(checkedItems, 0);
+            TestContext.Out.WriteLine($"[runtime-vs-preview] reference items x directions checked = {checkedItems}, body ppu = {bodyPpu}");
+
+            // 非平凡位置：层图没有预摆放（探针，握点不在画布中心，同样声明与身体一致的密度）时运行期相对位置 = 预览区相对位置，且不为零。
+            WriteAnchorProbe("{\"canvas\":{\"width\":100,\"height\":120},\"pixels_per_unit\":" + bodyPpu + ",\"directions\":{\"front\":{\"grip\":[10,20]}}}");
+            preview.SetDirection("front");
+            SettlePreview(preview, ProbeLayers(), previewLoader);
+            var probeIds = new List<Id> { BodyId("front"), LayerOf("item_anchor_probe", "front", "hand_main") };
+            LoadAll(rig, probeIds);
+            Place(rig, probeIds, false);
+            var probeBody = rig.LayerRenderer(0);
+            var probeLayer = rig.LayerRenderer(1);
+            var probeK = preview.Root.sizeDelta.y * 0.9f / preview.BodyImage!.sprite.rect.height;
+            var probePreview = ((RectTransform)preview.EquipmentLayers.Single().Image.transform).anchoredPosition / probeK;
+            var probeRuntime = (WorldCenter(probeLayer) - WorldCenter(probeBody)) * bodyPpu;
+            Assert.Greater(probePreview.magnitude, 1f, "探针的预览相对位置不是零（断言不是平凡成立）");
+            Assert.AreEqual(probePreview.x, probeRuntime.x, 0.01f, "探针 x");
+            Assert.AreEqual(probePreview.y, probeRuntime.y, 0.01f, "探针 y");
+            TestContext.Out.WriteLine($"[runtime-vs-preview] probe preview=({probePreview.x:F4},{probePreview.y:F4}) runtime=({probeRuntime.x:F4},{probeRuntime.y:F4})");
         }
 
         [Test]
