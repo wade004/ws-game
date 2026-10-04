@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import check_cmd, equip_cmd, icon_cmd, map_cmd, sfx_cmd, sprite_cmd, vfx_cmd
+from . import check_cmd, equip_cmd, icon_cmd, map_cmd, sfx_cmd, skin_manifest, sprite_cmd, vfx_cmd
 from .common import AssetImportError, setup_utf8_streams
 
 
@@ -52,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_equip = sub.add_parser("equip", help="装备资产包 + 界面皮肤包校验，输出装备完整性报告（手感设计/08）")
     equip_cmd.add_arguments(p_equip)
     p_equip.set_defaults(func=equip_cmd.run)
+
+    p_checklist = sub.add_parser("skin-checklist", help="按界面资源契约清单输出人读的逐文件清单（手感设计/08，出图/美术用）")
+    skin_manifest.add_arguments(p_checklist)
+    p_checklist.set_defaults(func=skin_manifest.run)
 
     return parser
 

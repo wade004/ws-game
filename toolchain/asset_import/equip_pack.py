@@ -52,7 +52,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
 
-from . import directions
+from . import directions, skin_manifest
 from .check_cmd import SEVERITY_ERROR, SEVERITY_WARNING, CheckIssue
 from .common import DIRECTION_SLOT_ID_PREFIX, read_json
 from .ref_conventions import paperdoll_equip_layer_file, strip_category_prefix
@@ -79,6 +79,11 @@ CHECK_SFX_MATERIAL_MISSING = "equip_sfx_material_missing"
 CHECK_SFX_REF_MISSING = "equip_sfx_ref_missing"
 CHECK_TRAIL_REF_MISSING = "equip_trail_ref_missing"
 CHECK_ANIM_SET_MISSING = "equip_anim_set_missing"
+CHECK_ICON_ALPHA_INVALID = "equip_icon_alpha_invalid"
+CHECK_LAYER_IMAGE_INVALID = "equip_layer_image_invalid"
+CHECK_LAYER_FRAME_COUNT_MISMATCH = "equip_layer_frame_count_mismatch"
+CHECK_LAYER_FRAME_SIZE_MISMATCH = "equip_layer_frame_size_mismatch"
+CHECK_LAYER_ATLAS_MISMATCH = "equip_layer_atlas_mismatch"
 
 CHECK_NAMES: tuple[str, ...] = (
     CHECK_ICON_UNRESOLVED, CHECK_ICON_FILE_MISSING, CHECK_ICON_SIZE_INVALID, CHECK_VISUAL_MISSING,
@@ -86,7 +91,9 @@ CHECK_NAMES: tuple[str, ...] = (
     CHECK_OVERRIDE_CLIP_LAYER_MISSING, CHECK_MODEL_SLOT_UNKNOWN, CHECK_MODEL_SOCKET_UNKNOWN,
     CHECK_VISUAL_MODE_INVALID, CHECK_WEAPON_PAIR_MISSING, CHECK_WEAPON_ID_MISMATCH,
     CHECK_PREVIEW_DIRECTION_INVALID, CHECK_FAMILY_WITHOUT_POSE_KEYS, CHECK_SFX_MATERIAL_MISSING,
-    CHECK_SFX_REF_MISSING, CHECK_TRAIL_REF_MISSING, CHECK_ANIM_SET_MISSING,
+    CHECK_SFX_REF_MISSING, CHECK_TRAIL_REF_MISSING, CHECK_ANIM_SET_MISSING, CHECK_ICON_ALPHA_INVALID,
+    CHECK_LAYER_IMAGE_INVALID, CHECK_LAYER_FRAME_COUNT_MISMATCH, CHECK_LAYER_FRAME_SIZE_MISMATCH,
+    CHECK_LAYER_ATLAS_MISMATCH,
 )
 
 TABLE_ITEM = "item.template"
@@ -96,8 +103,9 @@ DEFAULT_DIRECTION_COUNT = 8
 DEFAULT_SFX_MATERIAL = "generic"
 SFX_MATERIAL_LAYERS = ("swing", "impact")
 
-ICON_MIN_SIDE = 16
-ICON_MAX_SIDE = 512
+# 图标规格取自界面资源契约清单（skin_manifest.json 的 icons 段），不在这里另抄一份。
+ICON_MIN_SIDE = skin_manifest.load_manifest()["icons"]["size"]["min"]
+ICON_MAX_SIDE = skin_manifest.load_manifest()["icons"]["size"]["max"]
 
 GAITS = ("walk", "run", "sprint")
 STANCES = ("peace", "combat")
@@ -378,22 +386,51 @@ def _icon_path(icon_id: str) -> Optional[str]:
     return f"icons/{parts[1]}/{parts[2].replace('.', '_')}.png"
 
 
-def check_icon_image(path: Path) -> Optional[str]:
-    """返回不合规原因（None = 合规）：正方形、边长 2 的幂且在 16～512、四边留透明边距（图标不含品质框）。"""
+def check_icon_image(path: Path) -> Optional[tuple[str, str]]:
+    """返回 (检查名, 不合规原因)（None = 合规）：正方形、边长 2 的幂且在清单规定范围内（``equip_icon_size_invalid``）；
+    非全透明、四边留透明边距、图标不含品质框（``equip_icon_alpha_invalid``）。"""
     from PIL import Image  # 延迟导入：只有真正读图时才需要 Pillow
 
     with Image.open(path) as im:
         im = im.convert("RGBA")
         w, h = im.size
         if w != h:
-            return f"不是正方形（{w}x{h}）"
+            return CHECK_ICON_SIZE_INVALID, f"不是正方形（{w}x{h}）"
         if not (ICON_MIN_SIDE <= w <= ICON_MAX_SIDE) or (w & (w - 1)) != 0:
-            return f"边长 {w} 不是 {ICON_MIN_SIDE}～{ICON_MAX_SIDE} 内 2 的幂"
+            return CHECK_ICON_SIZE_INVALID, f"边长 {w} 不是 {ICON_MIN_SIDE}～{ICON_MAX_SIDE} 内 2 的幂"
         bbox = im.getchannel("A").getbbox()
         if bbox is None:
-            return "图标全透明"
+            return CHECK_ICON_ALPHA_INVALID, "图标全透明"
         if bbox[0] <= 0 or bbox[1] <= 0 or bbox[2] >= w or bbox[3] >= h:
-            return "主体贴边（14 第 7 节要求四周留透明边距，且图标不含品质框）"
+            return CHECK_ICON_ALPHA_INVALID, "主体贴边（14 第 7 节要求四周留透明边距，且图标不含品质框）"
+    return None
+
+
+def _image_size(path: Path) -> Optional[tuple[int, int]]:
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            return im.size
+    except Exception:  # noqa: BLE001 - 读不出就不做图集边界核对（文件存在性已由两级探测承担）
+        return None
+
+
+def _static_layer_problem(path: Path) -> Optional[str]:
+    """静态层图的像素规则（契约清单 paperdoll.static_layer_alpha）：读得出、不是全透明、不是实心满铺（层图必须有透明像素，否则会盖住身体）。"""
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            lo, hi = im.convert("RGBA").getchannel("A").getextrema()
+    except ImportError:
+        return None
+    except Exception as exc:  # noqa: BLE001
+        return f"读不出（{exc}）"
+    if hi == 0:
+        return "全透明"
+    if lo == 255:
+        return "没有任何透明像素（实心满铺会盖住身体）"
     return None
 
 
@@ -417,6 +454,7 @@ class EquipValidator:
         self.anim_set_row = self._pick_anim_set(anim_set)
         self.clips: dict[str, dict] = dict(self.anim_set_row.get("clips", {})) if self.anim_set_row else {}
         self.families = pose_families(self.clips)
+        self._frames_cache: dict[str, Optional[dict]] = {}
         self.model_slots: set[str] = set()
         self.model_sockets: set[str] = set()
         for row in self.display_map.values():
@@ -490,9 +528,9 @@ class EquipValidator:
             self._issue(ir, SEVERITY_ERROR, CHECK_ICON_FILE_MISSING, f"图标资源缺失: {file}",
                         field_path="display_ref", path=str(file))
             return
-        reason = check_icon_image(file)
-        if reason:
-            self._issue(ir, SEVERITY_ERROR, CHECK_ICON_SIZE_INVALID, f"图标 {rel} 不合规：{reason}",
+        problem = check_icon_image(file)
+        if problem:
+            self._issue(ir, SEVERITY_ERROR, problem[0], f"图标 {rel} 不合规：{problem[1]}",
                         field_path="display_ref", path=str(file))
 
     def _check_weapon(self, ir: ItemReport, item: dict, ws_id: Optional[str], fw_id: Optional[str]) -> Optional[dict]:
@@ -606,6 +644,11 @@ class EquipValidator:
                 self._issue(ir, SEVERITY_ERROR, CHECK_LAYER_STATIC_MISSING,
                             f"方向档 '{d}' 的静态层图缺失: {rel}", field_path="mesh_ref", path=str(self.assets / rel),
                             table=TABLE_EQUIP_VISUAL)
+                continue
+            reason = _static_layer_problem(self.assets / rel)
+            if reason:
+                self._issue(ir, SEVERITY_ERROR, CHECK_LAYER_IMAGE_INVALID, f"方向档 '{d}' 的静态层图 {rel} {reason}",
+                            field_path="mesh_ref", path=str(self.assets / rel), table=TABLE_EQUIP_VISUAL)
         if not self.clips:
             return
         family = ir.family if ir.is_weapon else None
@@ -618,6 +661,7 @@ class EquipValidator:
         for ref, tier in sorted(needed.items()):
             clip_stem = strip_category_prefix(ref)
             missing_dirs: list[str] = []
+            frame_bad: dict[str, list[str]] = {}
             for d in self.dirs:
                 ir.clip_slots += 1
                 lvl = self._clip_level(mesh_stem, clip_stem, d, layer)
@@ -628,6 +672,12 @@ class EquipValidator:
                 else:
                     ir.clip_missing += 1
                     missing_dirs.append(d)
+                    continue
+                for check, why in self._clip_frame_problems(mesh_stem, clip_stem, d, layer, lvl):
+                    frame_bad.setdefault(check, []).append(f"{d}（{why}）")
+            for check, dirs in sorted(frame_bad.items()):
+                self._issue(ir, SEVERITY_ERROR, check, f"键剪辑 '{ref}' 的层 '{layer}' 逐层剪辑与身体剪辑不对齐: {'; '.join(dirs)}",
+                            field_path="mesh_ref", table=TABLE_EQUIP_VISUAL)
             if not missing_dirs:
                 continue
             static_target = f"sprites/{mesh_stem}/<方向>/{layer}.png（静态层图）"
@@ -650,6 +700,46 @@ class EquipValidator:
             if (d / "atlas.png").is_file() and (d / "frames.json").is_file():
                 return lvl
         return 0
+
+    def _frames_doc(self, directory: Path) -> Optional[dict]:
+        key = str(directory)
+        if key not in self._frames_cache:
+            try:
+                doc = json.loads((directory / "frames.json").read_text(encoding="utf-8"))
+                self._frames_cache[key] = doc if isinstance(doc, dict) and isinstance(doc.get("frames"), list) else None
+            except (OSError, ValueError):
+                self._frames_cache[key] = None
+        return self._frames_cache[key]
+
+    def _clip_frame_problems(self, mesh_stem: str, clip_stem: str, direction: str, layer: str, lvl: int) -> list[tuple[str, str]]:
+        """逐层剪辑与同姿势同方向身体剪辑的帧对齐核对（契约清单 paperdoll.frame_rules）：帧数、帧宽高、帧矩形落在图集内。
+        身体剪辑不存在（没有可比基准）时只核对图集边界。"""
+        name = f"{mesh_stem}__{clip_stem}__{direction}__{layer}" if lvl == 1 else f"{mesh_stem}__{clip_stem}__{layer}"
+        layer_dir = self.assets / "sprite_anim" / name
+        doc = self._frames_doc(layer_dir)
+        if doc is None:
+            return []
+        out: list[tuple[str, str]] = []
+        body_doc = None
+        for body_name in (f"{clip_stem}__{direction}__body", f"{clip_stem}__body"):
+            body_dir = self.assets / "sprite_anim" / body_name
+            if (body_dir / "frames.json").is_file():
+                body_doc = self._frames_doc(body_dir)
+                break
+        if body_doc is not None:
+            if len(doc["frames"]) != len(body_doc["frames"]):
+                out.append((CHECK_LAYER_FRAME_COUNT_MISMATCH, f"层 {len(doc['frames'])} 帧，身体 {len(body_doc['frames'])} 帧"))
+            lw, lh = doc.get("frame_w"), doc.get("frame_h")
+            bw, bh = body_doc.get("frame_w"), body_doc.get("frame_h")
+            if (lw, lh) != (bw, bh):
+                out.append((CHECK_LAYER_FRAME_SIZE_MISMATCH, f"层帧 {lw}x{lh}，身体帧 {bw}x{bh}"))
+        atlas = _image_size(layer_dir / "atlas.png")
+        if atlas is not None:
+            for f in doc["frames"]:
+                if not isinstance(f, dict) or not all(isinstance(f.get(k), int) for k in ("x", "y", "w", "h"))                         or f["x"] < 0 or f["y"] < 0 or f["x"] + f["w"] > atlas[0] or f["y"] + f["h"] > atlas[1]:
+                    out.append((CHECK_LAYER_ATLAS_MISMATCH, f"第 {f.get('index') if isinstance(f, dict) else '?'} 帧矩形超出图集 {atlas[0]}x{atlas[1]}"))
+                    break
+        return out
 
     def _check_override_clips(self, ir: ItemReport, ws: Optional[dict], mesh_stem: str, layer: str,
                               covered_refs: set[str]) -> None:

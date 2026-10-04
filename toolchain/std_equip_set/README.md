@@ -22,7 +22,7 @@ assets/_placeholder/
   icons/item/<物品名>.png                                       64x64，不含品质框，四周留透明边距
   sprites/item_<物品名>/<方向档>/<层名>.png                     静态层图（ADR-0071，逐层剪辑缺失时的回落）
   sprite_anim/item_<物品名>__<剪辑名>__<方向档>__<层名>/        逐层剪辑（ADR-0100 装备层候选，带方向一级；atlas.png + frames.json）
-  ui/skin/default/…                                             占位皮肤包（清单见 asset_import/skin_pack.py 的 expected_items）
+  ui/skin/default/…                                             占位皮肤包（文件清单取自 asset_import/skin_manifest.json）
   std_equip_set.json                                            规格：每件装备的层、族、覆盖的剪辑，皮肤文件清单
 data/_equip/                                                    item.* / display.* / feel.weapon（补三把）/ feel.calibration / sfx.def /
                                                                 ui_layout_definition / l10n.*
@@ -51,7 +51,7 @@ data/_equip/                                                    item.* / display
    护甲（身体跟随层）= 姿势集全部键（别名键按资源去重）。生成器从假人 `ClipDef` 独立推，校验器从 `display.anim_set` 数据行推，测试断言两边一致。
 4. **全量出必备 + 推荐键**（假人姿势集补齐可选键与五个武器族后，每件的层剪辑键数随之增加——`block` 并入派生的族状态，护甲层取姿势集全部 94 份剪辑）：让"删掉一个推荐键 → 恰好 1 条警告"在零警告基线上有意义；代价是文件数与体积随姿势集增长（当前 `item_std_*` 约 2000 个文件，M3-D 新增约 2 MB）。
 5. **图标不含品质框**（08 第 2 节、14 第 7 节）：与旧占位图标（`icons/icon_placeholder_*`，带品质边框）不同；品质框由皮肤包的 `quality_frame/<品质>.png` 叠加。
-6. **皮肤包路径与 `skin_ref`**：`skin_ref = skin.<名>` → `assets/<数据集>/ui/skin/<名>/`；缺省占位皮肤 `skin.default`。清单只有 `skin_pack.expected_items` 一份，生成器与校验器共用，不会漂移。
+6. **皮肤包路径与 `skin_ref`**：`skin_ref = skin.<名>` → `assets/<数据集>/ui/skin/<名>/`；缺省占位皮肤 `skin.default`。清单只有机器可读的 `asset_import/skin_manifest.json` 一份，生成器、校验器、人读清单与引擎侧完整性用例共用，不会漂移；占位皮肤只生成清单里"必备 + 占位必备"的元素（入库内容逐位不变），`skin.generate_reference_pack` 另出一个全元素的确定性参照皮肤供用例当合格基线（ADR-0149）。
 7. **材质行用 id 约定 `sfx.<层>.<材质>`（层为 `swing`/`impact`），也认行内 `material` 字段**：`sfx.def` schema 目前没有材质/档位字段，不改 schema，先用 id 约定
    登记；复用 `assets/_placeholder/sfx/` 现有占位音频。
 8. **装备的几何由 `skeleton.render(item_fn=…)` 摆进同一套姿势**：不另写渲染器；`skeleton.build_parts` 的第二返回值新增了主手/武器方向/躯干基等键（纯新增，既有调用方只取 `ankle_*/hand_*`）。

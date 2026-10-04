@@ -241,7 +241,11 @@ def test_whole_skin_pack_missing_warns_per_item_and_once_for_pack(real_tables, t
     issues, reports = skin_pack.check_skins(real_tables, assets, skin_refs=["skin.nope"])
     kinds = [i.check for i in issues]
     assert kinds.count(skin_pack.CHECK_SKIN_PACK_MISSING) == 1
-    assert kinds.count(skin_pack.CHECK_SKIN_ITEM_MISSING) == reports[-1].checked == 15
+    # 必备文件 15 个：12 个普通项报 item_missing，3 个必备状态变体（槽位框 hover/disabled/drag_hover）报 state_missing；可选元素缺失不算问题。
+    assert kinds.count(skin_pack.CHECK_SKIN_ITEM_MISSING) == 12
+    assert kinds.count(skin_pack.CHECK_SKIN_STATE_MISSING) == 3
+    assert kinds.count(skin_pack.CHECK_SKIN_ITEM_MISSING) + kinds.count(skin_pack.CHECK_SKIN_STATE_MISSING) == reports[-1].checked == 15
+    assert len(reports[-1].optional_absent) == 8
     assert all(i.severity == "warning" for i in issues)
 
 
@@ -255,6 +259,21 @@ def test_invalid_theme_and_missing_panel_layout_are_warnings(real_tables, tmp_pa
     issues, _ = skin_pack.check_skins(tables, assets, skin_refs=["skin.alt"])
     assert sorted(i.check for i in issues) == [skin_pack.CHECK_SKIN_PANEL_LAYOUT_MISSING, skin_pack.CHECK_SKIN_THEME_INVALID]
     assert all(i.severity == "warning" for i in issues)
+
+
+def test_theme_panel_border_must_be_positive_integer_when_present(real_tables, tmp_path):
+    """ADR-0149：theme.json 的 panel_border（面板底图九宫格边框像素）可选；写了就必须是正整数，否则同其它主题问题一样记警告。"""
+    assets = _sword_assets(tmp_path)
+    alt = assets / "ui" / "skin" / "alt"
+    shutil.copytree(assets / "ui" / "skin" / "default", alt)
+    theme = json.loads((alt / "theme.json").read_text(encoding="utf-8"))
+    for bad in (0, -3, 2.5, "5", True):
+        (alt / "theme.json").write_text(json.dumps(dict(theme, panel_border=bad)), encoding="utf-8")
+        issues, _ = skin_pack.check_skins(real_tables, assets, skin_refs=["skin.alt"])
+        assert [i.check for i in issues] == [skin_pack.CHECK_SKIN_THEME_INVALID], bad
+    (alt / "theme.json").write_text(json.dumps(dict(theme, panel_border=6)), encoding="utf-8")
+    issues, _ = skin_pack.check_skins(real_tables, assets, skin_refs=["skin.alt"])
+    assert issues == []
 
 
 def test_invalid_skin_ref_format_is_error(real_tables, tmp_path):
@@ -276,9 +295,10 @@ def test_icon_rules(real_tables, tmp_path):
     assert _checks(_run(t, assets), "error") == [E.CHECK_ICON_SIZE_INVALID]
     Image.new("RGBA", (64, 64), (255, 0, 0, 255)).save(icon)          # 满铺 = 贴边（疑似含品质框）
     r = _run(t, assets)
-    assert _checks(r, "error") == [E.CHECK_ICON_SIZE_INVALID] and "贴边" in r.issues[0].message
+    assert _checks(r, "error") == [E.CHECK_ICON_ALPHA_INVALID] and "贴边" in r.issues[0].message
     Image.new("RGBA", (64, 64), (0, 0, 0, 0)).save(icon)
-    assert "全透明" in _run(t, assets).issues[0].message
+    r = _run(t, assets)
+    assert _checks(r, "error") == [E.CHECK_ICON_ALPHA_INVALID] and "全透明" in r.issues[0].message
     t["display.map"] = [dict(r, icon_id=None) for r in t["display.map"]]
     assert _checks(_run(t, assets), "error") == [E.CHECK_ICON_UNRESOLVED]
 
@@ -509,3 +529,59 @@ def test_check_domain_equip_is_opt_in_and_passes(capsys):
 
 def test_check_unknown_domain_still_rejected(capsys):
     assert cli.main(["check", "--dataset", "_equip", "--only", "nope"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# 纸娃娃图层的像素/帧对齐规则（契约清单 paperdoll 段，ADR-0149）：每条一个反例
+# ---------------------------------------------------------------------------
+
+def _first_layer_clip(assets: Path) -> Path:
+    return sorted((assets / "sprite_anim").glob("item_std_sword_1h__*__front__hand_main"))[0]
+
+
+def _rewrite_frames(clip_dir: Path, mutate) -> None:
+    doc = json.loads((clip_dir / "frames.json").read_text(encoding="utf-8"))
+    mutate(doc)
+    (clip_dir / "frames.json").write_text(json.dumps(doc), encoding="utf-8")
+
+
+def test_neg_layer_image_invalid_fully_transparent_or_opaque_static_layer(real_tables, tmp_path):
+    assets = _sword_assets(tmp_path)
+    layer = assets / "sprites" / "item_std_sword_1h" / "front" / "hand_main.png"
+    Image.new("RGBA", (64, 64), (0, 0, 0, 0)).save(layer)
+    r = _run(_only_item(real_tables, SWORD), assets)
+    assert _checks(r, "error") == [E.CHECK_LAYER_IMAGE_INVALID] and "全透明" in r.issues[0].message
+    Image.new("RGBA", (64, 64), (9, 9, 9, 255)).save(layer)
+    r = _run(_only_item(real_tables, SWORD), assets)
+    assert _checks(r, "error") == [E.CHECK_LAYER_IMAGE_INVALID] and "透明像素" in r.issues[0].message
+
+
+def test_neg_layer_frame_count_mismatch_with_body_clip(real_tables, tmp_path):
+    assets = _sword_assets(tmp_path)
+    clip = _first_layer_clip(assets)
+    # 身体剪辑不在 _sword_assets 的拷贝范围里：拷进来作为帧数基准。
+    stem = clip.name.split("__")[1]
+    body = ASSETS / "sprite_anim" / f"{stem}__front__body"
+    shutil.copytree(body, assets / "sprite_anim" / body.name)
+    n = len(json.loads((body / "frames.json").read_text(encoding="utf-8"))["frames"])
+    assert E.EquipValidator(_only_item(real_tables, SWORD), assets).run().issues == []
+    _rewrite_frames(clip, lambda d: d["frames"].pop())
+    r = _run(_only_item(real_tables, SWORD), assets)
+    assert _checks(r, "error") == [E.CHECK_LAYER_FRAME_COUNT_MISMATCH]
+    assert f"层 {n - 1} 帧，身体 {n} 帧" in r.issues[0].message
+
+
+def test_neg_layer_frame_size_mismatch_with_body_clip(real_tables, tmp_path):
+    assets = _sword_assets(tmp_path)
+    clip = _first_layer_clip(assets)
+    stem = clip.name.split("__")[1]
+    shutil.copytree(ASSETS / "sprite_anim" / f"{stem}__front__body", assets / "sprite_anim" / f"{stem}__front__body")
+    _rewrite_frames(clip, lambda d: d.update(frame_w=d["frame_w"] + 8))
+    assert _checks(_run(_only_item(real_tables, SWORD), assets), "error") == [E.CHECK_LAYER_FRAME_SIZE_MISMATCH]
+
+
+def test_neg_layer_atlas_mismatch_frame_outside_atlas(real_tables, tmp_path):
+    assets = _sword_assets(tmp_path)
+    clip = _first_layer_clip(assets)
+    _rewrite_frames(clip, lambda d: d["frames"][-1].update(x=100000))
+    assert _checks(_run(_only_item(real_tables, SWORD), assets), "error") == [E.CHECK_LAYER_ATLAS_MISMATCH]

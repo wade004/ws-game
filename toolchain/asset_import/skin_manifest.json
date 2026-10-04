@@ -1,0 +1,216 @@
+{
+  "manifest_version": 1,
+  "title": "界面资源契约清单（手感设计/08，ADR-0149）",
+  "note": "本文件是界面皮肤包 / 图标 / 纸娃娃图层资源契约的唯一机器可读来源：导入校验（asset_import/skin_pack.py、equip_pack.py）、占位皮肤生成器（std_equip_set/skin.py）、人读清单（import_assets.py skin-checklist）、引擎侧完整性用例都读它。改规则只改这里。",
+  "skin": {
+    "root": "ui/skin",
+    "placeholder": "skin.default",
+    "expansions": {
+      "slot": "item.slot_definition 里 is_equipment 为真的行，名取 id 去掉 item.slot. 前缀",
+      "quality": "item.quality_definition 的行，名取 id 去掉 item.quality. 前缀"
+    },
+    "states": ["normal", "hover", "pressed", "disabled", "selected", "drag_hover"],
+    "size_groups": {
+      "cell": "格子类图（槽位框 / 品质框 / 拖拽态）逐张叠放在同一个格子上，必须同边长"
+    },
+    "alpha_modes": {
+      "visible": "至少有一个像素不透明度大于 0（不是全透明图）",
+      "has_transparency": "visible，且至少有一个像素不完全不透明（框不能是实心方块，圆角/镂空都算）",
+      "transparent_center": "has_transparency，且图的中心区域（中间一半边长）全透明（品质框叠在图标上，不能盖住图标）"
+    },
+    "tokens": {
+      "file": "theme.json",
+      "colors": [
+        {"key": "panel", "requirement": "required", "use": "面板底色"},
+        {"key": "panel_edge", "requirement": "required", "use": "面板边框色"},
+        {"key": "text", "requirement": "required", "use": "正文色"},
+        {"key": "text_dim", "requirement": "required", "use": "次要文字色"},
+        {"key": "highlight", "requirement": "required", "use": "强调/高亮色"},
+        {"key": "disabled", "requirement": "required", "use": "禁用色"},
+        {"key": "ok", "requirement": "required", "use": "可放置/成功色"},
+        {"key": "blocked", "requirement": "required", "use": "不可放置/危险色"}
+      ],
+      "color_format": "#rrggbb 或 #rrggbbaa",
+      "font": {"key": "font", "requirement": "required", "use": "字体资源路径（如 fonts/noto_sans_cjk_sc.otf）"},
+      "numbers": [
+        {"key": "panel_border", "requirement": "optional", "default": 5, "min": 1, "use": "面板底图九宫格边框像素"},
+        {"key": "tooltip_border", "requirement": "optional", "default": 2, "min": 1, "use": "提示框底图九宫格边框像素"},
+        {"key": "button_border", "requirement": "optional", "default": 4, "min": 1, "use": "按钮底图九宫格边框像素"}
+      ]
+    },
+    "elements": [
+      {
+        "id": "slot_frame", "path": "slot_frame/{slot}.png", "expand": "slot", "requirement": "required", "state": "normal",
+        "label": "槽位框 {slot}", "fallback": "slot_frame/_default.png",
+        "size": {"min": 16, "max": 512, "aspect": "1:1", "group": "cell"}, "alpha": "has_transparency",
+        "consumer": "装备面板/背包的槽位格底框（按槽位名取）"
+      },
+      {
+        "id": "slot_frame_default", "path": "slot_frame/_default.png", "requirement": "placeholder_only", "state": "normal",
+        "label": "槽位框兜底 _default",
+        "size": {"min": 16, "max": 512, "aspect": "1:1", "group": "cell"}, "alpha": "has_transparency",
+        "consumer": "没有同名槽位框时的兜底（只有框架占位皮肤必须有；自有皮肤包可选，写了就按规则校验）"
+      },
+      {
+        "id": "slot_frame_hover", "path": "slot_frame/_highlight.png", "requirement": "required", "state": "hover", "state_of": "slot_frame",
+        "label": "槽位框状态 hover（高亮）",
+        "size": {"min": 16, "max": 512, "aspect": "1:1", "group": "cell"}, "alpha": "has_transparency",
+        "consumer": "槽位格悬停；按下/选中没有专图时也用它"
+      },
+      {
+        "id": "slot_frame_disabled", "path": "slot_frame/_disabled.png", "requirement": "required", "state": "disabled", "state_of": "slot_frame",
+        "label": "槽位框状态 disabled（禁用）",
+        "size": {"min": 16, "max": 512, "aspect": "1:1", "group": "cell"}, "alpha": "has_transparency",
+        "consumer": "槽位格不可交互"
+      },
+      {
+        "id": "slot_frame_drag_hover", "path": "slot_frame/_drag_hover.png", "requirement": "required", "state": "drag_hover", "state_of": "slot_frame",
+        "label": "槽位框状态 drag_hover（拖拽悬停）",
+        "size": {"min": 16, "max": 512, "aspect": "1:1", "group": "cell"}, "alpha": "has_transparency",
+        "consumer": "拖拽物悬停在槽位上"
+      },
+      {
+        "id": "slot_frame_pressed", "path": "slot_frame/_pressed.png", "requirement": "optional", "state": "pressed", "state_of": "slot_frame",
+        "label": "槽位框状态 pressed（按下）", "fallback_state": "hover",
+        "size": {"min": 16, "max": 512, "aspect": "1:1", "group": "cell"}, "alpha": "has_transparency",
+        "consumer": "槽位格按下；缺省用 hover 图"
+      },
+      {
+        "id": "slot_frame_selected", "path": "slot_frame/_selected.png", "requirement": "optional", "state": "selected", "state_of": "slot_frame",
+        "label": "槽位框状态 selected（选中）", "fallback_state": "hover",
+        "size": {"min": 16, "max": 512, "aspect": "1:1", "group": "cell"}, "alpha": "has_transparency",
+        "consumer": "槽位格被选中；缺省用 hover 图"
+      },
+      {
+        "id": "quality_frame", "path": "quality_frame/{quality}.png", "expand": "quality", "requirement": "required",
+        "label": "品质框 {quality}", "fallback": "quality_frame/_default.png",
+        "size": {"min": 16, "max": 512, "aspect": "1:1", "group": "cell"}, "alpha": "transparent_center",
+        "consumer": "叠在图标上的品质边框（按品质名取）"
+      },
+      {
+        "id": "quality_frame_default", "path": "quality_frame/_default.png", "requirement": "placeholder_only",
+        "label": "品质框兜底 _default",
+        "size": {"min": 16, "max": 512, "aspect": "1:1", "group": "cell"}, "alpha": "transparent_center",
+        "consumer": "没有同名品质框时的兜底（只有框架占位皮肤必须有）"
+      },
+      {
+        "id": "drag_ghost", "path": "drag/ghost.png", "requirement": "required",
+        "label": "拖拽态 ghost（拖拽影子）",
+        "size": {"min": 16, "max": 512, "aspect": "1:1", "group": "cell"}, "alpha": "has_transparency",
+        "consumer": "拖拽中跟随指针的影子底图"
+      },
+      {
+        "id": "drag_target_ok", "path": "drag/target_ok.png", "requirement": "required", "state": "drag_hover",
+        "label": "拖拽态 target_ok（可放置）",
+        "size": {"min": 16, "max": 512, "aspect": "1:1", "group": "cell"}, "alpha": "has_transparency",
+        "consumer": "目标格可放置时的叠层"
+      },
+      {
+        "id": "drag_target_blocked", "path": "drag/target_blocked.png", "requirement": "required", "state": "disabled",
+        "label": "拖拽态 target_blocked（不可放置）",
+        "size": {"min": 16, "max": 512, "aspect": "1:1", "group": "cell"}, "alpha": "has_transparency",
+        "consumer": "目标格不可放置时的叠层"
+      },
+      {
+        "id": "tooltip_background", "path": "tooltip/background.png", "requirement": "required",
+        "label": "提示框 background（九宫格底图）",
+        "size": {"min": 8, "max": 512}, "alpha": "visible", "nine_slice": {"border_token": "tooltip_border", "default": 2},
+        "consumer": "物品/技能提示框底板，按内容拉伸"
+      },
+      {
+        "id": "tooltip_divider", "path": "tooltip/divider.png", "requirement": "required",
+        "label": "提示框 divider（分隔线，横向平铺）",
+        "size": {"min": 2, "max": 512}, "alpha": "visible",
+        "consumer": "提示框分段分隔线"
+      },
+      {
+        "id": "tooltip_row", "path": "tooltip/row.png", "requirement": "required",
+        "label": "提示框 row（属性行底条）",
+        "size": {"min": 2, "max": 512}, "alpha": "visible",
+        "consumer": "提示框属性行底条"
+      },
+      {
+        "id": "paperdoll_preview_background", "path": "paperdoll_preview/background.png", "requirement": "required",
+        "label": "纸娃娃预览区背景",
+        "size": {"min": 32, "max": 1024}, "alpha": "visible",
+        "consumer": "装备面板的纸娃娃预览区底图（预览尺寸取它的原生尺寸 × preview_scale）"
+      },
+      {
+        "id": "panel_background", "path": "panel/background.png", "requirement": "optional",
+        "label": "面板底图（九宫格）", "fallback_target": "framework",
+        "size": {"min": 8, "max": 1024}, "alpha": "visible", "nine_slice": {"border_token": "panel_border", "default": 5},
+        "consumer": "全部面板的底板；缺省沿用框架面板底图"
+      },
+      {
+        "id": "button_normal", "path": "button/normal.png", "requirement": "optional", "state": "normal", "state_of": "button",
+        "label": "按钮 normal", "fallback_target": "framework",
+        "size": {"min": 8, "max": 512}, "alpha": "visible", "nine_slice": {"border_token": "button_border", "default": 4},
+        "consumer": "按钮常态底图；提供任一按钮状态图时必须同时提供它"
+      },
+      {
+        "id": "button_hover", "path": "button/hover.png", "requirement": "optional", "state": "hover", "state_of": "button", "needs": "button_normal",
+        "label": "按钮 hover", "fallback_state": "normal",
+        "size": {"min": 8, "max": 512}, "alpha": "visible", "nine_slice": {"border_token": "button_border", "default": 4},
+        "consumer": "按钮悬停"
+      },
+      {
+        "id": "button_pressed", "path": "button/pressed.png", "requirement": "optional", "state": "pressed", "state_of": "button", "needs": "button_normal",
+        "label": "按钮 pressed", "fallback_state": "normal",
+        "size": {"min": 8, "max": 512}, "alpha": "visible", "nine_slice": {"border_token": "button_border", "default": 4},
+        "consumer": "按钮按下"
+      },
+      {
+        "id": "button_disabled", "path": "button/disabled.png", "requirement": "optional", "state": "disabled", "state_of": "button", "needs": "button_normal",
+        "label": "按钮 disabled", "fallback_state": "normal",
+        "size": {"min": 8, "max": 512}, "alpha": "visible", "nine_slice": {"border_token": "button_border", "default": 4},
+        "consumer": "按钮禁用"
+      },
+      {
+        "id": "button_selected", "path": "button/selected.png", "requirement": "optional", "state": "selected", "state_of": "button", "needs": "button_normal",
+        "label": "按钮 selected", "fallback_state": "normal",
+        "size": {"min": 8, "max": 512}, "alpha": "visible", "nine_slice": {"border_token": "button_border", "default": 4},
+        "consumer": "按钮选中"
+      },
+      {
+        "id": "theme", "path": "theme.json", "requirement": "required", "kind": "theme",
+        "label": "主题（配色与字体令牌）",
+        "consumer": "面板配色、字体、九宫格边框像素"
+      }
+    ]
+  },
+  "icons": {
+    "root": "icons",
+    "path": "icons/{category}/{name}.png",
+    "path_note": "资源引用 icon.<类别>.<名> 去掉前缀后，名里的点换下划线",
+    "categories": [
+      {"name": "item", "requirement": "required", "use": "物品图标（装备/消耗品/材料；背包与装备面板的格子图）"},
+      {"name": "creature", "requirement": "optional", "use": "生物图标（头像/小地图）"},
+      {"name": "gobj", "requirement": "optional", "use": "场景物件图标"},
+      {"name": "aura", "requirement": "optional", "use": "光环/状态图标"}
+    ],
+    "size": {"min": 16, "max": 512, "aspect": "1:1", "power_of_two": true},
+    "alpha": "visible",
+    "margin": "主体四周留透明边距（不贴边），且图标不含品质框（14 第 7 节）"
+  },
+  "paperdoll": {
+    "layer_static": "sprites/{mesh}/{direction}/{layer}.png",
+    "layer_clip": "sprite_anim/{mesh}__{clip}__{direction}__{layer}/(atlas.png + frames.json)",
+    "layer_clip_nodir": "sprite_anim/{mesh}__{clip}__{layer}/(atlas.png + frames.json)",
+    "body_clip": "sprite_anim/{clip}__{direction}__body/(atlas.png + frames.json)",
+    "directions": "该游戏声明的方向档（canonical 方向段，来自数据的方向档数）",
+    "pose_keys": "必备/推荐键由 display.anim_set 的键集与 04 第 3 节清单推出（equip_pack.needed_pose_keys）",
+    "static_layer_alpha": "has_transparency",
+    "frame_rules": [
+      "逐层剪辑的帧数 = 同姿势同方向的身体剪辑帧数（层与身体逐帧对齐）",
+      "逐层剪辑的帧宽高 = 身体剪辑的帧宽高",
+      "frames.json 里每一帧的矩形必须落在 atlas.png 之内"
+    ]
+  },
+  "diagnostics": [
+    "equip_skin_pack_missing", "equip_skin_item_missing", "equip_skin_state_missing", "equip_skin_placeholder_missing",
+    "equip_skin_panel_layout_missing", "equip_skin_ref_invalid", "equip_skin_theme_invalid", "equip_skin_theme_token_missing",
+    "equip_skin_theme_color_invalid", "equip_skin_image_unreadable", "equip_skin_size_invalid", "equip_skin_size_group_mismatch",
+    "equip_skin_nineslice_invalid", "equip_skin_alpha_invalid", "equip_icon_size_invalid", "equip_icon_alpha_invalid", "equip_layer_image_invalid",
+    "equip_layer_frame_count_mismatch", "equip_layer_frame_size_mismatch", "equip_layer_atlas_mismatch"
+  ]
+}
