@@ -67,11 +67,11 @@ namespace Adapter.Unity.Tests.LabHost
             _pg = null;
         }
 
-        private LabPlayground NewPlayground(bool showcase)
+        private LabPlayground NewPlayground(bool showcase, string cell = "2d_action")
         {
             _go = new GameObject("ShowcaseTest");
             var pg = _go.AddComponent<LabPlayground>();
-            pg.Configure("2d_action");
+            pg.Configure(cell);
             pg.Showcase = showcase;
             pg.ManualDrive = true;
             _input = new Adapters.Stub.StubInput();
@@ -146,20 +146,36 @@ namespace Adapter.Unity.Tests.LabHost
             Assert.AreEqual(0, pg.Stage.Record.Errors.Count, string.Join(" | ", pg.Stage.Record.Errors));
         }
 
-        // ───────── 菜单指路：占位美术场景的面板头部有第二行提示，演示场景没有 ─────────
+        // ───────── 菜单指路：占位美术场景的面板头部有第二行提示（指向同一视角的演示场景），演示场景没有 ─────────
+
+        private static readonly string[] HintCells = { "2d_action", "2_5d_action", "3d_action" };
 
         [UnityTest]
-        public IEnumerator PanelHint_ShownInPlaceholderScene_AbsentInShowcase()
+        public IEnumerator PanelHint_ShownInPlaceholderScene_NamesTheShowcaseOfTheSameCombo_AbsentInEveryShowcase()
         {
-            var placeholder = NewPlayground(false);
-            yield return Frames(4);
-            Assert.AreEqual(LabPlayground.PlaceholderHint, placeholder.PanelHint, "占位美术场景应有指向演示场景的提示");
-            StringAssert.Contains("打开演示场景 2D（真实美术）", placeholder.PanelHint);
-            Dispose();
+            foreach (var cell in HintCells)
+            {
+                var placeholder = NewPlayground(false, cell);
+                yield return Frames(4);
+                var expectedName = LabPlayground.ShowcaseMenuNameOf(cell);
+                Assert.IsNotNull(expectedName, cell + " 应有对应的演示场景菜单条目");
+                Assert.AreEqual(LabPlayground.PlaceholderHintFor(cell), placeholder.PanelHint, cell + "：占位美术场景应有指向演示场景的提示");
+                StringAssert.Contains(expectedName!, placeholder.PanelHint, cell + "：提示应点名同一视角的演示场景");
+                foreach (var other in HintCells)
+                {
+                    if (other != cell)
+                    {
+                        StringAssert.DoesNotContain(LabPlayground.ShowcaseMenuNameOf(other)!, placeholder.PanelHint, cell + "：提示不应指向另一个视角（" + other + "）的演示场景");
+                    }
+                }
 
-            var showcase = NewPlayground(true);
-            yield return Frames(4);
-            Assert.IsNull(showcase.PanelHint, "演示场景不应出现占位美术提示");
+                Dispose();
+
+                var showcase = NewPlayground(true, cell);
+                yield return Frames(4);
+                Assert.IsNull(showcase.PanelHint, cell + "：演示场景不应出现占位美术提示");
+                Dispose();
+            }
         }
 
         // ───────── 三连击打精英：受击动画、顿帧、闪白、伤害数字 ─────────

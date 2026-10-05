@@ -101,11 +101,30 @@ namespace Adapter.Unity.LabHost
         /// <summary>演示场景的游戏内 HUD（非演示场景为 null）。</summary>
         public ShowcaseHud? Hud => _hud;
 
-        /// <summary>占位美术工程场景的面板提示（演示场景为 null：用户已经在真实美术里，不需要再被指路）。</summary>
-        public const string PlaceholderHint = "占位美术工程场景；真实美术与界面皮肤请用菜单 手感试玩 → 打开演示场景 2D（真实美术）";
+        /// <summary>
+        /// 某个格子（视角）的演示场景在菜单里的条目名（菜单路径 <c>GameFoundation/手感试玩/&lt;条目名&gt;</c>，见编辑器的 <c>LabPlaygroundSceneBuilder</c>）；
+        /// 不是 2D/2.5D/3D 动作格子时为 null。占位美术场景的面板提示按它指向"同一视角"的演示场景。
+        /// </summary>
+        public static string? ShowcaseMenuNameOf(string cell)
+        {
+            switch (cell)
+            {
+                case "2d_action": return "打开演示场景 2D（真实美术）";
+                case "2_5d_action": return "打开演示场景 2.5D（真实美术）";
+                case "3d_action": return "打开演示场景 3D（真实美术）";
+                default: return null;
+            }
+        }
 
-        /// <summary>面板头部第二行的提示文字；演示场景为 null。</summary>
-        public string? PanelHint => showcase ? null : PlaceholderHint;
+        /// <summary>占位美术工程场景的面板提示：指向与本场景同一格子的演示场景；没有对应演示场景的格子为 null。</summary>
+        public static string? PlaceholderHintFor(string cell)
+        {
+            var name = ShowcaseMenuNameOf(cell);
+            return name == null ? null : "占位美术工程场景；真实美术与界面皮肤请用菜单 手感试玩 → " + name;
+        }
+
+        /// <summary>面板头部第二行的提示文字（演示场景为 null：用户已经在真实美术里，不需要再被指路）。</summary>
+        public string? PanelHint => showcase ? null : PlaceholderHintFor(cell);
 
         public string RepoRoot => _repoRoot;
 

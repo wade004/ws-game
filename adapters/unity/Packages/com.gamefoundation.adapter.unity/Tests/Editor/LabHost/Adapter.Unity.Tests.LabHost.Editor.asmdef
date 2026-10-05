@@ -4,6 +4,7 @@
     "references": [
         "Adapter.Unity",
         "Adapter.Unity.LabHost",
+        "Adapter.Unity.LabHost.Editor",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

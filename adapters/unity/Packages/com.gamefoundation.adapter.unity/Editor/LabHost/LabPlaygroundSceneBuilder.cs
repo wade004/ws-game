@@ -41,7 +41,7 @@ namespace Adapter.Unity.LabHost.Editor
 
             AssetDatabase.SaveAssets();
             Debug.Log("[LabPlaygroundSceneBuilder] scenes generated: " + string.Join(", ", Cells));
-            // 演示场景（2D 与 2.5D）随同重建，命令行入口一次生成全部场景。
+            // 演示场景（2D、2.5D、3D）随同重建，命令行入口一次生成全部场景。
             BuildShowcase();
         }
 
