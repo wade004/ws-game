@@ -460,6 +460,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **手感演示场景 2.5D 版（[ADR-0157](architecture/adr/0157-手感演示场景2.5D版固定俯角下的直立广告牌表现.md)，纯加法）**：①新增场景 `LabShowcase_2_5d_action` 与菜单 `GameFoundation → 手感试玩 → 打开演示场景 2.5D（真实美术）`；`重建演示场景`与 `LabPlaygroundSceneBuilder.BuildAll` 一次生成 2D 与 2.5D 两个演示场景。②与原 2.5D 试玩场景同一逻辑会话（逻辑指纹逐字节相等），表现为固定俯角下的直立广告牌：英雄、小兵、精英、木桩三视图动画、特效、场景道具按相机平行的广告牌摆放，地面石砖、阴影、冲击波环躺在地面，HUD 沿用 reference_fantasy 皮肤。③共用代码泛化而非复制：新增内部类 `ShowcaseProjection`（平面 / 直立两种模式，平面即 2D 原公式），`ShowcaseDirector`、`ShowcaseHud`、`ShowcaseFxPlayer`、`EngineLabStage` 经它换算；`ShowcaseDamageNumber` 新增 `Height` 字段（2D 为 0）；`ShowcaseHud` 新增 `LoadedSkinRef`。④F1 面板与原试玩场景是同一份（武器、体型、tpl_* 模板、场景控制、调参 / 时间轴 / 轨迹 / 评分页），切换后真实美术不丢；英雄美术只有持单手剑一套。⑤新增 PlayMode 用例 `Showcase25DTests`（14 条，含"待机时没有两只单位的身体精灵叠在一起"，按精灵包围盒投到屏幕后量重叠，并带共点对照）；逻辑与数据行为、既有 2D 演示场景不变。
+
 ### 变更
 
 - **发布提速（[ADR-0156](architecture/adr/0156-发布第五步复用全量记录改跑定向门禁与提交钩子合并跳过.md)，仅工具链，不改产物）**：1.99.0 发布约 3 小时，其中两次约 54 分钟的全量门禁（合并前一次、`build.ps1 -Release` 第 5 步一次）内容相同。①`build.ps1 -Release` 第 5 步默认复用第 3b 步已验证的含 Unity 全量记录：守卫放行（记录是 HEAD 或其祖先且其后只改文档类文件）且工作树除版本写回文件外无别的改动时，改跑定向门禁 `check.ps1 -Changed <记录提交> -AbiStrict -FailFast -NoTiming`（版本号写回波及的包清单一致性、DLL 同步、Unity 编译、消费方演练仍会跑），日志与状态文件写明复用的记录（run_id + 提交）与定向门禁结论行；守卫不放行、`-DryRun`、显式 `-FullRegate`（新增开关，不能与 `-Resume` 同传）仍跑全量。选择逻辑为 `toolchain/_release_regression_guard.ps1` 的 `Get-ReleaseGatePlan`。②模块表新增路径规则 `release_version_files`（`VERSION`、适配层/模板 `package.json`、`packages-lock.json` 记 T1 并选定上述步骤；此前"未被任何规则覆盖"判 T3）。③提交钩子新增 `MergeSkip` 档：合并提交的树与"有含 Unity 全量记录背书的第二父提交"逐字节相同时不再重复跑快速全量（树不同、无记录、章鱼合并、判定出错仍照常跑）。④只改 `toolchain/gate_floors.json` 的提交只跑 `floors_pytest`（`test_gate_floors_logic.py`），不再跑 toolchain 全量 pytest；`change_impact.py` 新增步骤字段 `triggers_except`。

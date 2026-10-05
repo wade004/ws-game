@@ -31,8 +31,11 @@ namespace Adapter.Unity.LabHost
         /// <summary>飘字的显示文本（取整，暴击带叹号）。</summary>
         public string Text { get; internal set; } = string.Empty;
 
-        /// <summary>出现处的世界坐标（目标头顶）。</summary>
+        /// <summary>出现处的世界坐标：2D 演示场景是目标头顶的世界点（<see cref="Height"/> 为 0）；2.5D 是目标脚下的地面点，头高放在 <see cref="Height"/>。</summary>
         public Vec2 WorldPos { get; internal set; }
+
+        /// <summary>出现处相对 <see cref="WorldPos"/> 的抬高（世界单位，沿"向上"方向：2.5D 是相机上轴；2D 恒为 0，头高已计入 <see cref="WorldPos"/>）。</summary>
+        public float Height { get; internal set; }
 
         /// <summary>已存活秒数（模拟时间）。</summary>
         public double Age { get; internal set; }

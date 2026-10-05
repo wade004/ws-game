@@ -80,6 +80,7 @@ namespace Adapter.Unity.LabHost
         private IDisplayInfoRegistry? _display;
         private ShowcaseDisplayRegistry? _showcaseDisplay;
         private ShowcaseDirector? _showcase;
+        private ShowcaseProjection? _projection;
         private bool _broken;
         private bool _disposed;
         private int _eventCursor;
@@ -491,7 +492,9 @@ namespace Adapter.Unity.LabHost
             {
                 if (_options.Showcase)
                 {
-                    _showcase = new ShowcaseDirector(_root.transform, _options.IsolationLayer, _loader, ctx, ShowcaseFlash);
+                    // 固定俯角相机（格子相机模式 fixed_pitch 且选项按格子取用）= 2.5D：角色、道具、特效摆成与相机平行的直立广告牌，地面与阴影仍躺在地上。
+                    _projection = new ShowcaseProjection(_camera, _unityCamera.ApplyPitch);
+                    _showcase = new ShowcaseDirector(_root.transform, _options.IsolationLayer, _loader, ctx, ShowcaseFlash, _projection);
                     _showcase.BuildScene(ctx);
                 }
                 else
@@ -551,6 +554,12 @@ namespace Adapter.Unity.LabHost
             public Animator? Animator;
             public Id? LastClip;
             public string? LastModelClip;
+
+            /// <summary>精灵视图的整身渲染根（2.5D 演示场景把它摆成直立广告牌；其它情形为 null）。</summary>
+            public Transform? LayersRoot;
+
+            /// <summary>视图收到的抬高（世界单位）：2.5D 广告牌沿相机上轴抬，2D 由渲染器自己沿世界 Y 抬。</summary>
+            public float HeightUnits;
 
             private double _animatorAccum;
             private int _prevStateHash;
@@ -625,6 +634,12 @@ namespace Adapter.Unity.LabHost
                     var layersRoot = _r2d.GetLayersRoot(sprite.EngineHandle);
                     if (layersRoot != null)
                     {
+                        if (_projection != null && _projection.Upright)
+                        {
+                            entry.LayersRoot = layersRoot;
+                            layersRoot.rotation = _projection.Facing(0f);
+                        }
+
                         entry.Player = layersRoot.GetComponentInChildren<UnityFrameAnimPlayer>(true);
                         if (entry.Player != null)
                         {
@@ -1315,6 +1330,7 @@ namespace Adapter.Unity.LabHost
                 }
             }
 
+            ApplyBillboards();
             SampleGpu();
 
             foreach (var pair in _entries)
@@ -1370,6 +1386,48 @@ namespace Adapter.Unity.LabHost
 
             SetLayerRecursive();
         }
+
+        /// <summary>
+        /// 2.5D 演示场景的广告牌朝向（ADR-0157）：相机推进之后，把每个单位的整身渲染根与场景道具转到与相机平面平行（脚底枢轴留在地面点上，
+        /// 视图收到的抬高沿相机上轴抬）。读的是相机的实时姿态，模板预设改俯角后下一帧自动跟上。阴影挂在单位根下、不在渲染根里，仍躺在地面。
+        /// 平面模式（2D）不调用。只写引擎侧物体，不碰逻辑。
+        /// </summary>
+        private void ApplyBillboards()
+        {
+            if (_projection == null || !_projection.Upright)
+            {
+                return;
+            }
+
+            var up = _projection.Up;
+            foreach (var pair in _entries)
+            {
+                var layers = pair.Value.LayersRoot;
+                if (layers == null)
+                {
+                    continue;
+                }
+
+                var root = layers.parent;
+                layers.rotation = _projection.Facing(root != null ? root.eulerAngles.z : 0f);
+                layers.position = (root != null ? root.position : Vector3.zero) + up * pair.Value.HeightUnits;
+            }
+
+            _showcase?.OrientProps();
+        }
+
+        /// <summary>记下视图收到的抬高（SyncPose 的高度参数按渲染器的像素密度折成世界单位）；只有 2.5D 广告牌用它。</summary>
+        internal void NoteHeight(Id entity, double height)
+        {
+            if (_entries.TryGetValue(entity, out var entry) && entry.LayersRoot != null && _r2d != null)
+            {
+                entry.HeightUnits = (float)(height / Math.Max(_r2d.PixelsPerUnit, 0.0001));
+            }
+        }
+
+        /// <summary>某个精灵单位的整身渲染根（测试用：2.5D 下应与舞台相机平行、脚底落在单位的地面点上）；没有则为 null。</summary>
+        public Transform? LayersRootOf(Id entity) =>
+            _entries.TryGetValue(entity, out var entry) ? entry.LayersRoot : null;
 
         // ───────── 命中对齐 ─────────
 
@@ -1554,6 +1612,7 @@ namespace Adapter.Unity.LabHost
                 _recording.SyncPose(pos, facing, height);
                 var engineFacing = _stage._showcase != null ? _stage._showcase.FacingFor(_recording.EntityId, pos, facing) : facing;
                 Guard("SyncPose", () => _engine.SyncPose(pos, engineFacing, height));
+                _stage.NoteHeight(_recording.EntityId, height);
             }
 
             public void Destroy()

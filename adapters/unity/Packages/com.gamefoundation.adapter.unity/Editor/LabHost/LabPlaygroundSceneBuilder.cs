@@ -41,6 +41,8 @@ namespace Adapter.Unity.LabHost.Editor
 
             AssetDatabase.SaveAssets();
             Debug.Log("[LabPlaygroundSceneBuilder] scenes generated: " + string.Join(", ", Cells));
+            // 演示场景（2D 与 2.5D）随同重建，命令行入口一次生成全部场景。
+            BuildShowcase();
         }
 
         public static void Build(string cell)
@@ -56,30 +58,52 @@ namespace Adapter.Unity.LabHost.Editor
             AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
         }
 
-        // 判断记录（演示场景，ADR-0154）：真实美术的手感演示场景也是同一个薄场景——挂 LabPlayground、把"演示场景"字段打开（格子固定 2d_action，
-        // 只做 2D 俯视动作）；美术资源、数据行、HUD 都在运行时由 LabPlayground / EngineLabStage 装配，场景文件里不放任何内容。
-        public static string ShowcaseScenePath => SceneDir + "/LabShowcase_2d_action.unity";
+        // 判断记录（演示场景，ADR-0154 / ADR-0157）：真实美术的手感演示场景也是同一个薄场景——挂 LabPlayground、把"演示场景"字段打开；
+        // 2D 演示场景的格子是 2d_action（正交俯视），2.5D 演示场景的格子是 2_5d_action（固定俯角透视，与 LabPlayground_2_5d_action 同一逻辑会话）。
+        // 美术资源、数据行、HUD 都在运行时由 LabPlayground / EngineLabStage 装配，场景文件里不放任何内容。
+        public static readonly string[] ShowcaseCells = { "2d_action", "2_5d_action" };
 
+        public static string ShowcaseScenePath => ShowcaseScenePathOf("2d_action");
+
+        public static string Showcase25ScenePath => ShowcaseScenePathOf("2_5d_action");
+
+        public static string ShowcaseScenePathOf(string cell) => SceneDir + "/LabShowcase_" + cell + ".unity";
+
+        /// <summary>重建全部演示场景（2D 与 2.5D 各一个）。</summary>
         [MenuItem("GameFoundation/手感试玩/维护/重建演示场景", false, 201)]
         public static void BuildShowcase()
         {
             var projectRoot = Directory.GetParent(Application.dataPath)!.FullName;
             Directory.CreateDirectory(Path.Combine(projectRoot, SceneDir.Replace('/', Path.DirectorySeparatorChar)));
             AssetDatabase.Refresh();
+            foreach (var cell in ShowcaseCells)
+            {
+                BuildShowcaseScene(cell);
+            }
+
+            AssetDatabase.SaveAssets();
+        }
+
+        public static void BuildShowcaseScene(string cell)
+        {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            var go = new GameObject("LabShowcase_2d_action");
+            var go = new GameObject("LabShowcase_" + cell);
             var playground = go.AddComponent<LabPlayground>();
             var so = new SerializedObject(playground);
-            so.FindProperty("cell").stringValue = "2d_action";
+            so.FindProperty("cell").stringValue = cell;
             so.FindProperty("showcase").boolValue = true;
             so.ApplyModifiedPropertiesWithoutUndo();
-            EditorSceneManager.SaveScene(scene, ShowcaseScenePath);
-            AssetDatabase.ImportAsset(ShowcaseScenePath, ImportAssetOptions.ForceSynchronousImport);
-            Debug.Log("[LabPlaygroundSceneBuilder] showcase scene generated: " + ShowcaseScenePath);
+            var path = ShowcaseScenePathOf(cell);
+            EditorSceneManager.SaveScene(scene, path);
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+            Debug.Log("[LabPlaygroundSceneBuilder] showcase scene generated: " + path);
         }
 
         [MenuItem("GameFoundation/手感试玩/打开演示场景 2D（真实美术）", false, 1)]
         public static void OpenShowcase() => EditorSceneManager.OpenScene(ShowcaseScenePath);
+
+        [MenuItem("GameFoundation/手感试玩/打开演示场景 2.5D（真实美术）", false, 2)]
+        public static void OpenShowcase25D() => EditorSceneManager.OpenScene(Showcase25ScenePath);
 
         [MenuItem("GameFoundation/手感试玩/工程场景（占位美术）/打开试玩场景 2D（俯视精灵）", false, 100)]
         public static void Open2D() => EditorSceneManager.OpenScene(ScenePath("2d_action"));
