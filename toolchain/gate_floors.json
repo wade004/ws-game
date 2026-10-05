@@ -13,28 +13,28 @@
       "max_skipped": 0,
       "measured_passed": 10208,
       "measured_skipped": 0,
-      "measured_at": "2026-10-05"
+      "measured_at": "2026-10-06"
     },
     "pytest": {
-      "min_passed": 1430,
+      "min_passed": 1460,
       "max_skipped": 0,
-      "measured_passed": 1599,
+      "measured_passed": 1633,
       "measured_skipped": 0,
-      "measured_at": "2026-10-05"
+      "measured_at": "2026-10-06"
     },
     "unity_editmode": {
-      "min_passed": 180,
+      "min_passed": 190,
       "max_skipped": 0,
-      "measured_passed": 208,
+      "measured_passed": 219,
       "measured_skipped": 0,
-      "measured_at": "2026-10-05"
+      "measured_at": "2026-10-06"
     },
     "unity_playmode": {
-      "min_passed": 580,
+      "min_passed": 610,
       "max_skipped": 0,
-      "measured_passed": 647,
+      "measured_passed": 682,
       "measured_skipped": 0,
-      "measured_at": "2026-10-05"
+      "measured_at": "2026-10-06"
     }
   }
 }
