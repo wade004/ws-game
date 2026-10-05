@@ -460,6 +460,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.100.0] - 2026-10-05
+
+### 新增
+
+- **手感演示场景 2.5D 版（[ADR-0157](architecture/adr/0157-手感演示场景2.5D版固定俯角下的直立广告牌表现.md)，纯加法）**：①新增场景 `LabShowcase_2_5d_action` 与菜单 `GameFoundation → 手感试玩 → 打开演示场景 2.5D（真实美术）`；`重建演示场景`与 `LabPlaygroundSceneBuilder.BuildAll` 一次生成 2D 与 2.5D 两个演示场景。②与原 2.5D 试玩场景同一逻辑会话（逻辑指纹逐字节相等），表现为固定俯角下的直立广告牌：英雄、小兵、精英、木桩三视图动画、特效、场景道具按相机平行的广告牌摆放，地面石砖、阴影、冲击波环躺在地面，HUD 沿用 reference_fantasy 皮肤。③共用代码泛化而非复制：新增内部类 `ShowcaseProjection`（平面 / 直立两种模式，平面即 2D 原公式），`ShowcaseDirector`、`ShowcaseHud`、`ShowcaseFxPlayer`、`EngineLabStage` 经它换算；`ShowcaseDamageNumber` 新增 `Height` 字段（2D 为 0）；`ShowcaseHud` 新增 `LoadedSkinRef`。④F1 面板与原试玩场景是同一份（武器、体型、tpl_* 模板、场景控制、调参 / 时间轴 / 轨迹 / 评分页），切换后真实美术不丢；英雄美术只有持单手剑一套。⑤新增 PlayMode 用例 `Showcase25DTests`（14 条，含"待机时没有两只单位的身体精灵叠在一起"，按精灵包围盒投到屏幕后量重叠，并带共点对照）；逻辑与数据行为、既有 2D 演示场景不变。
+- **手感演示场景 3D 版（[ADR-0158](architecture/adr/0158-手感演示场景3D版真实模型与模型包装配.md)，纯加法）**：①新增场景 `LabShowcase_3d_action` 与菜单 `GameFoundation → 手感试玩 → 打开演示场景 3D（真实美术）`；`重建演示场景`一并重建。②与原 3D 试玩场景同一逻辑会话（逻辑指纹逐字节相等），英雄/杂兵/精英/木桩是四个不同的 Quaternius RPG Character Pack（CC0）骨骼角色，经框架模型管线（`DisplayInfo(kind=Model)`、`display.anim_set` 行带命中帧事件）渲染；地面石砖贴图平面，道具与特效广告牌，HUD 沿用 reference_fantasy 皮肤。③新增内部类 `ModelGroundUpright`（预制体直立站姿）、编辑器工具 `ModelPackBuilder`（模型包确定性装配，结果不入库）、着色器 `GameFoundation/Showcase/ModelLit`；`ShowcaseProjection` 增"物理上方"模式（引入自并行的 2.5D 分支，合并时同一文件）；`UnityRenderer3D` 的假阴影贴图改为柔边圆；`build.ps1 Sync-ContentTree` 新增 `-PreserveExtensions`。④包里缺击退/击倒/起身/闪避剪辑，取最近剪辑并登记限制（ADR-0158）。新增 PlayMode 用例 `Showcase3dTests`（16 条）与 `toolchain/tests/test_showcase3d_assets.py`（6 条）。
+
+### 变更
+
+- **发布提速（[ADR-0156](architecture/adr/0156-发布第五步复用全量记录改跑定向门禁与提交钩子合并跳过.md)，仅工具链，不改产物）**：1.99.0 发布约 3 小时，其中两次约 54 分钟的全量门禁（合并前一次、`build.ps1 -Release` 第 5 步一次）内容相同。①`build.ps1 -Release` 第 5 步默认复用第 3b 步已验证的含 Unity 全量记录：守卫放行（记录是 HEAD 或其祖先且其后只改文档类文件）且工作树除版本写回文件外无别的改动时，改跑定向门禁 `check.ps1 -Changed <记录提交> -AbiStrict -FailFast -NoTiming`（版本号写回波及的包清单一致性、DLL 同步、Unity 编译、消费方演练仍会跑），日志与状态文件写明复用的记录（run_id + 提交）与定向门禁结论行；守卫不放行、`-DryRun`、显式 `-FullRegate`（新增开关，不能与 `-Resume` 同传）仍跑全量。选择逻辑为 `toolchain/_release_regression_guard.ps1` 的 `Get-ReleaseGatePlan`。②模块表新增路径规则 `release_version_files`（`VERSION`、适配层/模板 `package.json`、`packages-lock.json` 记 T1 并选定上述步骤；此前"未被任何规则覆盖"判 T3）。③提交钩子新增 `MergeSkip` 档：合并提交的树与"有含 Unity 全量记录背书的第二父提交"逐字节相同时不再重复跑快速全量（树不同、无记录、章鱼合并、判定出错仍照常跑）。④只改 `toolchain/gate_floors.json` 的提交只跑 `floors_pytest`（`test_gate_floors_logic.py`），不再跑 toolchain 全量 pytest；`change_impact.py` 新增步骤字段 `triggers_except`。
+- **手感试玩菜单分层与占位场景指路（UI 文案，无契约变化）**：`GameFoundation → 手感试玩` 顶层只放三个真实美术演示场景入口（`打开演示场景 2D / 2.5D / 3D（真实美术）`，优先级连续），三个占位美术的打开入口收进子菜单 `工程场景（占位美术）`，两个重建入口收进 `维护`（重建演示场景一次构建三个视角）；占位美术场景的面板头部加一行提示，点名同一视角的演示场景（2D 指 2D、2.5D 指 2.5D、3D 指 3D），三个演示场景里都不出现。
+- **演示场景 HUD 在普通检出里用真皮肤（构建同步补一棵，不改契约）**：`build.ps1` 内容同步此前不放参考皮肤包，演示场景 HUD 引用的 `skin.reference_fantasy` 在工作台资源根里不存在、悄悄退回占位皮肤（此前三个演示场景用例靠临时拷贝才过）。现在同步把 `assets/_reference_fantasy/ui`（只这一棵，不含 icons/sprites）并入工作台 `StreamingAssets/GameFoundation/ui/skin/`；仍不进 dist、发布打包与消费方交付通道（[ADR-0152](architecture/adr/0152-参考界面皮肤包与真实素材回归.md) 决策 1 补注）。三个演示场景用例去掉临时拷贝，改为断言 HUD 的 `UsesPlaceholderSkin` 为假，缺同步即红；新增 `test_workbench_sync_carries_only_the_reference_skin_pack_not_its_icons_or_sprites`。
+- **试玩/演示场景的闪白按玩家强度缩放（ADR-0148 的口径延伸到实验室舞台，缺省行为不变）**：3D 演示的模型闪白此前不读玩家的 `feel.intensity.flash`。现在 `EngineLabOptions.FlashIntensityScale`（可空，缺省 `null` = 不缩放）与精灵管线 `FlashReceiver` 同一条规则：系数 0 = 关闭闪白（不落地、不计入 `FlashesApplied`），否则强度 = 默认强度 × 系数；精灵与模型两种外形都按它缩放。`LabPlayground.FlashIntensitySource` 缺省读玩家设置文件（与游戏同一份），测试给固定值。新增用例 `HitFlash_HonoursPlayerFlashIntensity_ZeroIsOff_OtherwiseDefaultTimesScale`（系数 0 / 0.5 / 1）。
+- **试玩宿主连出两只单个靶子不再共点（实验室试玩逻辑，所有试玩与演示场景）**：`LabPlayground.SpawnDummy` 把每只单个靶子都放在玩家正前方 2.2，连出两只（精英、木桩）圆心重合。现在单只出场走新的纯函数 `FindSingleSpawnPoint`：正前方已有在场靶子（圆心距小于两倍体半径，`LabHost.DummyBodyRadius` = 0.5 抽成常量，行为不变）就沿玩家前方的弧取第一个空位（相对正前方 +1、-1、+2、-2 个 60° 步长，弧占满换下一圈），确定性；没有别的靶子时仍出在正前方，成组出场与巡逻靶不变，没有基线或指纹因此改变。2.5D 用例里"出下一只前先走几步"的绕法删除。新增编辑器用例 `LabPlaygroundSpawnPointTests`（复现、固定顺序、N 只连出不重叠且确定性、占满回退）与 PlayMode 用例 `LabPlaygroundSpawnPlayModeTests`（三个占位场景与 2D 演示场景：精英加木桩出场点不共点、连出 10 只两次运行逐位一致且两两不重叠、清场后正前方复空）。
+
 ## [1.99.0] - 2026-10-05
 
 ### 新增

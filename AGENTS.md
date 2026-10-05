@@ -96,7 +96,10 @@
   上一次的合并后行，一起提交。理由：`main` 禁止直接提交；而为一行记录单独开分支，这个分支自己的合并前后全量又会产生新记录，无限递归。
 - **只改文档与登记的分支不另跑合并前后全量**：分支 diff 仅限 `*.md`、`docs/`、`architecture/`、`timing/*.jsonl`（发布守卫的文档类路径
   `Test-DocsOnlyPath` 含这四类，`timing/*.jsonl` 是门禁自动写入的耗时记录，属登记数据）时，合并前跑定向门禁即可，不另跑合并前后全量；其正确性由发布守卫"其后只改文档类文件"规则与下一次全量
-  （含 `-Release` 第 5 步）覆盖。理由：避免登记分支递归触发全量。
+  （含 `-Release` 第 5 步，其默认形态是复用全量记录的定向门禁，见 §5）覆盖。理由：避免登记分支递归触发全量。
+- **合并提交与下限文件的钩子档位（ADR-0156）**：合并提交的树与"有含 Unity 全量记录背书的第二父提交"逐字节相同时，提交钩子判 `MergeSkip` 不再重复跑快速全量；
+  只改 `toolchain/gate_floors.json` 的提交只跑 `floors_pytest`（`test_gate_floors_logic.py`），不跑 toolchain 全量 pytest。判定规则见 `toolchain/_precommit_tiering_guard.ps1`
+  与 `toolchain/module_map.json`，不要为此用 `--no-verify` 绕过。
 
 ## 1c. 耗时记录（2026-10-01 项目负责人拍板，每个任务必做）
 
@@ -194,11 +197,15 @@
 - 长时间命令前台执行，只管道 stdout（如 `| Tee-Object -FilePath <scratchpad>\release_X.log`）；绝不 `2>&1`、绝不用 `Start-Process`/隐藏窗口/后台作业驱动发布脚本（会让子进程在无控制台环境下静默中断）。
 - 子 agent 启动的 `build.ps1 -Release` 会随该 agent 回合结束被连带终止（1.39.0 首跑在 `Compress-Archive` 处留下 0 字节 zip 与未打标签的发布提交）；因此**发布脚本只由主会话前台执行**，子 agent 不再直接启动 `-Release`，只做发布前收口与发布后核对。
 - `build.ps1 -Release X -PublishRegistry` 之前，必须先：提交 CHANGELOG `## [X]` 条目、确认 `git status` 干净、确认私服状态（`start_registry.ps1 -Status`/需要时 `-Detach`）。
+- **第 5 步默认复用全量记录，只跑定向门禁（ADR-0156）**：第 3b 步守卫放行（`REGRESSION_LOG.md` 有含 Unity 的全量通过记录，记录提交是 HEAD 或其祖先且其后只改文档类文件）、
+  且工作树除第 4 步写回的版本文件外无别的改动时，第 5 步改跑 `check.ps1 -Changed <记录提交> -AbiStrict -FailFast -NoTiming`（版本号写回波及的包清单一致性、DLL 同步、Unity 编译、
+  消费方演练仍会跑；规则 `release_version_files`），日志与状态文件写明复用的记录（run_id + 提交）与定向门禁结论行。因此**合并前的全量必须在发布前登记进 `REGRESSION_LOG.md`**
+  （含 Unity，结果列含"含 Unity"或"PlayMode N/N"），否则守卫拒绝发布；要强制重跑全量传 `-FullRegate`（约 50 分钟）；`-DryRun` 与守卫不放行时仍跑全量。
 - 成功的唯一标记：日志末尾出现提示行 `git push origin main refs/tags/vX`。
 - 失败标记：出现"门禁失败"/"发布流程终止"/"自检失败"字样。
 - 一旦被拦截或失败，立刻停下汇报，不自行回退、不自行重试、不自行改动版本文件。
 - 半途恢复流程（`git restore --staged --worktree` 五个版本文件 + 删 `dist/X`、`dist/release-notes-X.txt`）只能由主会话决定是否执行，执行 agent 不擅自做。
-- 半途状态若"发布提交已产生但无标签"（或标签之后的私服/推送/GitHub Release 阶段失败），首选主会话修好原因后用 `build.ps1 -Release X -Resume [同样的 -PublishRegistry/-Publish]` 续跑（不重跑全量门禁、不改写历史；前置校验不满足会拒绝并说明原因）。第 5 步（全量门禁）或更早失败不在续跑范围，修好后重跑 `-Release`。仅当决定放弃本次发布时才回退：`git reset --soft <发布前提交>` 再按路径 `git restore --staged --worktree` 五个版本文件并删 `dist/X` 产物，不是只还原文件。
+- 半途状态若"发布提交已产生但无标签"（或标签之后的私服/推送/GitHub Release 阶段失败），首选主会话修好原因后用 `build.ps1 -Release X -Resume [同样的 -PublishRegistry/-Publish]` 续跑（不重跑全量门禁、不改写历史；前置校验不满足会拒绝并说明原因）。第 5 步（门禁）或更早失败不在续跑范围，修好后重跑 `-Release`。仅当决定放弃本次发布时才回退：`git reset --soft <发布前提交>` 再按路径 `git restore --staged --worktree` 五个版本文件并删 `dist/X` 产物，不是只还原文件。
 - Unity PlayMode 测试失败先用 `python toolchain/unity_test_triage.py` 分诊，不要直接改测试或改断言；
   分诊后核对断言是否在给"已知即将修复的旧错误行为"拍照（修复生效后断言过期是测试侧问题，不是
   回归），排除测试侧问题后才怀疑产品代码，详见

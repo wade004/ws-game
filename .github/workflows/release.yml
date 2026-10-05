@@ -2,8 +2,8 @@ name: Release
 
 # 判断记录（为什么只跑快速门禁，而不是完整门禁）：完整门禁（含 Unity 编译检查/EditMode/PlayMode/
 # 独立版构建与两种无人值守冒烟/消费方演练）在打 tag 之前、本机执行 `build.ps1 -Release` 时已经
-# 跑过一遍（`-Release` 第 5 步默认要求 check.ps1 全量通过才允许继续，见 build.ps1 .PARAMETER
-# Release 说明）；GitHub 托管的 windows-latest 运行器既没有装 Unity，也无法激活个人版 Unity
+# 跑过（`-Release` 第 5 步要求 check.ps1 通过才允许继续：全量，或复用已验证全量记录时的定向门禁，
+# 见 build.ps1 .PARAMETER Release/FullRegate 说明与 ADR-0156）；GitHub 托管的 windows-latest 运行器既没有装 Unity，也无法激活个人版 Unity
 # 授权（同 ci.yml 的既有判断记录），因此本工作流只对刚推送的 tag 重新跑一遍快速门禁
 # （`check.ps1 -SkipUnity -Quick`）作为"这个 tag 指向的提交没有被后续意外改动"的一层兜底交叉
 # 验证，不代表这是本次发布唯一的质量门槛。

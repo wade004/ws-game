@@ -262,6 +262,37 @@ def test_placeholder_skin_and_defaults_untouched_by_the_reference_pack():
     default_theme = json.loads((PLACEHOLDER / "ui" / "skin" / "default" / "theme.json").read_text(encoding="utf-8"))
     assert default_theme["colors"]["panel"] == "#343a48"
 
+def _build_sync_loop_text() -> str:
+    """build.ps1 内容同步里"按 resource_layout_map 的映射并入各数据集目录"那一段（含它的参考皮肤包分支）。"""
+    text = (REPO / "build.ps1").read_text(encoding="utf-8-sig")
+    start = text.index("foreach ($mapping in $resourceLayoutMap.mappings)")
+    end = text.index("# 3D ", start)
+    return text[start:end]
+
+
+def test_workbench_sync_carries_only_the_reference_skin_pack_not_its_icons_or_sprites():
+    """演示场景 HUD 引用 skin.reference_fantasy，构建同步必须把皮肤包放进工作台资源根（否则普通检出里 HUD 悄悄退回占位皮肤）。
+
+    只并入 ui 这一棵：参考包的 icons、sprites 与占位美术同名，并入会覆盖占位物品；皮肤用例自己在临时根里叠放它们。
+    同步目标是 ui/skin/<名>/，与 UiSkinPack.SkinRootRelative 一致；发布打包与消费方交付通道不带参考包（ADR-0152 决策 1）。
+    """
+    loop = _build_sync_loop_text()
+    assert 'if ($sourceSubdir -eq "ui")' in loop
+    assert 'assets\\_reference_fantasy\\ui"' in loop
+    assert "_reference_fantasy\\icons" not in loop and "_reference_fantasy\\sprites" not in loop
+    mappings = json.loads((TOOLCHAIN_DIR / "resource_layout_map.json").read_text(encoding="utf-8"))["mappings"]
+    assert {"source": "ui", "target": "ui"} in mappings
+    assert (REF / "ui" / "skin" / SPEC["pack"] / "theme.json").is_file()
+    skin_cs = (REPO / "adapters" / "unity" / "Packages" / "com.gamefoundation.adapter.unity" / "Runtime" / "Ui" / "UiSkinPack.cs").read_text(encoding="utf-8-sig")
+    assert 'SkinRootRelative = "ui/skin"' in skin_cs
+
+    # 不进发布打包与消费方交付通道：这两处都不引用参考包目录。
+    build_text = (REPO / "build.ps1").read_text(encoding="utf-8-sig")
+    code_lines = [ln for ln in build_text.splitlines() if "_reference_fantasy" in ln and not ln.lstrip().startswith("#")]
+    assert len(code_lines) == 1 and "_reference_fantasy\\ui" in code_lines[0], code_lines
+    assert "_reference_fantasy" not in (TOOLCHAIN_DIR / "sync_package_content.ps1").read_text(encoding="utf-8-sig")
+
+
 
 # ---------------------------------------------------------------------------
 # 真实美术的不变量

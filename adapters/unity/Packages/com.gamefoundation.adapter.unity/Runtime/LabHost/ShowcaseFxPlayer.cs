@@ -54,7 +54,14 @@ namespace Adapter.Unity.LabHost
         }
 
         /// <summary>在世界位置播一个特效；资源还没就绪返回 false（调用方不重试，错过一次无妨）。</summary>
-        public bool Spawn(Id effectId, Vector2 position, float rotationDegrees, float scale, Color tint, int sortingOrder)
+        public bool Spawn(Id effectId, Vector2 position, float rotationDegrees, float scale, Color tint, int sortingOrder) =>
+            Spawn(effectId, new Vector3(position.x, position.y, 0f), Quaternion.Euler(0f, 0f, rotationDegrees), scale, tint, sortingOrder);
+
+        /// <summary>
+        /// 在世界坐标按给定姿态播一个特效（2.5D 演示场景用：直立广告牌特效的姿态与相机平面平行，冲击波环躺在地面，见 <see cref="ShowcaseProjection"/>）；
+        /// 上面的二维重载是它在世界平面（Z = 0、绕 Z 轴转）上的特例，行为与此前逐位一致。
+        /// </summary>
+        public bool Spawn(Id effectId, Vector3 position, Quaternion rotation, float scale, Color tint, int sortingOrder)
         {
             if (!_loader.TryGetEffect(effectId, out var asset) || asset.Frames.Length == 0)
             {
@@ -66,8 +73,8 @@ namespace Adapter.Unity.LabHost
             fx.Loop = asset.Loop;
             fx.Index = 0;
             fx.Elapsed = 0.0;
-            fx.Go.transform.position = new Vector3(position.x, position.y, 0f);
-            fx.Go.transform.rotation = Quaternion.Euler(0f, 0f, rotationDegrees);
+            fx.Go.transform.position = position;
+            fx.Go.transform.rotation = rotation;
             fx.Go.transform.localScale = new Vector3(scale, scale, 1f);
             fx.Renderer.sprite = fx.Frames[0].Sprite;
             fx.Renderer.color = tint;

@@ -1166,6 +1166,29 @@ if ($script:GateStepPlan) {
     }
 }
 
+# -----------------------------------------------------------------------------
+# 12.7 定向专用：用例数下限登记文件（toolchain/gate_floors.json，ADR-0126 路径规则 gate_floors_only）
+#      只改下限数时只跑它唯一的校验用例文件 test_gate_floors_logic.py（登记文件四个套件齐全、取值符合"实测 90% 向下取整"
+#      规则、门禁测试步骤确实接了下限检查），不跑 toolchain 全量 pytest（约 20 分钟，2026-10-05 发布提速，ADR-0156）。
+#      只在定向模式（有判定结果）下出现；全量门禁由 toolchain 全量 pytest 覆盖，不重复。
+# -----------------------------------------------------------------------------
+if ($script:GateStepPlan) {
+    Invoke-CheckStep "python -m pytest toolchain/tests/test_gate_floors_logic.py -q（用例数下限登记文件子集，定向）" -Id "floors_pytest" {
+        $prevPythonUtf8 = $env:PYTHONUTF8
+        $env:PYTHONUTF8 = "1"
+        Push-Location $RepoRoot
+        try {
+            Test-NativeExitCode "python" @(
+                "-m", "pytest",
+                "toolchain/tests/test_gate_floors_logic.py",
+                "-q")
+        } finally {
+            Pop-Location
+            $env:PYTHONUTF8 = $prevPythonUtf8
+        }
+    }
+}
+
 # =============================================================================
 # 阶段二：两条线并行（见本文件顶部判断记录 3)）
 # =============================================================================

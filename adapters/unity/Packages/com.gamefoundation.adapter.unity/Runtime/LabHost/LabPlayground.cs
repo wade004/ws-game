@@ -43,6 +43,9 @@ namespace Adapter.Unity.LabHost
         /// <summary>演示场景的数据根（只含外形表：动画集与武器风格行；不含任何逻辑表）。</summary>
         public const string ShowcaseDataRoot = "data/_showcase";
 
+        /// <summary>3D 演示场景追加的数据根（ADR-0158；同样只含外形表：模型型的动画集与武器风格行）。</summary>
+        public const string Showcase3dDataRoot = "data/_showcase_3d";
+
         /// <summary>演示场景（ADR-0154）：同一套逻辑与手感运行时，换真实美术呈现 + 游戏内 HUD，调试面板缺省收起。</summary>
         [SerializeField] private bool showcase;
 
@@ -65,6 +68,7 @@ namespace Adapter.Unity.LabHost
         private readonly Dictionary<string, KeyValuePair<string, bool>> _effectMarkers = new Dictionary<string, KeyValuePair<string, bool>>();
         private readonly Stopwatch _watch = new Stopwatch();
         private readonly List<KeyValuePair<string, string>> _live = new List<KeyValuePair<string, string>>();
+        private readonly List<KeyValuePair<string, Vec2>> _liveSpawnPoints = new List<KeyValuePair<string, Vec2>>();
         private int _spawnSerial;
         private int _frameCounter;
 
@@ -95,8 +99,46 @@ namespace Adapter.Unity.LabHost
             set => showcase = value;
         }
 
+        /// <summary>
+        /// 玩家闪白强度来源（ADR-0148，<c>feel.intensity.flash</c>，0..1）；缺省 null = 读玩家的设置文件（与游戏同一份设置，缺省 1）。
+        /// 必须在 <see cref="Begin"/> 之前设置；测试在这里给固定值，不依赖本机设置文件。
+        /// </summary>
+        public Func<double>? FlashIntensitySource { get; set; }
+
+        private static Func<double> PlayerFlashIntensity()
+        {
+            // 与游戏装配根同一条读法：设置存储 -> 手感强度宿主；演示场景的闪白（精灵与模型）按这一份系数缩放。
+            var intensity = new global::Presentation.Camera.FeelIntensityHost(new global::Core.Foundation.SaveSystem.SettingsStore(UnityEngineHost.Ensure().FileSystem));
+            return () => intensity.Get(global::Presentation.Camera.FeelIntensityKind.Flash);
+        }
+
         /// <summary>演示场景的游戏内 HUD（非演示场景为 null）。</summary>
         public ShowcaseHud? Hud => _hud;
+
+        /// <summary>
+        /// 某个格子（视角）的演示场景在菜单里的条目名（菜单路径 <c>GameFoundation/手感试玩/&lt;条目名&gt;</c>，见编辑器的 <c>LabPlaygroundSceneBuilder</c>）；
+        /// 不是 2D/2.5D/3D 动作格子时为 null。占位美术场景的面板提示按它指向"同一视角"的演示场景。
+        /// </summary>
+        public static string? ShowcaseMenuNameOf(string cell)
+        {
+            switch (cell)
+            {
+                case "2d_action": return "打开演示场景 2D（真实美术）";
+                case "2_5d_action": return "打开演示场景 2.5D（真实美术）";
+                case "3d_action": return "打开演示场景 3D（真实美术）";
+                default: return null;
+            }
+        }
+
+        /// <summary>占位美术工程场景的面板提示：指向与本场景同一格子的演示场景；没有对应演示场景的格子为 null。</summary>
+        public static string? PlaceholderHintFor(string cell)
+        {
+            var name = ShowcaseMenuNameOf(cell);
+            return name == null ? null : "占位美术工程场景；真实美术与界面皮肤请用菜单 手感试玩 → " + name;
+        }
+
+        /// <summary>面板头部第二行的提示文字（演示场景为 null：用户已经在真实美术里，不需要再被指路）。</summary>
+        public string? PanelHint => showcase ? null : PlaceholderHintFor(cell);
 
         public string RepoRoot => _repoRoot;
 
@@ -176,6 +218,12 @@ namespace Adapter.Unity.LabHost
                     roots.Add(ShowcaseDataRoot);
                 }
 
+                if (showcase && cell.StartsWith("3d_", StringComparison.Ordinal) && !roots.Contains(Showcase3dDataRoot))
+                {
+                    // 3D 演示场景（ADR-0158）：模型型外形的动画集与武器风格行（真实骨骼剪辑），格子名以 3d_ 开头的才并入。
+                    roots.Add(Showcase3dDataRoot);
+                }
+
                 var script = LabLive.CreateScript("playground_" + cell + "_" + stamp, 60, 60, roots, dummySet);
                 _filter = new LabEffectFilter();
                 _filter.Submitted += OnFeedbackSubmitted;
@@ -187,6 +235,7 @@ namespace Adapter.Unity.LabHost
                     GpuTiming = false,
                     ProbeParticles = false,
                     Showcase = showcase,
+                    FlashIntensityScale = FlashIntensitySource ?? PlayerFlashIntensity(),
                 };
                 _stage = new EngineLabStage(options);
                 Session = _host.Runner.StartLive(script, cell, null, _stage);
@@ -525,7 +574,92 @@ namespace Adapter.Unity.LabHost
             Session!.Inject(new ScriptEvent(0, action, kind, value, null, actor));
         }
 
-        /// <summary>在玩家前方出 <paramref name="count"/> 只靶子（<paramref name="count"/> &gt; 1 时沿垂直方向扇形排开）；巡逻靶在数据声明的位置出场（它的巡逻路径在世界坐标里）。</summary>
+        /// <summary>单只靶子的缺省出场点：玩家正前方这个距离（世界单位）。</summary>
+        public const double SpawnDistance = 2.2;
+
+        /// <summary>两只靶子的出场点至少相距这么远才算不重叠：两倍体半径（<see cref="global::Lab.LabHost.DummyBodyRadius"/>，靶子登记进空间索引的半径）。</summary>
+        public static readonly double SpawnSeparation = 2.0 * global::Lab.LabHost.DummyBodyRadius;
+
+        /// <summary>
+        /// 正前方被占时，弧上相邻候选点的角间隔（弧度）：60 度。判断记录：逻辑上 30 度已满足 <see cref="SpawnSeparation"/>（弦长 1.14），
+        /// 但直立广告牌（2.5D/3D 演示）的身体精灵约 1.7 个世界单位宽高，30 度时屏幕上仍叠掉近三成，实测 45 度时 2.5D 屏幕上精英与木桩的身体精灵仍叠约三成；60 度（弦长 2.2）两只身体精灵基本分开。
+        /// </summary>
+        public const double SpawnArcStepRadians = Math.PI / 3.0;
+
+        private const int SpawnArcHalfSlots = 2;
+        private const int SpawnRings = 24;
+
+        /// <summary>
+        /// 单只靶子的出场点（纯函数，确定性）：先试玩家正前方 <see cref="SpawnDistance"/> 处；那里与 <paramref name="occupied"/> 里任一在场靶子的距离小于
+        /// <see cref="SpawnSeparation"/> 就按固定顺序试同一半径的弧上候选点（相对正前方 +1、-1、+2、-2 个 <see cref="SpawnArcStepRadians"/>，即 ±60°、±120°），
+        /// 弧上都被占就把半径加一个 <see cref="SpawnSeparation"/> 换下一圈，取第一个空位。<paramref name="crowded"/> 为真表示所有候选点都被占满（场上靶子上限 60 只，
+        /// 实际不会走到），此时回到正前方（与重叠前的行为一致）并由调用方提示。
+        /// </summary>
+        public static Vec2 FindSingleSpawnPoint(Vec2 player, double facing, IReadOnlyList<Vec2> occupied, out bool crowded)
+        {
+            for (var ring = 0; ring < SpawnRings; ring++)
+            {
+                var dist = SpawnDistance + ring * SpawnSeparation;
+                for (var slot = 0; slot < 2 * SpawnArcHalfSlots + 1; slot++)
+                {
+                    var k = ((slot + 1) / 2) * ((slot & 1) == 1 ? 1 : -1);
+                    var angle = facing + k * SpawnArcStepRadians;
+                    var p = new Vec2(player.X + Math.Cos(angle) * dist, player.Y + Math.Sin(angle) * dist);
+                    if (IsFreeSpawnPoint(p, occupied))
+                    {
+                        crowded = false;
+                        return p;
+                    }
+                }
+            }
+
+            crowded = true;
+            return new Vec2(player.X + Math.Cos(facing) * SpawnDistance, player.Y + Math.Sin(facing) * SpawnDistance);
+        }
+
+        /// <summary>候选点与每个在场靶子的圆心距都不小于 <see cref="SpawnSeparation"/>（容差 1e-9）即空位。</summary>
+        public static bool IsFreeSpawnPoint(Vec2 point, IReadOnlyList<Vec2> occupied)
+        {
+            for (var i = 0; i < occupied.Count; i++)
+            {
+                var dx = point.X - occupied[i].X;
+                var dy = point.Y - occupied[i].Y;
+                if (Math.Sqrt(dx * dx + dy * dy) < SpawnSeparation - 1e-9)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 在场（活着）靶子的当前位置，按出场顺序：会话已建出实体的取实体当前位置（被击退的靶子按它现在的位置占位，已死的不占位），
+        /// 出场事件还没被会话处理的（同一帧连出几只）取出场点。
+        /// </summary>
+        private List<Vec2> LiveDummyPositions(LabHostContext ctx)
+        {
+            var result = new List<Vec2>();
+            foreach (var spawned in _liveSpawnPoints)
+            {
+                var id = ctx.FindByLabel(spawned.Key);
+                if (id.HasValue && ctx.World.World.GetEntity(id.Value) is global::Core.Carriers.Unit.Unit unit)
+                {
+                    if (unit.Alive)
+                    {
+                        result.Add(unit.Position);
+                    }
+
+                    continue;
+                }
+
+                result.Add(spawned.Value);
+            }
+
+            return result;
+        }
+
+        /// <summary>在玩家前方出 <paramref name="count"/> 只靶子（<paramref name="count"/> &gt; 1 时沿垂直方向扇形排开；单只时正前方被占则沿弧取第一个空位，见 <see cref="FindSingleSpawnPoint"/>）；巡逻靶在数据声明的位置出场（它的巡逻路径在世界坐标里）。</summary>
         public void SpawnDummy(string kind, int count = 1)
         {
             if (!IsBegun)
@@ -569,17 +703,27 @@ namespace Adapter.Unity.LabHost
                 {
                     pos = entry.Position;
                 }
+                else if (count == 1)
+                {
+                    // 单只：玩家正前方 SpawnDistance 处；那里已有在场的靶子（体半径规则）就沿玩家前方的弧取第一个空位，不再共点。
+                    pos = FindSingleSpawnPoint(player, facing, LiveDummyPositions(ctx), out var crowded);
+                    if (crowded)
+                    {
+                        Model.Note("玩家前方的位置都被占满，这只靶子与已有靶子重叠；先清场。");
+                    }
+                }
                 else
                 {
-                    var spread = count > 1 ? (i - (count - 1) / 2.0) * 0.9 : 0.0;
-                    var back = count > 1 ? Math.Abs(spread) * 0.3 : 0.0;
-                    var dist = 2.2 + back;
+                    var spread = (i - (count - 1) / 2.0) * 0.9;
+                    var back = Math.Abs(spread) * 0.3;
+                    var dist = SpawnDistance + back;
                     pos = new Vec2(player.X + fwd.X * dist + side.X * spread, player.Y + fwd.Y * dist + side.Y * spread);
                 }
 
                 var label = kind + "@" + (++_spawnSerial).ToString(System.Globalization.CultureInfo.InvariantCulture);
                 Inject(ScriptEventKind.Spawn, kind, pos, label);
                 _live.Add(new KeyValuePair<string, string>(label, entry.Kind));
+                _liveSpawnPoints.Add(new KeyValuePair<string, Vec2>(label, pos));
             }
 
             Model.Note("出靶子：" + LabLiveModel.FriendlyName(kind) + (count > 1 ? " ×" + count : string.Empty));
@@ -594,6 +738,7 @@ namespace Adapter.Unity.LabHost
 
             Inject(ScriptEventKind.ClearDummies, "clear");
             _live.Clear();
+            _liveSpawnPoints.Clear();
             Model.Note("已清场。");
         }
 
@@ -1028,6 +1173,13 @@ namespace Adapter.Unity.LabHost
             GUILayout.BeginArea(new UnityEngine.Rect(8, 8, width, height), GUI.skin.box);
             _scroll = GUILayout.BeginScrollView(_scroll);
             GUILayout.Label("手感试玩  " + Model.Cell + "　tick " + Model.Tick + "　靶子 " + Model.DummyCount + (Model.Paused ? "　[暂停]" : string.Empty));
+            var hint = PanelHint;
+            if (hint != null)
+            {
+                _small ??= new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
+                GUILayout.Label(hint, _small);
+            }
+
             GUILayout.Label(Model.Status, _small);
             DrawTabBar();
             if (Model.Tab != LabTab.Scene)

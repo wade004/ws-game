@@ -99,6 +99,9 @@ namespace Lab
         /// <summary>靶子的韧性值写进的属性 id（与受击裁决读取的缺省韧性属性一致，<c>HitFeelOptions.PoiseStat</c> 缺省值）。</summary>
         public const string PoiseStatId = "stat.poise";
 
+        /// <summary>靶子登记进空间索引的体半径（世界单位）：两只靶子的圆心距小于两倍体半径即身体重叠；交互式出靶子（试玩宿主）按它避开已有靶子。</summary>
+        public const double DummyBodyRadius = 0.5;
+
         /// <summary>桩适配层在本宿主上提供的能力集合（空：桩没有自由视角、体积扫掠等能力）。</summary>
         public static IReadOnlyCollection<string> AvailableCapabilities { get; } = Array.Empty<string>();
 
@@ -445,7 +448,7 @@ namespace Lab
             Id SpawnOne(LabDummy dummy, Vec2 pos, string label)
             {
                 var id = world.Gameplay.Carriers.Creatures.Spawn(dummy.CreatureId, arena.MapId, pos, Math.PI, null, 1);
-                world.Spatial.Register(id, pos, 0.5);
+                world.Spatial.Register(id, pos, DummyBodyRadius);
                 if (!dummy.KeepAi)
                 {
                     var ai = world.Gameplay.Carriers.Rules.Ai;

@@ -1,5 +1,6 @@
 #nullable enable
 // EngineLabOptions：实验室引擎宿主的运行选项（手感设计/06 第 4 节）。全部有缺省值；不声明任何选项等于"只驱动引擎侧表现、不改逻辑输入"。
+using System;
 using Lab;
 
 namespace Adapter.Unity.LabHost
@@ -70,6 +71,13 @@ namespace Adapter.Unity.LabHost
         /// <see cref="ShowcaseDirector"/> 只读逻辑事件驱动。关着（缺省）时舞台与原来逐位一致。
         /// </summary>
         public bool Showcase { get; set; }
+
+        /// <summary>
+        /// 玩家闪白强度来源（ADR-0148，<c>feel.intensity.flash</c>，0..1，只在 <see cref="Interactive"/> 下生效；缺省 <c>null</c> = 不缩放，与此前逐位一致）：
+        /// 与精灵管线的 <c>FlashReceiver.IntensityScale</c> 同一条规则——系数 0 即关闭闪白（光敏类无障碍），这次闪白不落地、不计入
+        /// <see cref="EngineLabStage.FlashesApplied"/>；系数 s 时闪白强度 = 默认强度 × s。精灵与模型两种外形都按它缩放。
+        /// </summary>
+        public Func<double>? FlashIntensityScale { get; set; }
 
         /// <summary>
         /// 人手试玩模式（缺省 false，关着时舞台与此前逐位一致）：舞台相机真正渲染到屏幕并跟随玩家、带音频监听器与地面网格、

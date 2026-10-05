@@ -67,13 +67,14 @@ namespace Adapter.Unity.Tests.LabHost
             _pg = null;
         }
 
-        private LabPlayground NewPlayground(bool showcase)
+        private LabPlayground NewPlayground(bool showcase, string cell = "2d_action")
         {
             _go = new GameObject("ShowcaseTest");
             var pg = _go.AddComponent<LabPlayground>();
-            pg.Configure("2d_action");
+            pg.Configure(cell);
             pg.Showcase = showcase;
             pg.ManualDrive = true;
+            pg.FlashIntensitySource = () => 1.0;   // 不读本机设置文件：用例给固定的玩家闪白强度
             _input = new Adapters.Stub.StubInput();
             pg.InputSource = _input;
             pg.PadReader = _ => false;
@@ -144,6 +145,38 @@ namespace Adapter.Unity.Tests.LabHost
             var degraded = _warnings.Where(w => w.Contains("退化为单帧剪辑") && w.Contains("show_")).ToList();
             Assert.AreEqual(0, degraded.Count, "演示外形的动画状态退化为单帧：\n" + string.Join("\n", degraded));
             Assert.AreEqual(0, pg.Stage.Record.Errors.Count, string.Join(" | ", pg.Stage.Record.Errors));
+        }
+
+        // ───────── 菜单指路：占位美术场景的面板头部有第二行提示（指向同一视角的演示场景），演示场景没有 ─────────
+
+        private static readonly string[] HintCells = { "2d_action", "2_5d_action", "3d_action" };
+
+        [UnityTest]
+        public IEnumerator PanelHint_ShownInPlaceholderScene_NamesTheShowcaseOfTheSameCombo_AbsentInEveryShowcase()
+        {
+            foreach (var cell in HintCells)
+            {
+                var placeholder = NewPlayground(false, cell);
+                yield return Frames(4);
+                var expectedName = LabPlayground.ShowcaseMenuNameOf(cell);
+                Assert.IsNotNull(expectedName, cell + " 应有对应的演示场景菜单条目");
+                Assert.AreEqual(LabPlayground.PlaceholderHintFor(cell), placeholder.PanelHint, cell + "：占位美术场景应有指向演示场景的提示");
+                StringAssert.Contains(expectedName!, placeholder.PanelHint, cell + "：提示应点名同一视角的演示场景");
+                foreach (var other in HintCells)
+                {
+                    if (other != cell)
+                    {
+                        StringAssert.DoesNotContain(LabPlayground.ShowcaseMenuNameOf(other)!, placeholder.PanelHint, cell + "：提示不应指向另一个视角（" + other + "）的演示场景");
+                    }
+                }
+
+                Dispose();
+
+                var showcase = NewPlayground(true, cell);
+                yield return Frames(4);
+                Assert.IsNull(showcase.PanelHint, cell + "：演示场景不应出现占位美术提示");
+                Dispose();
+            }
         }
 
         // ───────── 三连击打精英：受击动画、顿帧、闪白、伤害数字 ─────────
@@ -268,6 +301,8 @@ namespace Adapter.Unity.Tests.LabHost
             Assert.IsFalse(pg.Model.PanelVisible, "演示场景调试面板缺省收起");
             Assert.IsNotNull(pg.Hud);
             Assert.IsTrue(pg.Hud!.Built);
+            Assert.AreEqual(ShowcaseHud.SkinRef, pg.Hud.LoadedSkinRef, "HUD 用参考皮肤");
+            Assert.IsFalse(pg.Hud.UsesPlaceholderSkin, "构建同步应把参考皮肤包放进工作台资源根（缺同步时 HUD 会悄悄退回占位皮肤，这里必须红）");
             var m = pg.Stage!.Showcase!.Model;
             Assert.AreEqual(4, m.Slots.Length);
             Assert.IsTrue(m.StaminaIsPresentationOnly);

@@ -78,3 +78,6 @@ timing/_pending/
 # 手感实验室（lab/）命令行默认输出目录：指纹文件、完整记录等生成物只留本地；入库的只有 lab/fixtures/ 下的
 # 标准脚本与基线（AGENTS.md §4 生成物不入库）。
 lab/out/
+# 3D demo scene model pack (ADR-0158): build.ps1 syncs assets/_showcase/models into this import root and ModelPackBuilder generates prefabs/clips here; build-time output, not committed.
+adapters/unity/Assets/Showcase3dArt/
+adapters/unity/Assets/Showcase3dArt.meta

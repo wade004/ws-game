@@ -67,10 +67,17 @@
          对适配层包依赖版本号的镜像字段，UPM 打开工程时会自行核对/改写这个字段，写回步骤同步覆盖
          避免下一步门禁跑出一份未提交的改动）——这一步是本次发布"成为新的当前版本"的唯一写入点，
          `-DryRun` 时跳过，不触碰任何源码文件。
-      5. 跑一遍 `check.ps1`（全量，含 Unity 相关步骤与消费方演练；**不**强制传 `-Il2cpp`——IL2CPP
+      5. 跑门禁（Windows PowerShell 5.1 宿主，`check.ps1 -AbiStrict -FailFast -NoTiming`；含 Unity 相关步骤与消费方演练；
+         **不**强制传 `-Il2cpp`——IL2CPP
          三步仍为显式开关，发布门禁不强制，原因：构建机缺 Visual Studio C++ 工作负载与 Windows SDK，
          装好后再启用；复盘 I-6 的 2026-10-01 回退）。发布门禁没有"跳过 Unity"的开关（原先跳过 Unity 的发布开关已于测试覆盖第四批删除，
-         复盘 I-13）。
+         复盘 I-13）。**默认复用第 3b 步已验证的全量记录，不再重跑同一份全量**（发布提速，ADR-0156）：第 3b 步守卫放行
+         （含 Unity 全量记录就是 HEAD，或是 HEAD 的祖先且其后只改文档类文件）、且工作树除第 4 步写回的版本文件之外没有别的改动时，
+         第 5 步改跑**定向门禁** `check.ps1 -Changed <记录提交> -AbiStrict -FailFast -NoTiming`——判定范围是该记录以来的全部改动
+         （文档类改动 + 版本号写回），按 `toolchain/module_map.json` 的 `release_version_files` 规则仍会跑包清单一致性、
+         DLL 同步、Unity 编译、消费方演练等版本号写回可能影响的步骤；日志里写明复用的是哪条记录（run_id + 提交）与定向门禁的
+         结论行。守卫不放行（记录缺失、只有 -SkipUnity 的记录、其后改过非文档文件）、工作树有别的改动、`-DryRun`、或显式传
+         `-FullRegate` 时仍跑全量，行为与此前一致。选择逻辑见 `toolchain/_release_regression_guard.ps1` 的 `Get-ReleaseGatePlan`。
       5b. 非 `-DryRun` 时：门禁一通过就写"门禁通过记录"（状态文件 `dist/release-<ver>.state.json`，被
          .gitignore 覆盖，格式与阶段见 `toolchain/_release_resume.ps1` 与下面 `.PARAMETER Resume`），之后
          每个阶段（提交、打包、自检、打标签、逐个私服包发布、推送、创建 GitHub Release）完成时各写一笔
@@ -110,6 +117,13 @@
     打印的两条命令（`git push origin <当前分支> refs/tags/v<ver>`、`gh release create ...`），
     不再需要人工另行复制粘贴执行。省略时（默认）只打印这两条命令，不自动执行，由人工/设计层
     确认后自行运行。
+
+.PARAMETER FullRegate
+    仅与 `-Release <ver>` 同传有效（不能与 `-Resume` 同传——续跑不进入第 5 步）。强制第 5 步重跑全量门禁
+    （`check.ps1 -AbiStrict -FailFast -NoTiming`，约 50 分钟），即使第 3b 步已验证了可复用的含 Unity 全量记录。
+    默认（不传）时，守卫放行的发布第 5 步改跑定向门禁 `check.ps1 -Changed <记录提交>`，见上面第 5 步说明与 ADR-0156。
+    何时该传：怀疑模块表（`toolchain/module_map.json`）的影响集判定漏了某类版本号写回波及的步骤、或想在发布机上对发布
+    提交再做一次与登记记录无关的全量把关。
 
 .PARAMETER Resume
     仅与 `-Release <ver>` 同传有效，不能与 `-DryRun`、`-AllowOverwriteDist` 同传。续跑一次"发布提交之后"
@@ -217,7 +231,8 @@ param(
     [string]$RegistryUrl = "",
     [switch]$AllowOverwriteDist,
     [switch]$SkipManual,
-    [switch]$Resume
+    [switch]$Resume,
+    [switch]$FullRegate
 )
 
 $ErrorActionPreference = "Stop"
@@ -350,6 +365,14 @@ if ($Resume -and (-not $ReleaseRequested)) {
 }
 if ($Resume -and $DryRun) {
     Write-Host "-Resume 与 -DryRun 不能同传（-DryRun 不写门禁通过记录、不产生发布提交，没有可续跑的东西）" -ForegroundColor Red
+    exit 1
+}
+if ($FullRegate -and (-not $ReleaseRequested)) {
+    Write-Host "-FullRegate 仅在同传 -Release <版本号> 时有效（强制发布第 5 步重跑全量门禁）" -ForegroundColor Red
+    exit 1
+}
+if ($FullRegate -and $Resume) {
+    Write-Host "-FullRegate 与 -Resume 不能同传（续跑不进入第 5 步，没有门禁可强制）" -ForegroundColor Red
     exit 1
 }
 if ($Resume -and $AllowOverwriteDist) {
@@ -705,9 +728,24 @@ if ($ReleaseRequested) {
         if ((-not $DryRun) -and (Test-Path -LiteralPath $ReleaseStatePath)) {
             Remove-Item -LiteralPath $ReleaseStatePath -Force
         }
-        Write-Step "check.ps1 门禁（-Release 第 5 步）"
+        # 判断记录（发布提速，2026-10-05，ADR-0156）：全量 or 定向由 Get-ReleaseGatePlan 决定（规则与理由见
+        # toolchain/_release_regression_guard.ps1 该函数头）。默认复用第 3b 步已验证的含 Unity 全量记录，只跑
+        # `check.ps1 -Changed <记录提交>` 定向门禁（此时工作树已含第 4 步的版本号写回，打包/包清单/消费方演练等
+        # 受版本号影响的步骤照常被模块表的 release_version_files 规则选中）；守卫不放行、工作树有别的改动、-DryRun、
+        # -FullRegate 时与此前一致跑全量。调用形态不变：Windows PowerShell 5.1 宿主，仍带 -AbiStrict -FailFast -NoTiming
+        # （-Changed 的定向父进程把这三个开关原样转给干活的子进程）。
+        $gatePlan = Get-ReleaseGatePlan -RepoRoot $RepoRoot -AllowedDirtyFiles $script:ReleaseWritebackFiles -FullRegate:$FullRegate -DryRun:$DryRun
+        $gateModeLabel = "全量门禁"
+        if ($gatePlan.Mode -eq "Targeted") { $gateModeLabel = "定向门禁（复用全量记录）" }
+        Write-Step "check.ps1 $gateModeLabel（-Release 第 5 步）"
+        if ($gatePlan.Mode -eq "Targeted") {
+            Write-Host "  第 5 步复用全量记录：$($gatePlan.RunId)，记录提交 $($gatePlan.BaseCommit)；改跑定向门禁 check.ps1 $($gatePlan.CheckArgs -join ' ')（不重跑同一份全量；强制全量请传 -FullRegate）" -ForegroundColor Cyan
+            Write-Host "  依据：$($gatePlan.Reason)"
+        } else {
+            Write-Host "  第 5 步跑全量门禁：$($gatePlan.Reason)" -ForegroundColor Cyan
+        }
         $checkScript = Join-Path $RepoRoot "check.ps1"
-        $checkArgs = @("-AbiStrict", "-FailFast", "-NoTiming")
+        $checkArgs = @($gatePlan.CheckArgs)
         $gateConclusion = ""
         & powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript @checkArgs | ForEach-Object {
             Write-Host $_
@@ -719,6 +757,10 @@ if ($ReleaseRequested) {
         }
         Write-Host "  check.ps1 通过"
         if ($gateConclusion -eq "") { $gateConclusion = "check.ps1 退出码 0（输出里未捕获到'门禁通过'结论行）" }
+        if ($gatePlan.Mode -eq "Targeted") {
+            $gateConclusion = "定向门禁（复用全量记录 $($gatePlan.RunId)，记录提交 $($gatePlan.BaseCommit)）：$gateConclusion"
+        }
+        Write-Host "  第 5 步结论：$gateConclusion" -ForegroundColor Green
 
         if (-not $DryRun) {
             Push-Location $RepoRoot
@@ -1148,6 +1190,8 @@ $StreamingAssetsRoot = Join-Path $RepoRoot "adapters\unity\Assets\StreamingAsset
 # 删除哪些残留文件）取全部源目录相对路径的并集；多个源目录出现同名相对路径时，按数组顺序
 # 后列源目录覆盖前者（内容以后列为准）并打印警告——调用方按"优先级从低到高"的顺序传入。
 # 单个源目录不存在时照旧跳过它（不影响其余源目录正常同步）；全部源目录都不存在则整体跳过。
+# $PreserveExtensions（可选，ADR-0158）：镜像删除时放过指定扩展名的目标文件（Unity 为导入资产生成的 .meta，
+# 删了会让下次导入换 guid、使引用它的生成资产失联）；默认空数组，不改变其它调用方行为。
 # $ExcludeExtensions（可选）：跳过指定扩展名的源文件，不拷贝进目标目录；目标目录里若已存在
 # 同名残留文件仍会按下方"镜像删除"逻辑清掉（因为它们不在 keepRelative 里）。默认空数组，不改变
 # 其它调用方行为。
@@ -1164,7 +1208,8 @@ function Sync-ContentTree {
     param(
         [string[]]$SourceDirs,
         [string]$DestDir,
-        [string[]]$ExcludeExtensions = @()
+        [string[]]$ExcludeExtensions = @(),
+        [string[]]$PreserveExtensions = @()
     )
 
     $resolvedSources = @()
@@ -1210,6 +1255,9 @@ function Sync-ContentTree {
         $destFiles = Get-ChildItem -Path $resolvedDest -Recurse -File
         foreach ($destFile in $destFiles) {
             $relative = $destFile.FullName.Substring($resolvedDest.Length).TrimStart('\', '/')
+            if ($PreserveExtensions -contains $destFile.Extension) {
+                continue
+            }
             if (-not $keepRelative.Contains($relative)) {
                 Remove-Item -Path $destFile.FullName -Force
                 $removed++
@@ -1271,9 +1319,25 @@ $resourceLayoutMap = (Get-Content -Path $resourceLayoutMapPath -Raw -Encoding UT
 foreach ($mapping in $resourceLayoutMap.mappings) {
     $sourceSubdir = $mapping.source
     $targetSubdir = $mapping.target
-    $mappingSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot ("assets\_placeholder\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_sample\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_showcase\" + $sourceSubdir))) -DestDir (Join-Path $StreamingAssetsRoot $targetSubdir)
+    $mappingSourceDirs = @((Join-Path $RepoRoot ("assets\_placeholder\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_sample\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_showcase\" + $sourceSubdir)))
+    # 参考界面皮肤包（assets/_reference_fantasy/ui/skin/reference_fantasy，ADR-0152、ADR-0154）：演示场景的 HUD 引用 skin.reference_fantasy，
+    # 皮肤包只按 StreamingAssets/GameFoundation/ui/skin/<名>/ 读取；此前构建同步不放它，普通检出里演示场景 HUD 悄悄退回占位皮肤、
+    # 只有测试临时拷贝时才看得到真皮肤。现在只同步 ui 这一棵（皮肤包本身）进工作台（不进 dist、不进发布打包，ADR-0152 决策 1 的"不进发布"口径不变）；
+    # 参考包的 icons、sprites 不并入（同名物品会覆盖占位美术，皮肤用例自己在临时根里叠放它们）。
+    if ($sourceSubdir -eq "ui") {
+        $mappingSourceDirs += (Join-Path $RepoRoot "assets\_reference_fantasy\ui")
+    }
+    $mappingSyncResult = Sync-ContentTree -SourceDirs $mappingSourceDirs -DestDir (Join-Path $StreamingAssetsRoot $targetSubdir)
     Write-Host ("  assets/_placeholder/{0} + assets/_sample/{0} -> StreamingAssets/GameFoundation/{1}（加载器路径规则，见 toolchain/resource_layout_map.json）：共 {2} 个文件，拷贝 {3}，跳过 {4}，删除 {5}" -f $sourceSubdir, $targetSubdir, $mappingSyncResult.Total, $mappingSyncResult.Copied, $mappingSyncResult.Skipped, $mappingSyncResult.Removed)
 }
+
+# 3D 演示场景的模型包（assets/_showcase/models：FBX + 贴图 + 着色器 + 规格 JSON，ADR-0158）：同步进 Unity 工程的忽略目录
+# Assets/Showcase3dArt/Source，由包内编辑器工具 ModelPackBuilder 在编辑器加载时装配成预制体/控制器/剪辑（产物同样不入库）。
+# 这棵树是 Unity 导入根，所以保留 .meta（PreserveExtensions），避免每次同步都让导入 guid 变化。
+$showcase3dSourceDir = Join-Path $RepoRoot "assets\_showcase\models"
+$showcase3dDestDir = Join-Path $RepoRoot "adapters\unity\Assets\Showcase3dArt\Source"
+$showcase3dSyncResult = Sync-ContentTree -SourceDirs @($showcase3dSourceDir) -DestDir $showcase3dDestDir -PreserveExtensions @('.meta')
+Write-Host ("  assets/_showcase/models -> Assets/Showcase3dArt/Source（模型包导入根，.meta 保留）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $showcase3dSyncResult.Total, $showcase3dSyncResult.Copied, $showcase3dSyncResult.Skipped, $showcase3dSyncResult.Removed)
 
 $totalContentFiles = (Get-ChildItem -Path $StreamingAssetsRoot -Recurse -File -ErrorAction SilentlyContinue).Count
 Write-Host ("StreamingAssets/GameFoundation/ 下文件总数（含以上五棵树的并集，sprites/audio/vfx 与 assets/_placeholder 下同名文件各自独立计数）：{0}" -f $totalContentFiles)

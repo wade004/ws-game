@@ -31,6 +31,10 @@
 #      --no-verify（那样会绕过钩子本身，事后不可追溯；这里是钩子内部按判定结果主动放行，仍会
 #      打印说明）。分级纯函数见 toolchain/_precommit_tiering_guard.ps1，由
 #      toolchain/tests/test_precommit_tiering_guard.py 覆盖。
+#      MergeSkip（发布提速，2026-10-05，ADR-0156；同由 toolchain/precommit_tier.ps1 判定）：合并提交（MERGE_HEAD 恰有
+#      一个）且即将提交的树与第二父提交的树逐字节相同、该第二父提交在 REGRESSION_LOG.md 有"含 Unity 全量通过"记录背书
+#      （规则与理由见 toolchain/_precommit_tiering_guard.ps1 的 Get-PreCommitMergeSkip）——被提交的内容就是测过的内容，
+#      不重复跑；主线上有分支没包含的独立改动被合进来时树不同，照常跑。1.99.0 的合并提交本可因此省掉约 20 分钟。
 #   （2026-10-01 耗时自动记录：三处 check.ps1 调用都带 -NoTiming——钩子里的运行不写 timing/，否则每次提交
 #   都会弄脏工作树；耗时只记任务里手动/显式跑的门禁。）
 #   2) 其余一切情况（含合并提交——MERGE_HEAD 存在时同样只按暂存清单判定，不特殊放行）：跑
@@ -64,8 +68,8 @@ fi
 tier=$(printf '%s' "$decision" | cut -d'|' -f1)
 reason=$(printf '%s' "$decision" | cut -d'|' -f2-)
 
-if [ "$tier" = "ReleaseSkip" ]; then
-    echo "[pre-commit] 档位：ReleaseSkip（$reason）——不重复跑 check.ps1。"
+if [ "$tier" = "ReleaseSkip" ] || [ "$tier" = "MergeSkip" ]; then
+    echo "[pre-commit] 档位：$tier（$reason）——不重复跑 check.ps1。"
     status=0
 else
     level=""
