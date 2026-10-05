@@ -8,7 +8,8 @@ consumer_smoke.ps1 的 ``Wait-NoResidualUnityProcess`` 等待范围收窄）。
 工程路径下拉起 Unity，上一个进程退出到它真正清理完之间有滞后窗口，按本脚本自己的工程路径过滤会
 漏掉这类残留），但代价是别的仓库里长时间正常运行的 Unity 进程也会被一起等，等多久都不会消失，
 白白拖垮门禁。修复把"要等"收窄为"可能与本次演练撞车的两类工程"：本仓库根目录下的、本脚本工作
-目录下的；拿不到命令行/没有 ``-projectPath`` 时按保守口径当作要等；明确落在别处的不等（但会打印
+目录下的；拿不到命令行（空）时按保守口径当作要等；明确落在别处的、以及没有 ``-projectPath``/
+``-createProject`` 的（Unity Hub 后台 ``unity.exe serve`` 等辅助进程，2026-10-06 起）不等（但会打印
 提示，不静默忽略）。
 
 本文件覆盖抽出的纯函数 ``Get-UnitySmokeProcessWaitDecision``（输入：进程命令行字符串、仓库根、
@@ -17,7 +18,7 @@ consumer_smoke.ps1 的 ``Wait-NoResidualUnityProcess`` 等待范围收窄）。
 dot-source 独立的守卫脚本后直接调用，不需要真的起 Unity 进程。
 
 至少覆盖：本仓库下的工程 -> Wait；本脚本工作目录下 -> Wait；别的仓库下 -> NoWait；无
-``-projectPath`` -> Unknown；空命令行 -> Unknown；路径带引号/带空格/大小写不同/分隔符混用时
+``-projectPath`` -> NoWait（Hub serve 回归）；空命令行 -> Unknown；路径带引号/带空格/大小写不同/分隔符混用时
 判断仍然正确；以及最容易写错的一例——仓库根的同名前缀目录（仓库根
 ``D:\\workespace\\ws-game``，另一个工程在 ``D:\\workespace\\ws-game-wow\\unity``）必须判 NoWait，
 不能被简单的字符串前缀匹配误判成本仓库的子目录。
@@ -125,13 +126,66 @@ def test_project_under_other_repo_does_not_wait(ps_exe: str) -> None:
     assert _run_decision(ps_exe, cmdline) == "NoWait"
 
 
-def test_missing_project_path_flag_is_unknown(ps_exe: str) -> None:
+def test_missing_project_path_flag_does_not_wait(ps_exe: str) -> None:
+    """有命令行但没有 -projectPath/-createProject：不是在打开工程的 Editor，没有等它的理由
+    （2026-10-06 起；此前判 Unknown 保守等待，见下方 Unity Hub 回归用例）。"""
     cmdline = '"C:\\Unity.exe" -batchmode -nographics -quit -logFile x.log'
-    assert _run_decision(ps_exe, cmdline) == "Unknown"
+    assert _run_decision(ps_exe, cmdline) == "NoWait"
 
 
 def test_empty_command_line_is_unknown(ps_exe: str) -> None:
     assert _run_decision(ps_exe, "") == "Unknown"
+
+
+def test_whitespace_only_command_line_is_unknown(ps_exe: str) -> None:
+    assert _run_decision(ps_exe, "   ") == "Unknown"
+
+
+# ---------------------------------------------------------------------------
+# 1b. 回归：Unity Hub 后台进程（fix/hub-serve_20261006）
+#
+# 用户开着 Unity Hub 时，Hub 常驻的 `unity.exe serve` 以 Unity.exe 进程名运行，不带 -projectPath、
+# 不是 Editor、永不退出。此前它被判 Unknown 并保守等待，消费方演练 60 秒后必然判失败，每次门禁都挂。
+# -------------------------------------------------------------------------
+
+HUB_SERVE_CMDLINE = (
+    '"C:\\Program Files\\WindowsApps\\UnityTechnologies.UnityHub_3.18.0.0_x64__abcdefghijk\\app\\resources\\unity.exe" serve'
+)
+
+
+def test_unity_hub_serve_process_does_not_wait(ps_exe: str) -> None:
+    assert _run_decision(ps_exe, HUB_SERVE_CMDLINE) == "NoWait"
+
+
+def test_licensing_helper_style_command_line_does_not_wait(ps_exe: str) -> None:
+    cmdline = '"C:\\Program Files\\Unity Hub\\Unity Hub.exe" --licensing --daemon'
+    assert _run_decision(ps_exe, cmdline) == "NoWait"
+
+
+def test_batch_editor_on_this_work_dir_still_waits(ps_exe: str) -> None:
+    """不变量：本演练自己的批处理 Editor（带 -projectPath 指向工作目录）仍然要等。"""
+    cmdline = (
+        f'"C:\\Program Files\\Unity\\Hub\\Editor\\6000.3.23f1\\Editor\\Unity.exe" -batchmode -nographics '
+        f'-projectPath "{WORK_DIR_FOR_TEST}\\ConsumerProject" -logFile x.log'
+    )
+    assert _run_decision(ps_exe, cmdline) == "Wait"
+
+
+def test_create_project_in_work_dir_waits(ps_exe: str) -> None:
+    cmdline = f'"C:\\Unity.exe" -batchmode -quit -createProject "{WORK_DIR_FOR_TEST}\\ConsumerProject"'
+    assert _run_decision(ps_exe, cmdline) == "Wait"
+
+
+def test_create_project_in_other_location_does_not_wait(ps_exe: str) -> None:
+    cmdline = '"C:\\Unity.exe" -batchmode -quit -createProject "E:\\somewhere\\else\\proj"'
+    assert _run_decision(ps_exe, cmdline) == "NoWait"
+
+
+def test_flags_case_insensitive_for_create_and_project_path(ps_exe: str) -> None:
+    cmdline = '"C:\\Unity.exe" -BATCHMODE -PROJECTpath "D:\\Workespace\\WS-Game\\Adapters\\Unity"'
+    assert _run_decision(ps_exe, cmdline) == "Wait"
+    cmdline = '"C:\\Unity.exe" -batchmode -CreateProject "D:\\Elsewhere\\Proj"'
+    assert _run_decision(ps_exe, cmdline) == "NoWait"
 
 
 # ---------------------------------------------------------------------------
