@@ -98,6 +98,12 @@ namespace Adapter.Unity.LabHost
         /// <summary>演示场景的游戏内 HUD（非演示场景为 null）。</summary>
         public ShowcaseHud? Hud => _hud;
 
+        /// <summary>占位美术工程场景的面板提示（演示场景为 null：用户已经在真实美术里，不需要再被指路）。</summary>
+        public const string PlaceholderHint = "占位美术工程场景；真实美术与界面皮肤请用菜单 手感试玩 → 打开演示场景 2D（真实美术）";
+
+        /// <summary>面板头部第二行的提示文字；演示场景为 null。</summary>
+        public string? PanelHint => showcase ? null : PlaceholderHint;
+
         public string RepoRoot => _repoRoot;
 
         public string Cell
@@ -1028,6 +1034,13 @@ namespace Adapter.Unity.LabHost
             GUILayout.BeginArea(new UnityEngine.Rect(8, 8, width, height), GUI.skin.box);
             _scroll = GUILayout.BeginScrollView(_scroll);
             GUILayout.Label("手感试玩  " + Model.Cell + "　tick " + Model.Tick + "　靶子 " + Model.DummyCount + (Model.Paused ? "　[暂停]" : string.Empty));
+            var hint = PanelHint;
+            if (hint != null)
+            {
+                _small ??= new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
+                GUILayout.Label(hint, _small);
+            }
+
             GUILayout.Label(Model.Status, _small);
             DrawTabBar();
             if (Model.Tab != LabTab.Scene)

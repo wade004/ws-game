@@ -146,6 +146,22 @@ namespace Adapter.Unity.Tests.LabHost
             Assert.AreEqual(0, pg.Stage.Record.Errors.Count, string.Join(" | ", pg.Stage.Record.Errors));
         }
 
+        // ───────── 菜单指路：占位美术场景的面板头部有第二行提示，演示场景没有 ─────────
+
+        [UnityTest]
+        public IEnumerator PanelHint_ShownInPlaceholderScene_AbsentInShowcase()
+        {
+            var placeholder = NewPlayground(false);
+            yield return Frames(4);
+            Assert.AreEqual(LabPlayground.PlaceholderHint, placeholder.PanelHint, "占位美术场景应有指向演示场景的提示");
+            StringAssert.Contains("打开演示场景 2D（真实美术）", placeholder.PanelHint);
+            Dispose();
+
+            var showcase = NewPlayground(true);
+            yield return Frames(4);
+            Assert.IsNull(showcase.PanelHint, "演示场景不应出现占位美术提示");
+        }
+
         // ───────── 三连击打精英：受击动画、顿帧、闪白、伤害数字 ─────────
 
         [UnityTest]

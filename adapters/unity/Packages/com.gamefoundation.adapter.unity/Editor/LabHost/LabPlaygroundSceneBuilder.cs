@@ -7,6 +7,8 @@
 // 所以玩家构建不含它们，也不含 LabHost 程序集（实验室宿主不进玩家构建）。
 // 判断记录（菜单路径）：编辑器面板 FeelLabWindow 占用了叶子菜单 "GameFoundation/手感实验室"，同名路径下不能再挂子菜单，
 // 所以试玩场景的菜单放在 "GameFoundation/手感试玩/"。
+// 判断记录（菜单分层）：用户要的是真实美术演示场景，占位美术的工程场景只是回归与开发用；所以"打开演示场景 2D（真实美术）"
+// 排在最前（优先级 1），三个占位场景收进子菜单 "工程场景（占位美术）"，两个重建入口收进子菜单 "维护"；方法名与行为不变。
 //
 // 命令行（不开编辑器界面）：
 //   Unity.exe -batchmode -nographics -quit -projectPath <repo>\adapters\unity
@@ -26,7 +28,7 @@ namespace Adapter.Unity.LabHost.Editor
 
         public static string ScenePath(string cell) => SceneDir + "/LabPlayground_" + cell + ".unity";
 
-        [MenuItem("GameFoundation/手感试玩/重建三个试玩场景")]
+        [MenuItem("GameFoundation/手感试玩/维护/重建三个试玩场景", false, 200)]
         public static void BuildAll()
         {
             var projectRoot = Directory.GetParent(Application.dataPath)!.FullName;
@@ -58,7 +60,7 @@ namespace Adapter.Unity.LabHost.Editor
         // 只做 2D 俯视动作）；美术资源、数据行、HUD 都在运行时由 LabPlayground / EngineLabStage 装配，场景文件里不放任何内容。
         public static string ShowcaseScenePath => SceneDir + "/LabShowcase_2d_action.unity";
 
-        [MenuItem("GameFoundation/手感试玩/重建演示场景")]
+        [MenuItem("GameFoundation/手感试玩/维护/重建演示场景", false, 201)]
         public static void BuildShowcase()
         {
             var projectRoot = Directory.GetParent(Application.dataPath)!.FullName;
@@ -76,16 +78,16 @@ namespace Adapter.Unity.LabHost.Editor
             Debug.Log("[LabPlaygroundSceneBuilder] showcase scene generated: " + ShowcaseScenePath);
         }
 
-        [MenuItem("GameFoundation/手感试玩/打开演示场景 2D（真实美术）")]
+        [MenuItem("GameFoundation/手感试玩/打开演示场景 2D（真实美术）", false, 1)]
         public static void OpenShowcase() => EditorSceneManager.OpenScene(ShowcaseScenePath);
 
-        [MenuItem("GameFoundation/手感试玩/打开试玩场景 2D（俯视精灵）")]
+        [MenuItem("GameFoundation/手感试玩/工程场景（占位美术）/打开试玩场景 2D（俯视精灵）", false, 100)]
         public static void Open2D() => EditorSceneManager.OpenScene(ScenePath("2d_action"));
 
-        [MenuItem("GameFoundation/手感试玩/打开试玩场景 2.5D（固定俯仰精灵）")]
+        [MenuItem("GameFoundation/手感试玩/工程场景（占位美术）/打开试玩场景 2.5D（固定俯仰精灵）", false, 101)]
         public static void Open25D() => EditorSceneManager.OpenScene(ScenePath("2_5d_action"));
 
-        [MenuItem("GameFoundation/手感试玩/打开试玩场景 3D（固定俯仰模型）")]
+        [MenuItem("GameFoundation/手感试玩/工程场景（占位美术）/打开试玩场景 3D（固定俯仰模型）", false, 102)]
         public static void Open3D() => EditorSceneManager.OpenScene(ScenePath("3d_action"));
     }
 }
