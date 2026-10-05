@@ -30,6 +30,7 @@ namespace Adapter.Unity.Tests.LabHost
         private Adapters.Stub.StubInput? _input;
         private string _saveDir = string.Empty;
         private readonly List<string> _warnings = new List<string>();
+        private string _installedPack = string.Empty;
 
         [SetUp]
         public void SetUp()
@@ -37,6 +38,7 @@ namespace Adapter.Unity.Tests.LabHost
             _saveDir = Path.Combine(Path.GetTempPath(), "lab_showcase3d_test_" + Guid.NewGuid().ToString("N"));
             _warnings.Clear();
             Application.logMessageReceived += OnLog;
+            InstallReferencePack();
         }
 
         [TearDown]
@@ -44,9 +46,57 @@ namespace Adapter.Unity.Tests.LabHost
         {
             Application.logMessageReceived -= OnLog;
             Dispose();
+            if (_installedPack.Length > 0)
+            {
+                // 还原：只删本用例临时放进工作台资源根的皮肤包目录（及其 .meta），工作台本来就没有它。
+                if (Directory.Exists(_installedPack))
+                {
+                    Directory.Delete(_installedPack, true);
+                }
+
+                if (File.Exists(_installedPack + ".meta"))
+                {
+                    File.Delete(_installedPack + ".meta");
+                }
+
+                _installedPack = string.Empty;
+            }
+
             if (Directory.Exists(_saveDir))
             {
                 Directory.Delete(_saveDir, true);
+            }
+        }
+
+        /// <summary>
+        /// 把参考皮肤包（assets/_reference_fantasy）临时放进工作台资源根的 ui/skin/ 下：构建同步不把参考包同步进工作台（它属于皮肤用例自己的夹具），
+        /// 缺省工作台里演示场景 HUD 的皮肤引用解析到的目录不存在、框架回退链退回占位皮肤；这里让包在场，再断言 HUD 真的用它（做法同 2.5D 演示用例）。
+        /// </summary>
+        private void InstallReferencePack()
+        {
+            var source = Path.Combine(SkinTestKit.RepoRoot, "assets", "_reference_fantasy", "ui", "skin", "reference_fantasy");
+            Assert.IsTrue(Directory.Exists(source), "缺参考皮肤包 " + source);
+            var dest = Path.Combine(Application.streamingAssetsPath, "GameFoundation", "ui", "skin", "reference_fantasy");
+            if (Directory.Exists(dest))
+            {
+                return;
+            }
+
+            CopyDirectory(source, dest);
+            _installedPack = dest;
+        }
+
+        private static void CopyDirectory(string from, string to)
+        {
+            Directory.CreateDirectory(to);
+            foreach (var file in Directory.GetFiles(from))
+            {
+                File.Copy(file, Path.Combine(to, Path.GetFileName(file)), true);
+            }
+
+            foreach (var dir in Directory.GetDirectories(from))
+            {
+                CopyDirectory(dir, Path.Combine(to, Path.GetFileName(dir)));
             }
         }
 
@@ -425,6 +475,59 @@ namespace Adapter.Unity.Tests.LabHost
             Assert.AreEqual(0, stage.Record.Errors.Count, string.Join(" | ", stage.Record.Errors));
         }
 
+        /// <summary>读模型实例下渲染器上的闪白参数（属性块里的 flash_intensity；没写过属性块时为 0）。</summary>
+        private static float FlashParamOf(GameObject root)
+        {
+            var best = 0f;
+            var block = new MaterialPropertyBlock();
+            foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
+            {
+                renderer.GetPropertyBlock(block);
+                best = Mathf.Max(best, block.GetFloat("flash_intensity"));
+            }
+
+            return best;
+        }
+
+        [UnityTest]
+        public IEnumerator HitFlash_FollowsFeedbackData_AmountMatchesSpritePipeline_ThenDecaysToZero()
+        {
+            var pg = NewPlayground(true);
+            pg.SpawnDummy("elite");
+            yield return Frames(30);
+            var stage = pg.Stage!;
+            var ctx = pg.Session!.Context!;
+
+            // 闪白时长来自数据：闪白配置行（vfx.def）的 lifetime；强度与精灵管线同口径（过曝 (1 + 强度) 倍，强度默认 1，不是整块填白）。
+            var row = ctx.World.Registry.GetAll("vfx.def").FirstOrDefault(r => r.GetId("id").Equals(EngineLabStage.DefaultFlashProfile));
+            Assert.IsNotNull(row, "数据集里应有闪白配置行 " + EngineLabStage.DefaultFlashProfile.Value);
+            Assert.IsTrue(row!.TryGetNumber("lifetime", out var lifetime) && lifetime > 0.0, "闪白配置行带 lifetime");
+
+            var elite = ctx.Dummies.First(d => d.Key.StartsWith("elite", StringComparison.Ordinal)).Value;
+            var root = stage.RenderedModels().First(m => m.Entity.Equals(elite)).Root;
+            Assert.AreEqual(0f, FlashParamOf(root), 1e-6, "命中前没有闪白");
+
+            var before = stage.FlashesApplied;
+            _input!.Press(AttackKey);
+            var guard = 0;
+            while (stage.FlashesApplied == before && guard++ < 240)
+            {
+                yield return Frames(1);
+            }
+
+            _input.Release(AttackKey);
+            Assert.Greater(stage.FlashesApplied, before, "出手命中后应触发闪白");
+            yield return Frames(1);
+            Assert.AreEqual(EngineLabStage.FlashAmount, FlashParamOf(root), 1e-6, "闪白期间强度 = 默认强度（与精灵管线一致）");
+            Assert.AreEqual(lifetime, stage.LastModelFlashSeconds, 1e-9, "闪白时长 = 数据行 lifetime");
+
+            // 闪白期间保持，数据时长之后复原为 0（精灵管线同为阶跃：不会一直亮）。
+            yield return Frames((int)Math.Floor(lifetime * 0.5 / Frame));
+            Assert.AreEqual(EngineLabStage.FlashAmount, FlashParamOf(root), 1e-6, "时长过半仍在闪");
+            yield return Frames((int)Math.Ceiling(lifetime / Frame) + 6);
+            Assert.AreEqual(0f, FlashParamOf(root), 1e-6, "超过数据时长后闪白复原为 0");
+        }
+
         [UnityTest]
         public IEnumerator KnockReaction_PlaysKnockbackOrKnockdownClip_ThenRecovers()
         {
@@ -467,6 +570,7 @@ namespace Adapter.Unity.Tests.LabHost
             Assert.IsTrue(pg.Hud!.Built);
             Assert.AreEqual(ShowcaseHud.SkinRef, "skin.reference_fantasy");
             Assert.AreEqual(ShowcaseHud.SkinRef, pg.Hud.LoadedSkinRef, "HUD 用参考皮肤");
+            Assert.IsFalse(pg.Hud.UsesPlaceholderSkin, "参考皮肤包在场时 HUD 不回落占位皮肤");
             Assert.IsFalse(pg.Model.PanelVisible, "演示场景调试面板缺省收起");
             var m = pg.Stage!.Showcase!.Model;
             Assert.AreEqual(4, m.Slots.Length);

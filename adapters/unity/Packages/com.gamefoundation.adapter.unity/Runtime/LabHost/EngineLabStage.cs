@@ -478,7 +478,7 @@ namespace Adapter.Unity.LabHost
                 _r2d, _unityCamera, vfxCatalog, null, (e, a) => Resolve(e, a), e => Resolve(e, ProbeAnchorId), null, _loader, _r3d);
             _sfx = new SfxPlayer(_audio, new RngHost(1UL), sfxCatalog, null, null, _loader);
             _sink = new CompositeFeedbackSink(
-                _vfx, _sfx, (e, s, t) => { }, d => { }, p => OnShake(), (e, p) => OnFlash(e), e => Resolve(e, ProbeAnchorId));
+                _vfx, _sfx, (e, s, t) => { }, d => { }, p => OnShake(), (e, p) => OnFlash(e, p), e => Resolve(e, ProbeAnchorId));
             _sink.OnImpactCamera = OnImpactCamera;
             _sink.OnFreezePresentation = OnFreezePresentation;
             _sink.OnReleasePresentation = OnReleasePresentation;
@@ -736,9 +736,36 @@ namespace Adapter.Unity.LabHost
             _unityCamera.Shake(_unityCamera.VisibleHalfHeight * 0.03, 0.18, 30.0);
         }
 
-        /// <summary>试玩模式的闪白落地：精灵型视图过曝 0.15 秒（与 FlashReceiver 同一默认值）；模型型视图没有闪白着色参数，只计数不落地。</summary>
-        /// <summary>试玩模式下实际落到精灵视图上的闪白次数（测试/诊断用）。</summary>
+        /// <summary>试玩模式下实际落到精灵与模型视图上的闪白次数（测试/诊断用）。</summary>
         public int FlashesApplied { get; private set; }
+
+        /// <summary>默认闪白配置行 id（打击反馈档案的闪白动作引用它）；演示导演的闪白没有带配置引用时用它。</summary>
+        public static readonly Id DefaultFlashProfile = new Id("vfx.placeholder_hit_flash");
+
+        /// <summary>闪白强度：与精灵管线的默认值同口径（FlashReceiver 的 DefaultIntensity = 1，着色器里颜色过曝到 (1 + 强度) 倍，不是整块填白）。</summary>
+        public const double FlashAmount = 1.0;
+
+        /// <summary>最近一次落到模型视图上的闪白时长（秒，取自闪白配置行的 lifetime；测试用来核对"时长跟随数据"）。</summary>
+        public double LastModelFlashSeconds { get; private set; }
+
+        private double FlashSeconds(Id profileId)
+        {
+            var registry = _ctx?.World.Registry;
+            if (registry != null)
+            {
+                foreach (var row in registry.GetAll("vfx.def"))
+                {
+                    if (row.GetId("id").Equals(profileId) && row.TryGetNumber("lifetime", out var lifetime) && lifetime > 0.0)
+                    {
+                        return lifetime;
+                    }
+                }
+            }
+
+            return DefaultFlashSeconds;
+        }
+
+        private const double DefaultFlashSeconds = 0.15;
 
         /// <summary>每个精灵单位当前渲染的精灵名（资源加载器给的名字是 <c>&lt;资源引用&gt;_frame&lt;序号&gt;</c>）；测试用来核对"画出来的是演示美术、不是占位"。</summary>
         public List<KeyValuePair<Id, string>> RenderedSprites()
@@ -855,7 +882,9 @@ namespace Adapter.Unity.LabHost
             }
         }
 
-        private void OnFlash(Id entityId)
+        private void OnFlash(Id entityId) => OnFlash(entityId, DefaultFlashProfile);
+
+        private void OnFlash(Id entityId, Id profileId)
         {
             if (!_options.Interactive || !_entries.TryGetValue(entityId, out var entry))
             {
@@ -865,12 +894,15 @@ namespace Adapter.Unity.LabHost
             if (entry.View is UnityModelView model && _r3d != null)
             {
                 // 模型型外形（ADR-0158）：经框架 3D 渲染器的命名材质参数广播闪白（IRenderer3D.SetMaterialParam，与精灵的 flash_intensity 同名同义），
-                // 由模型包着色器消费；与精灵一样 0.15 秒后复原。
+                // 由模型包着色器消费（过曝到 (1 + 强度) 倍，与精灵一致，保留明暗）；强度与精灵同为 FlashAmount，时长取闪白配置行（vfx.def 的 lifetime），
+                // 到时复原为 0（阶跃，与精灵的闪白曲线一致）。
                 var handle = model.EngineHandle;
                 var renderer3d = _r3d;
-                renderer3d.SetMaterialParam(handle, UnitySpriteView.FlashIntensityShaderParam, 1.0);
+                var seconds = FlashSeconds(profileId);
+                LastModelFlashSeconds = seconds;
+                renderer3d.SetMaterialParam(handle, UnitySpriteView.FlashIntensityShaderParam, FlashAmount);
                 FlashesApplied++;
-                _flashFx.Add(new FlashFx { Clear = () => renderer3d.SetMaterialParam(handle, UnitySpriteView.FlashIntensityShaderParam, 0.0), Remaining = 0.15 });
+                _flashFx.Add(new FlashFx { Clear = () => renderer3d.SetMaterialParam(handle, UnitySpriteView.FlashIntensityShaderParam, 0.0), Remaining = seconds });
                 return;
             }
 

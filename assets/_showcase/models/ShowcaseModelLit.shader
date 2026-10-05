@@ -4,7 +4,8 @@
 // 且不向 3D 着色器提供主光源数据，URP/Lit 在这里会画成粉红或全黑。所以本着色器自己带两个 Pass（Universal2D 与 UniversalForward，同一份程序），
 // 光照用写死在着色器里的世界空间"太阳方向"做半兰伯特明暗，不依赖任何场景光源。
 // 判断记录（flash_intensity）：框架的 3D 渲染器经 MaterialPropertyBlock 向实例下全部渲染器广播命名参数 flash_intensity / fade_alpha
-// （IRenderer3D.SetMaterialParam，参数含义由游戏侧着色器决定）；本着色器声明 flash_intensity（受击闪白，0 = 原色，1 = 全白），
+// （IRenderer3D.SetMaterialParam，参数含义由游戏侧着色器决定）；本着色器声明 flash_intensity（受击闪白，0 = 原色；与精灵管线同义：颜色过曝到 (1 + 强度) 倍，保留明暗与贴图细节，
+// 不是整块填成白色——精灵的 flash_intensity 取 1 时是 RGB 乘 2，这里同样），
 // 放在 UnityPerMaterial 常量缓冲里，这样属性块覆盖对批处理路径与普通路径都生效。fade_alpha 不声明（实验室里尸体由清场移除）。
 Shader "GameFoundation/Showcase/ModelLit"
 {
@@ -64,7 +65,7 @@ Shader "GameFoundation/Showcase/ModelLit"
             half ndl = dot(normalize(input.normalWS), sun) * 0.5h + 0.5h;
             half light = lerp(_Ambient, 1.08h, ndl * ndl);
             half3 color = albedo.rgb * light;
-            color = lerp(color, half3(1, 1, 1), saturate(flash_intensity));
+            color = color * (1.0h + max(flash_intensity, 0.0h));
             return half4(color, 1);
         }
         ENDHLSL
