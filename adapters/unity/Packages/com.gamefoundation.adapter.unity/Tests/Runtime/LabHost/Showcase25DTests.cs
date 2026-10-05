@@ -601,28 +601,16 @@ namespace Adapter.Unity.Tests.LabHost
 
         // ───────── 待机时没有两只单位的身体精灵叠在一起 ─────────
 
-        // 判断记录：试玩宿主的出靶子规则是"玩家前方固定距离"，连着出两只单个靶子（精英、木桩）会出在同一个逻辑坐标——
-        // 那是两个实体共点（每个实体仍只画一个身体），不是一个实体画了两个身体；规则属于逻辑（改它会改逻辑指纹），
-        // 所以演示布局的修法放在"怎么出靶子"：出下一只前先让玩家转向另一个方向（走几步）。截图与本类用例都用这个布局。
+        // 判断记录：试玩宿主出单只靶子时，玩家正前方被占就沿弧取第一个空位（LabPlayground.FindSingleSpawnPoint，体半径规则），
+        // 连出两只（精英、木桩）不再共点，所以不需要先让玩家走开再出第二只；截图与本类用例直接连出两只。
+        // （此前宿主把每只单个靶子都放在正前方同一点，演示布局靠"出下一只前先走几步"绕开；出靶规则修好后这段绕法删除。）
 
         private IEnumerator SpawnEliteAndStakeApart()
         {
             var pg = _pg!;
             pg.SpawnDummy("elite");
-            yield return Frames(4);
-            _input!.Press("w");
-            yield return Frames(14);
-            _input.Release("w");
-            yield return Frames(2);
             pg.SpawnDummy("stake");
-            _input.Press("s");
-            yield return Frames(14);
-            _input.Release("s");
-            yield return Frames(2);
-            _input.Press("d");
-            yield return Frames(2);
-            _input.Release("d");
-            yield return Frames(2);
+            yield return Frames(4);
         }
 
         /// <summary>每个单位当前身体精灵的屏幕包围盒（由精灵自身的包围盒四角经渲染根投到屏幕，不写死像素）。</summary>
@@ -717,19 +705,23 @@ namespace Adapter.Unity.Tests.LabHost
             yield return AssertNoIdleOverlap(Cell25);
         }
 
-        [UnityTest]
-        public IEnumerator OverlapMetric_CatchesTwoSingleSpawnsAtTheSameLogicalPoint()
+        [Test]
+        public void OverlapMetric_ReportsCoincidentAndPartlyOverlappingBodies_NotDisjointOnes()
         {
-            // 对照：不拉开布局，连出两只单个靶子，它们共点（两个实体各一个身体），度量必须报出重叠，证明上面的断言不是空转。
-            var pg = NewPlayground(Cell25, true);
-            pg.SpawnDummy("elite");
-            pg.SpawnDummy("stake");
-            yield return Frames(40);
-            var rects = BodyScreenRects(pg);
-            var worst = WorstOverlap(rects, out var pair);
-            Assert.Greater(worst, MaxIdleOverlapFraction, "共点的两个靶子应被度量为重叠");
+            // 对照：出靶规则修好后不再能用 SpawnDummy 造出共点的两只，所以直接给度量喂包围盒，证明上面的"待机无重叠"断言不是空转：
+            // 完全重合报 1，错开一半约 0.5，分开的报 0；阈值夹在其中。
+            var a = Rect.MinMaxRect(0f, 0f, 2f, 2f);
+            var rects = new Dictionary<string, Rect> { ["elite@1"] = a, ["stake@2"] = a };
+            Assert.AreEqual(1f, WorstOverlap(rects, out var pair), 1e-6f);
             StringAssert.Contains("elite", pair);
             StringAssert.Contains("stake", pair);
+
+            rects["stake@2"] = Rect.MinMaxRect(1f, 0f, 3f, 2f);
+            Assert.AreEqual(0.5f, WorstOverlap(rects, out _), 1e-6f);
+            Assert.Greater(WorstOverlap(rects, out _), MaxIdleOverlapFraction);
+
+            rects["stake@2"] = Rect.MinMaxRect(2.5f, 0f, 4.5f, 2f);
+            Assert.AreEqual(0f, WorstOverlap(rects, out _), 1e-6f);
         }
 
         // ───────── 场景文件 ─────────

@@ -68,6 +68,7 @@ namespace Adapter.Unity.LabHost
         private readonly Dictionary<string, KeyValuePair<string, bool>> _effectMarkers = new Dictionary<string, KeyValuePair<string, bool>>();
         private readonly Stopwatch _watch = new Stopwatch();
         private readonly List<KeyValuePair<string, string>> _live = new List<KeyValuePair<string, string>>();
+        private readonly List<KeyValuePair<string, Vec2>> _liveSpawnPoints = new List<KeyValuePair<string, Vec2>>();
         private int _spawnSerial;
         private int _frameCounter;
 
@@ -573,7 +574,92 @@ namespace Adapter.Unity.LabHost
             Session!.Inject(new ScriptEvent(0, action, kind, value, null, actor));
         }
 
-        /// <summary>在玩家前方出 <paramref name="count"/> 只靶子（<paramref name="count"/> &gt; 1 时沿垂直方向扇形排开）；巡逻靶在数据声明的位置出场（它的巡逻路径在世界坐标里）。</summary>
+        /// <summary>单只靶子的缺省出场点：玩家正前方这个距离（世界单位）。</summary>
+        public const double SpawnDistance = 2.2;
+
+        /// <summary>两只靶子的出场点至少相距这么远才算不重叠：两倍体半径（<see cref="global::Lab.LabHost.DummyBodyRadius"/>，靶子登记进空间索引的半径）。</summary>
+        public static readonly double SpawnSeparation = 2.0 * global::Lab.LabHost.DummyBodyRadius;
+
+        /// <summary>
+        /// 正前方被占时，弧上相邻候选点的角间隔（弧度）：45 度。判断记录：逻辑上 30 度已满足 <see cref="SpawnSeparation"/>（弦长 1.14），
+        /// 但直立广告牌（2.5D/3D 演示）的身体精灵约 1.7 个世界单位宽高，30 度时屏幕上仍叠掉近三成；45 度（弦长 1.68）两只身体精灵基本分开。
+        /// </summary>
+        public const double SpawnArcStepRadians = Math.PI / 4.0;
+
+        private const int SpawnArcHalfSlots = 2;
+        private const int SpawnRings = 24;
+
+        /// <summary>
+        /// 单只靶子的出场点（纯函数，确定性）：先试玩家正前方 <see cref="SpawnDistance"/> 处；那里与 <paramref name="occupied"/> 里任一在场靶子的距离小于
+        /// <see cref="SpawnSeparation"/> 就按固定顺序试同一半径的弧上候选点（相对正前方 +1、-1、+2、-2 个 <see cref="SpawnArcStepRadians"/>，即 ±45°、±90°），
+        /// 弧上都被占就把半径加一个 <see cref="SpawnSeparation"/> 换下一圈，取第一个空位。<paramref name="crowded"/> 为真表示所有候选点都被占满（场上靶子上限 60 只，
+        /// 实际不会走到），此时回到正前方（与重叠前的行为一致）并由调用方提示。
+        /// </summary>
+        public static Vec2 FindSingleSpawnPoint(Vec2 player, double facing, IReadOnlyList<Vec2> occupied, out bool crowded)
+        {
+            for (var ring = 0; ring < SpawnRings; ring++)
+            {
+                var dist = SpawnDistance + ring * SpawnSeparation;
+                for (var slot = 0; slot < 2 * SpawnArcHalfSlots + 1; slot++)
+                {
+                    var k = ((slot + 1) / 2) * ((slot & 1) == 1 ? 1 : -1);
+                    var angle = facing + k * SpawnArcStepRadians;
+                    var p = new Vec2(player.X + Math.Cos(angle) * dist, player.Y + Math.Sin(angle) * dist);
+                    if (IsFreeSpawnPoint(p, occupied))
+                    {
+                        crowded = false;
+                        return p;
+                    }
+                }
+            }
+
+            crowded = true;
+            return new Vec2(player.X + Math.Cos(facing) * SpawnDistance, player.Y + Math.Sin(facing) * SpawnDistance);
+        }
+
+        /// <summary>候选点与每个在场靶子的圆心距都不小于 <see cref="SpawnSeparation"/>（容差 1e-9）即空位。</summary>
+        public static bool IsFreeSpawnPoint(Vec2 point, IReadOnlyList<Vec2> occupied)
+        {
+            for (var i = 0; i < occupied.Count; i++)
+            {
+                var dx = point.X - occupied[i].X;
+                var dy = point.Y - occupied[i].Y;
+                if (Math.Sqrt(dx * dx + dy * dy) < SpawnSeparation - 1e-9)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 在场（活着）靶子的当前位置，按出场顺序：会话已建出实体的取实体当前位置（被击退的靶子按它现在的位置占位，已死的不占位），
+        /// 出场事件还没被会话处理的（同一帧连出几只）取出场点。
+        /// </summary>
+        private List<Vec2> LiveDummyPositions(LabHostContext ctx)
+        {
+            var result = new List<Vec2>();
+            foreach (var spawned in _liveSpawnPoints)
+            {
+                var id = ctx.FindByLabel(spawned.Key);
+                if (id.HasValue && ctx.World.World.GetEntity(id.Value) is global::Core.Carriers.Unit.Unit unit)
+                {
+                    if (unit.Alive)
+                    {
+                        result.Add(unit.Position);
+                    }
+
+                    continue;
+                }
+
+                result.Add(spawned.Value);
+            }
+
+            return result;
+        }
+
+        /// <summary>在玩家前方出 <paramref name="count"/> 只靶子（<paramref name="count"/> &gt; 1 时沿垂直方向扇形排开；单只时正前方被占则沿弧取第一个空位，见 <see cref="FindSingleSpawnPoint"/>）；巡逻靶在数据声明的位置出场（它的巡逻路径在世界坐标里）。</summary>
         public void SpawnDummy(string kind, int count = 1)
         {
             if (!IsBegun)
@@ -617,17 +703,27 @@ namespace Adapter.Unity.LabHost
                 {
                     pos = entry.Position;
                 }
+                else if (count == 1)
+                {
+                    // 单只：玩家正前方 SpawnDistance 处；那里已有在场的靶子（体半径规则）就沿玩家前方的弧取第一个空位，不再共点。
+                    pos = FindSingleSpawnPoint(player, facing, LiveDummyPositions(ctx), out var crowded);
+                    if (crowded)
+                    {
+                        Model.Note("玩家前方的位置都被占满，这只靶子与已有靶子重叠；先清场。");
+                    }
+                }
                 else
                 {
-                    var spread = count > 1 ? (i - (count - 1) / 2.0) * 0.9 : 0.0;
-                    var back = count > 1 ? Math.Abs(spread) * 0.3 : 0.0;
-                    var dist = 2.2 + back;
+                    var spread = (i - (count - 1) / 2.0) * 0.9;
+                    var back = Math.Abs(spread) * 0.3;
+                    var dist = SpawnDistance + back;
                     pos = new Vec2(player.X + fwd.X * dist + side.X * spread, player.Y + fwd.Y * dist + side.Y * spread);
                 }
 
                 var label = kind + "@" + (++_spawnSerial).ToString(System.Globalization.CultureInfo.InvariantCulture);
                 Inject(ScriptEventKind.Spawn, kind, pos, label);
                 _live.Add(new KeyValuePair<string, string>(label, entry.Kind));
+                _liveSpawnPoints.Add(new KeyValuePair<string, Vec2>(label, pos));
             }
 
             Model.Note("出靶子：" + LabLiveModel.FriendlyName(kind) + (count > 1 ? " ×" + count : string.Empty));
@@ -642,6 +738,7 @@ namespace Adapter.Unity.LabHost
 
             Inject(ScriptEventKind.ClearDummies, "clear");
             _live.Clear();
+            _liveSpawnPoints.Clear();
             Model.Note("已清场。");
         }
 
