@@ -79,14 +79,17 @@ namespace Adapter.Unity.LabHost
         private readonly LabHostContext _ctx;
         private readonly ShowcaseFxPlayer _fx;
         private readonly Action<Id> _flash;
+        private readonly ShowcaseProjection _projection;
+        private readonly List<Transform> _uprightProps = new List<Transform>();
         private readonly Dictionary<Id, double> _damageTaken = new Dictionary<Id, double>();
         private readonly Dictionary<Id, double> _maxHp = new Dictionary<Id, double>();
         private double _staminaIdle;
         private bool _disposed;
 
-        internal ShowcaseDirector(Transform root, int layer, UnityResourceLoader loader, LabHostContext ctx, Action<Id> flash)
+        internal ShowcaseDirector(Transform root, int layer, UnityResourceLoader loader, LabHostContext ctx, Action<Id> flash, ShowcaseProjection? projection = null)
         {
             _flash = flash;
+            _projection = projection ?? new ShowcaseProjection(null, false);
             _root = root;
             _layer = layer;
             _loader = loader;
@@ -110,6 +113,18 @@ namespace Adapter.Unity.LabHost
 
         public int FxActive => _fx.ActiveCount;
 
+        /// <summary>是否 2.5D 直立广告牌模式（固定俯角相机；否则是 2D 正交俯视）。</summary>
+        public bool Upright => _projection.Upright;
+
+        /// <summary>地面点抬高 <paramref name="height"/> 后的世界坐标（界面定位飘字与头顶血条用；2D 就是世界 Y 加高度，2.5D 沿相机上轴抬）。</summary>
+        public Vector3 Lift(Vector2 ground, float height) => _projection.Lift(ground, height);
+
+        /// <summary>场景里被摆成直立广告牌的道具数（测试用；2D 为 0）。</summary>
+        public int UprightPropCount => _uprightProps.Count;
+
+        /// <summary>直立广告牌道具的当前朝向（测试用：应与舞台相机姿态一致）。</summary>
+        public IReadOnlyList<Transform> UprightProps => _uprightProps;
+
         // ───────── 场景 ─────────
 
         private Sprite? LoadSprite(string name, float pixelsPerUnit, Vector2 pivot, bool repeat)
@@ -128,8 +143,38 @@ namespace Adapter.Unity.LabHost
                 tex.wrapMode = TextureWrapMode.Repeat;
             }
 
-            tex.filterMode = FilterMode.Bilinear;
+            if (_projection.Upright && tex.mipmapCount > 1)
+            {
+                // 2.5D：地面砖在透视下近大远小，要用资源加载器生成的 mip 链做三线性 + 各向异性过滤，否则远处的石砖闪烁。
+                tex.filterMode = FilterMode.Trilinear;
+                tex.anisoLevel = 8;
+            }
+            else
+            {
+                tex.filterMode = FilterMode.Bilinear;
+            }
+
             return Sprite.Create(tex, new UnityEngine.Rect(0, 0, tex.width, tex.height), pivot, pixelsPerUnit, 0, SpriteMeshType.FullRect);
+        }
+
+        /// <summary>
+        /// 直立道具随相机姿态转（2.5D：模板预设会改俯角，广告牌要跟着转）；2D 没有直立道具，空操作。舞台在相机推进之后每帧调用一次。
+        /// </summary>
+        internal void OrientProps()
+        {
+            if (!_projection.Upright)
+            {
+                return;
+            }
+
+            var rotation = _projection.CameraRotation;
+            for (var i = 0; i < _uprightProps.Count; i++)
+            {
+                if (_uprightProps[i] != null)
+                {
+                    _uprightProps[i].rotation = rotation;
+                }
+            }
         }
 
         /// <summary>地面砖 + 竞技场方块（墙/立柱）+ 场景道具。只在试玩模式建；全部放在隔离层、挂在舞台根下，随舞台销毁。</summary>
@@ -232,6 +277,12 @@ namespace Adapter.Unity.LabHost
             r.sprite = sprite;
             r.color = tint;
             r.sortingOrder = UnitsLayerBase - (int)Math.Round(feet.y);
+            if (_projection.Upright)
+            {
+                // 2.5D：道具是脚底枢轴落在地面点上的直立广告牌（朝向随相机，见 ShowcaseProjection）。
+                go.transform.rotation = _projection.CameraRotation;
+                _uprightProps.Add(go.transform);
+            }
         }
 
         // ───────── 事件 ─────────
@@ -463,7 +514,9 @@ namespace Adapter.Unity.LabHost
         {
             _lastAttacker[hit.TargetId] = new KeyValuePair<Id, double>(hit.SourceId, _facingClock);
             var targetPos = PositionOf(hit.TargetId, new Vector2((float)hit.ContactPoint.X, (float)hit.ContactPoint.Y));
-            var head = targetPos + new Vector2(0f, HeadHeight(hit.TargetId));
+            // 飘字起点：2D 是头顶的世界点（WorldPos 已含头高，Height 为 0）；2.5D 头高沿相机上轴抬，WorldPos 取脚下地面点、头高放进 Height，由界面经 Lift 换算。
+            var headHeight = HeadHeight(hit.TargetId);
+            var head = _projection.Upright ? targetPos : targetPos + new Vector2(0f, headHeight);
             var number = new ShowcaseDamageNumber
             {
                 Tick = tick,
@@ -473,6 +526,7 @@ namespace Adapter.Unity.LabHost
                 IsKill = hit.IsKill,
                 Text = Math.Round(hit.Amount, MidpointRounding.AwayFromZero).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + (hit.IsCrit ? "!" : string.Empty),
                 WorldPos = new Vec2(head.x, head.y),
+                Height = _projection.Upright ? headHeight : 0f,
                 ImpactClass = hit.ImpactClass,
                 Lane = LiveNumbersOf(hit.TargetId),
             };
@@ -512,9 +566,9 @@ namespace Adapter.Unity.LabHost
 
             // 命中火花（按冲击等级放缩）、倒地/击退尘土、重击与击杀冲击波环。
             var scale = ScaleOf(hit.ImpactClass) * (hit.IsKill ? 1.4f : 1.0f);
-            var contact = new Vector2((float)hit.ContactPoint.X, (float)hit.ContactPoint.Y) + new Vector2(0f, 0.45f);
+            var contact = _projection.Lift(new Vector2((float)hit.ContactPoint.X, (float)hit.ContactPoint.Y), 0.45f);
             var order = UnitsLayerBase + 400;
-            if (_fx.Spawn(SparkFx, contact, (tick * 47) % 360, scale, Color.white, order))
+            if (_fx.Spawn(SparkFx, contact, _projection.Facing((tick * 47) % 360), scale, Color.white, order))
             {
                 Model.SparksSpawned++;
             }
@@ -522,7 +576,8 @@ namespace Adapter.Unity.LabHost
             if (hit.Reaction == HitReaction.Knockback || hit.Reaction == HitReaction.Knockdown || hit.IsKill)
             {
                 var dir = new Vector2((float)hit.WorldDirection.X, (float)hit.WorldDirection.Y);
-                if (_fx.Spawn(DustFx, targetPos + dir * 0.15f, 0f, 0.9f, new Color(1f, 1f, 1f, 0.9f), UnitsLayerBase + 300))
+                var dustAt = targetPos + dir * 0.15f;
+                if (_fx.Spawn(DustFx, new Vector3(dustAt.x, dustAt.y, 0f), _projection.Facing(0f), 0.9f, new Color(1f, 1f, 1f, 0.9f), UnitsLayerBase + 300))
                 {
                     Model.DustSpawned++;
                 }
@@ -530,7 +585,8 @@ namespace Adapter.Unity.LabHost
 
             if (hit.Reaction == HitReaction.Knockdown || hit.IsKill || string.Equals(hit.ImpactClass, "heavy", StringComparison.Ordinal) || string.Equals(hit.ImpactClass, "massive", StringComparison.Ordinal))
             {
-                if (_fx.Spawn(RingFx, targetPos, 0f, 0.8f, Color.white, UnitsLayerBase - (int)Math.Round(targetPos.y) - 1))
+                // 冲击波环躺在地面上（2.5D 下是透视里的椭圆，不立起来）。
+                if (_fx.Spawn(RingFx, new Vector3(targetPos.x, targetPos.y, 0f), ShowcaseProjection.Flat(0f), 0.8f, Color.white, UnitsLayerBase - (int)Math.Round(targetPos.y) - 1))
                 {
                     Model.RingsSpawned++;
                 }
@@ -584,11 +640,11 @@ namespace Adapter.Unity.LabHost
 
             var facing = e.Facing;
             var dir = new Vector2((float)Math.Cos(facing), (float)Math.Sin(facing));
-            var pos = new Vector2((float)e.Position.X, (float)e.Position.Y) + dir * 0.35f + new Vector2(0f, 0.4f);
+            var pos = _projection.Lift(new Vector2((float)e.Position.X, (float)e.Position.Y) + dir * 0.35f, 0.4f);
             var isPlayer = entity.Equals(_ctx.PlayerId);
             var tint = isPlayer ? Color.white : new Color(1f, 0.55f, 0.4f, 1f);
             var scale = isPlayer ? 1.0f : 1.5f;
-            if (_fx.Spawn(SlashFx, pos, (float)(facing * 180.0 / Math.PI), scale, tint, UnitsLayerBase + 350))
+            if (_fx.Spawn(SlashFx, pos, _projection.Facing(_projection.ScreenAngleDegrees(facing)), scale, tint, UnitsLayerBase + 350))
             {
                 Model.SlashesSpawned++;
             }
