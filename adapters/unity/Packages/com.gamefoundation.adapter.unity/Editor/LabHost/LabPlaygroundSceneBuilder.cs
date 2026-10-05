@@ -74,10 +74,35 @@ namespace Adapter.Unity.LabHost.Editor
             EditorSceneManager.SaveScene(scene, ShowcaseScenePath);
             AssetDatabase.ImportAsset(ShowcaseScenePath, ImportAssetOptions.ForceSynchronousImport);
             Debug.Log("[LabPlaygroundSceneBuilder] showcase scene generated: " + ShowcaseScenePath);
+            BuildShowcase3d();
         }
 
         [MenuItem("GameFoundation/手感试玩/打开演示场景 2D（真实美术）")]
         public static void OpenShowcase() => EditorSceneManager.OpenScene(ShowcaseScenePath);
+
+        // 判断记录（3D 演示场景，ADR-0158）：同样是薄场景——格子 3d_action、演示开关打开；3D 追加的数据根（data/_showcase_3d）由 LabPlayground 按格子名并入，
+        // 模型预制体由包内编辑器工具 ModelPackBuilder 在编辑器加载时装配（见该类型），场景文件里不放任何内容。重建演示场景入口会连这个一起重建。
+        public static string Showcase3dScenePath => SceneDir + "/LabShowcase_3d_action.unity";
+
+        public static void BuildShowcase3d()
+        {
+            var projectRoot = Directory.GetParent(Application.dataPath)!.FullName;
+            Directory.CreateDirectory(Path.Combine(projectRoot, SceneDir.Replace('/', Path.DirectorySeparatorChar)));
+            AssetDatabase.Refresh();
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var go = new GameObject("LabShowcase_3d_action");
+            var playground = go.AddComponent<LabPlayground>();
+            var so = new SerializedObject(playground);
+            so.FindProperty("cell").stringValue = "3d_action";
+            so.FindProperty("showcase").boolValue = true;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            EditorSceneManager.SaveScene(scene, Showcase3dScenePath);
+            AssetDatabase.ImportAsset(Showcase3dScenePath, ImportAssetOptions.ForceSynchronousImport);
+            Debug.Log("[LabPlaygroundSceneBuilder] 3D showcase scene generated: " + Showcase3dScenePath);
+        }
+
+        [MenuItem("GameFoundation/手感试玩/打开演示场景 3D（真实美术）")]
+        public static void OpenShowcase3d() => EditorSceneManager.OpenScene(Showcase3dScenePath);
 
         [MenuItem("GameFoundation/手感试玩/打开试玩场景 2D（俯视精灵）")]
         public static void Open2D() => EditorSceneManager.OpenScene(ScenePath("2d_action"));

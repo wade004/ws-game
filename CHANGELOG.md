@@ -460,6 +460,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **手感演示场景 3D 版（[ADR-0158](architecture/adr/0158-手感演示场景3D版真实模型与模型包装配.md)，纯加法）**：①新增场景 `LabShowcase_3d_action` 与菜单 `GameFoundation → 手感试玩 → 打开演示场景 3D（真实美术）`；`重建演示场景`一并重建。②与原 3D 试玩场景同一逻辑会话（逻辑指纹逐字节相等），英雄/杂兵/精英/木桩是四个不同的 Quaternius RPG Character Pack（CC0）骨骼角色，经框架模型管线（`DisplayInfo(kind=Model)`、`display.anim_set` 行带命中帧事件）渲染；地面石砖贴图平面，道具与特效广告牌，HUD 沿用 reference_fantasy 皮肤。③新增内部类 `ModelGroundUpright`（预制体直立站姿）、编辑器工具 `ModelPackBuilder`（模型包确定性装配，结果不入库）、着色器 `GameFoundation/Showcase/ModelLit`；`ShowcaseProjection` 增"物理上方"模式（引入自并行的 2.5D 分支，合并时同一文件）；`UnityRenderer3D` 的假阴影贴图改为柔边圆；`build.ps1 Sync-ContentTree` 新增 `-PreserveExtensions`。④包里缺击退/击倒/起身/闪避剪辑，取最近剪辑并登记限制（ADR-0158）。新增 PlayMode 用例 `Showcase3dTests`（15 条）与 `toolchain/tests/test_showcase3d_assets.py`（6 条）。
+
 ## [1.99.0] - 2026-10-05
 
 ### 新增

@@ -80,6 +80,7 @@ namespace Adapter.Unity.LabHost
         private IDisplayInfoRegistry? _display;
         private ShowcaseDisplayRegistry? _showcaseDisplay;
         private ShowcaseDirector? _showcase;
+        private ShowcaseProjection? _projection;
         private bool _broken;
         private bool _disposed;
         private int _eventCursor;
@@ -99,7 +100,7 @@ namespace Adapter.Unity.LabHost
 
         private sealed class FlashFx
         {
-            public UnitySpriteView View = null!;
+            public Action Clear = null!;
             public double Remaining;
         }
 
@@ -419,7 +420,7 @@ namespace Adapter.Unity.LabHost
             if (_options.Showcase)
             {
                 // 演示场景（ADR-0154）：只换呈现——外形登记按单位种类给真实美术外形，武器风格行换成演示用的一行；逻辑一概不动。
-                _showcaseDisplay = new ShowcaseDisplayRegistry(ctx.DisplayInfo);
+                _showcaseDisplay = new ShowcaseDisplayRegistry(ctx.DisplayInfo, model: string.Equals(ctx.Cell.Form, "model", StringComparison.Ordinal));
                 _display = _showcaseDisplay;
             }
             else
@@ -491,7 +492,10 @@ namespace Adapter.Unity.LabHost
             {
                 if (_options.Showcase)
                 {
-                    _showcase = new ShowcaseDirector(_root.transform, _options.IsolationLayer, _loader, ctx, ShowcaseFlash);
+                    // 固定俯角相机（格子相机模式 fixed_pitch 且选项按格子取用）= 道具与特效摆成与相机平行的直立广告牌，地面与阴影仍躺在地上；
+                    // 模型型格子（3D，ADR-0158）的角色是真实三维模型，"向上"取世界 -Z（physicalUp），头顶/飘字/特效抬高据此换算。
+                    _projection = new ShowcaseProjection(_camera, _unityCamera.ApplyPitch, physicalUp: string.Equals(ctx.Cell.Form, "model", StringComparison.Ordinal));
+                    _showcase = new ShowcaseDirector(_root.transform, _options.IsolationLayer, _loader, ctx, ShowcaseFlash, _projection);
                     _showcase.BuildScene(ctx);
                 }
                 else
@@ -816,6 +820,32 @@ namespace Adapter.Unity.LabHost
             return list;
         }
 
+        /// <summary>每个模型单位当前的锚点根与是否仍是占位模型（测试用：核对每个实体恰有一个可见模型、没有回退到占位）。</summary>
+        public List<(Id Entity, GameObject Root, bool Placeholder)> RenderedModels()
+        {
+            var list = new List<(Id Entity, GameObject Root, bool Placeholder)>();
+            if (_r3d == null)
+            {
+                return list;
+            }
+
+            foreach (var pair in _entries)
+            {
+                if (!(pair.Value.View is UnityModelView mv))
+                {
+                    continue;
+                }
+
+                var root = _r3d.GetModelRoot(mv.EngineHandle);
+                if (root != null)
+                {
+                    list.Add((pair.Key, root, _r3d.IsShowingPlaceholder(mv.EngineHandle)));
+                }
+            }
+
+            return list;
+        }
+
         /// <summary>演示场景导演的受击闪白：同样受试玩面板的"闪白"效果开关管（关 = 不闪）。</summary>
         private void ShowcaseFlash(Id entityId)
         {
@@ -827,14 +857,31 @@ namespace Adapter.Unity.LabHost
 
         private void OnFlash(Id entityId)
         {
-            if (!_options.Interactive || !_entries.TryGetValue(entityId, out var entry) || !(entry.View is UnitySpriteView sprite))
+            if (!_options.Interactive || !_entries.TryGetValue(entityId, out var entry))
+            {
+                return;
+            }
+
+            if (entry.View is UnityModelView model && _r3d != null)
+            {
+                // 模型型外形（ADR-0158）：经框架 3D 渲染器的命名材质参数广播闪白（IRenderer3D.SetMaterialParam，与精灵的 flash_intensity 同名同义），
+                // 由模型包着色器消费；与精灵一样 0.15 秒后复原。
+                var handle = model.EngineHandle;
+                var renderer3d = _r3d;
+                renderer3d.SetMaterialParam(handle, UnitySpriteView.FlashIntensityShaderParam, 1.0);
+                FlashesApplied++;
+                _flashFx.Add(new FlashFx { Clear = () => renderer3d.SetMaterialParam(handle, UnitySpriteView.FlashIntensityShaderParam, 0.0), Remaining = 0.15 });
+                return;
+            }
+
+            if (!(entry.View is UnitySpriteView sprite))
             {
                 return;
             }
 
             sprite.SetFlash(1.0);
             FlashesApplied++;
-            _flashFx.Add(new FlashFx { View = sprite, Remaining = 0.15 });
+            _flashFx.Add(new FlashFx { Clear = sprite.ClearFlash, Remaining = 0.15 });
         }
 
         /// <summary>
@@ -1280,7 +1327,7 @@ namespace Adapter.Unity.LabHost
                     {
                         try
                         {
-                            fx.View.ClearFlash();
+                            fx.Clear();
                         }
                         catch (Exception)
                         {
@@ -1383,6 +1430,8 @@ namespace Adapter.Unity.LabHost
                 return;
             }
 
+            // 模型型外形（ADR-0158）：出手动画的命中帧关键帧到达就是挥砍拖影的出手点（精灵一侧在自己的关键帧回调里做同一件事）。
+            _showcase?.OnSwing(entity);
             EnqueueEngineHit(entity);
         }
 

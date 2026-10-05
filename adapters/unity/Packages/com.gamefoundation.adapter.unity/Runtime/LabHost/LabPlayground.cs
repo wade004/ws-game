@@ -43,6 +43,9 @@ namespace Adapter.Unity.LabHost
         /// <summary>演示场景的数据根（只含外形表：动画集与武器风格行；不含任何逻辑表）。</summary>
         public const string ShowcaseDataRoot = "data/_showcase";
 
+        /// <summary>3D 演示场景追加的数据根（ADR-0158；同样只含外形表：模型型的动画集与武器风格行）。</summary>
+        public const string Showcase3dDataRoot = "data/_showcase_3d";
+
         /// <summary>演示场景（ADR-0154）：同一套逻辑与手感运行时，换真实美术呈现 + 游戏内 HUD，调试面板缺省收起。</summary>
         [SerializeField] private bool showcase;
 
@@ -174,6 +177,12 @@ namespace Adapter.Unity.LabHost
                 if (showcase && !roots.Contains(ShowcaseDataRoot))
                 {
                     roots.Add(ShowcaseDataRoot);
+                }
+
+                if (showcase && cell.StartsWith("3d_", StringComparison.Ordinal) && !roots.Contains(Showcase3dDataRoot))
+                {
+                    // 3D 演示场景（ADR-0158）：模型型外形的动画集与武器风格行（真实骨骼剪辑），格子名以 3d_ 开头的才并入。
+                    roots.Add(Showcase3dDataRoot);
                 }
 
                 var script = LabLive.CreateScript("playground_" + cell + "_" + stamp, 60, 60, roots, dummySet);

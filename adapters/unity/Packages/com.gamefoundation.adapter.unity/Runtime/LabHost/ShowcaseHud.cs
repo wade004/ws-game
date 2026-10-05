@@ -63,6 +63,9 @@ namespace Adapter.Unity.LabHost
 
         public bool UsesPlaceholderSkin => _pack == null || _pack.IsPlaceholder || _pack.RefInvalid || !_pack.PackDirectoryExists;
 
+        /// <summary>HUD 实际加载的皮肤引用（测试用：演示场景两个格子都应是参考皮肤）。</summary>
+        public string LoadedSkinRef => _pack == null ? string.Empty : _pack.SkinRef;
+
         public static ShowcaseHud Create(EngineLabStage stage, Transform parent)
         {
             var go = new GameObject("ShowcaseHud");
@@ -309,7 +312,7 @@ namespace Adapter.Unity.LabHost
                 }
 
                 shown++;
-                var head = ToCanvas(new Vector3(e!.Value.x, e.Value.y + director.HeadHeightOf(pair.Key) + 0.1f, 0f));
+                var head = ToCanvas(director.Lift(e!.Value, director.HeadHeightOf(pair.Key) + 0.1f));
                 view.Root.anchoredPosition = head;
                 view.Fill.fillAmount = (float)bar.Fraction;
                 view.Name.text = bar.Label;
@@ -349,7 +352,7 @@ namespace Adapter.Unity.LabHost
                 label.gameObject.SetActive(true);
                 var t = (float)n.Age;
                 var rise = Mathf.Min(1f, t * 3f);
-                var p = ToCanvas(new Vector3((float)n.WorldPos.X, (float)n.WorldPos.Y, 0f)) + new Vector2(((lane % 3) - 1) * 56f, NumberBaseLift + 80f * rise + 22f * lane);
+                var p = ToCanvas(director.Lift(new Vector2((float)n.WorldPos.X, (float)n.WorldPos.Y), n.Height)) +new Vector2(((lane % 3) - 1) * 56f, NumberBaseLift + 80f * rise + 22f * lane);
                 label.rectTransform.anchoredPosition = p;
                 label.text = n.Text;
                 label.fontSize = n.IsCrit ? 66 : (n.ImpactClass == "heavy" || n.ImpactClass == "massive" ? 54 : 42);

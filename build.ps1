@@ -1148,6 +1148,8 @@ $StreamingAssetsRoot = Join-Path $RepoRoot "adapters\unity\Assets\StreamingAsset
 # 删除哪些残留文件）取全部源目录相对路径的并集；多个源目录出现同名相对路径时，按数组顺序
 # 后列源目录覆盖前者（内容以后列为准）并打印警告——调用方按"优先级从低到高"的顺序传入。
 # 单个源目录不存在时照旧跳过它（不影响其余源目录正常同步）；全部源目录都不存在则整体跳过。
+# $PreserveExtensions（可选，ADR-0158）：镜像删除时放过指定扩展名的目标文件（Unity 为导入资产生成的 .meta，
+# 删了会让下次导入换 guid、使引用它的生成资产失联）；默认空数组，不改变其它调用方行为。
 # $ExcludeExtensions（可选）：跳过指定扩展名的源文件，不拷贝进目标目录；目标目录里若已存在
 # 同名残留文件仍会按下方"镜像删除"逻辑清掉（因为它们不在 keepRelative 里）。默认空数组，不改变
 # 其它调用方行为。
@@ -1164,7 +1166,8 @@ function Sync-ContentTree {
     param(
         [string[]]$SourceDirs,
         [string]$DestDir,
-        [string[]]$ExcludeExtensions = @()
+        [string[]]$ExcludeExtensions = @(),
+        [string[]]$PreserveExtensions = @()
     )
 
     $resolvedSources = @()
@@ -1210,6 +1213,9 @@ function Sync-ContentTree {
         $destFiles = Get-ChildItem -Path $resolvedDest -Recurse -File
         foreach ($destFile in $destFiles) {
             $relative = $destFile.FullName.Substring($resolvedDest.Length).TrimStart('\', '/')
+            if ($PreserveExtensions -contains $destFile.Extension) {
+                continue
+            }
             if (-not $keepRelative.Contains($relative)) {
                 Remove-Item -Path $destFile.FullName -Force
                 $removed++
@@ -1274,6 +1280,14 @@ foreach ($mapping in $resourceLayoutMap.mappings) {
     $mappingSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot ("assets\_placeholder\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_sample\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_showcase\" + $sourceSubdir))) -DestDir (Join-Path $StreamingAssetsRoot $targetSubdir)
     Write-Host ("  assets/_placeholder/{0} + assets/_sample/{0} -> StreamingAssets/GameFoundation/{1}（加载器路径规则，见 toolchain/resource_layout_map.json）：共 {2} 个文件，拷贝 {3}，跳过 {4}，删除 {5}" -f $sourceSubdir, $targetSubdir, $mappingSyncResult.Total, $mappingSyncResult.Copied, $mappingSyncResult.Skipped, $mappingSyncResult.Removed)
 }
+
+# 3D 演示场景的模型包（assets/_showcase/models：FBX + 贴图 + 着色器 + 规格 JSON，ADR-0158）：同步进 Unity 工程的忽略目录
+# Assets/Showcase3dArt/Source，由包内编辑器工具 ModelPackBuilder 在编辑器加载时装配成预制体/控制器/剪辑（产物同样不入库）。
+# 这棵树是 Unity 导入根，所以保留 .meta（PreserveExtensions），避免每次同步都让导入 guid 变化。
+$showcase3dSourceDir = Join-Path $RepoRoot "assets\_showcase\models"
+$showcase3dDestDir = Join-Path $RepoRoot "adapters\unity\Assets\Showcase3dArt\Source"
+$showcase3dSyncResult = Sync-ContentTree -SourceDirs @($showcase3dSourceDir) -DestDir $showcase3dDestDir -PreserveExtensions @('.meta')
+Write-Host ("  assets/_showcase/models -> Assets/Showcase3dArt/Source（模型包导入根，.meta 保留）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $showcase3dSyncResult.Total, $showcase3dSyncResult.Copied, $showcase3dSyncResult.Skipped, $showcase3dSyncResult.Removed)
 
 $totalContentFiles = (Get-ChildItem -Path $StreamingAssetsRoot -Recurse -File -ErrorAction SilentlyContinue).Count
 Write-Host ("StreamingAssets/GameFoundation/ 下文件总数（含以上五棵树的并集，sprites/audio/vfx 与 assets/_placeholder 下同名文件各自独立计数）：{0}" -f $totalContentFiles)

@@ -1,0 +1,373 @@
+{
+  "schema": "gf.model_pack.v1",
+  "pack": "Quaternius RPG Character Pack (CC0)",
+  "shader": "ShowcaseModelLit.shader",
+  "limitations": [
+    "包里没有击退专用剪辑：hit.knockback 取重受击（hero/grunt：RecieveHit_2；brute/dummy：RecieveHit_Attacking）。",
+    "包里没有击倒与起身剪辑：hit.knockdown 取死亡倒地剪辑（Death，不循环，停在倒地姿势），hit.getup 取同一份死亡剪辑的确定性倒放（编辑器侧派生，不改包内文件）。",
+    "包里没有闪避剪辑：dodge 取翻滚（Roll）。木桩（Monk）不声明闪避。",
+    "包里只有两种挥剑（Sword_AttackFast / Sword_Attack）：连招第三段与重击、蓄力取 Sword_Attack，三个技能各有独立剪辑 id 但画面相同。",
+    "冲刺（move.sprint）与奔跑共用同一份跑步剪辑；包里没有受伤姿态与持械变体，idle.combat 取各角色自带的战斗待机。",
+    "模型没有专门的击杀倒地后淡出：死亡剪辑停在最后一帧，尸体由逻辑清场移除。"
+  ],
+  "models": [
+    {
+      "id": "show3d_hero",
+      "fbx": "quaternius_rpg/Warrior.fbx",
+      "target_height": 1.7,
+      "yaw_offset_degrees": 90.0,
+      "upright": true,
+      "materials": [
+        {
+          "name": "Warrior_Texture",
+          "texture": "quaternius_rpg/Warrior_Texture.png"
+        },
+        {
+          "name": "Warrior_Sword_Texture",
+          "texture": "quaternius_rpg/Warrior_Sword_Texture.png"
+        }
+      ],
+      "default_clip": "show3d_hero_idle",
+      "clips": [
+        {
+          "id": "show3d_hero_idle",
+          "source": "CharacterArmature|Idle_Weapon",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_idle_combat",
+          "source": "CharacterArmature|Idle_Attacking",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_walk",
+          "source": "CharacterArmature|Walk",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_run",
+          "source": "CharacterArmature|Run_Weapon",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_combo1",
+          "source": "CharacterArmature|Sword_AttackFast",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_combo2",
+          "source": "CharacterArmature|Sword_Attack",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_combo3",
+          "source": "CharacterArmature|Sword_Attack",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_slam",
+          "source": "CharacterArmature|Sword_Attack",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_charge",
+          "source": "CharacterArmature|Sword_Attack",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_lunge",
+          "source": "CharacterArmature|Sword_AttackFast",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_jab",
+          "source": "CharacterArmature|Punch",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_hit_light",
+          "source": "CharacterArmature|RecieveHit",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_hit_heavy",
+          "source": "CharacterArmature|RecieveHit_2",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_knockback",
+          "source": "CharacterArmature|RecieveHit_2",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_knockdown",
+          "source": "CharacterArmature|Death",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_getup",
+          "source": "CharacterArmature|Death",
+          "loop": false,
+          "reverse": true
+        },
+        {
+          "id": "show3d_hero_death",
+          "source": "CharacterArmature|Death",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_hero_dodge",
+          "source": "CharacterArmature|Roll",
+          "loop": false,
+          "reverse": false
+        }
+      ]
+    },
+    {
+      "id": "show3d_grunt",
+      "fbx": "quaternius_rpg/Rogue.fbx",
+      "target_height": 1.4,
+      "yaw_offset_degrees": 90.0,
+      "upright": true,
+      "materials": [
+        {
+          "name": "Rogue_Texture",
+          "texture": "quaternius_rpg/Rogue_Texture.png"
+        },
+        {
+          "name": "Rogue_Dagger_Texture",
+          "texture": "quaternius_rpg/Rogue_Dagger_Texture.png"
+        }
+      ],
+      "default_clip": "show3d_grunt_idle",
+      "clips": [
+        {
+          "id": "show3d_grunt_idle",
+          "source": "CharacterArmature|Idle",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_grunt_idle_combat",
+          "source": "CharacterArmature|Attacking_Idle",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_grunt_walk",
+          "source": "CharacterArmature|Walk",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_grunt_run",
+          "source": "CharacterArmature|Run",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_grunt_stab",
+          "source": "CharacterArmature|Dagger_Attack",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_grunt_stab2",
+          "source": "CharacterArmature|Dagger_Attack2",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_grunt_hit_light",
+          "source": "CharacterArmature|RecieveHit",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_grunt_hit_heavy",
+          "source": "CharacterArmature|RecieveHit_2",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_grunt_knockback",
+          "source": "CharacterArmature|RecieveHit_2",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_grunt_knockdown",
+          "source": "CharacterArmature|Death",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_grunt_getup",
+          "source": "CharacterArmature|Death",
+          "loop": false,
+          "reverse": true
+        },
+        {
+          "id": "show3d_grunt_death",
+          "source": "CharacterArmature|Death",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_grunt_dodge",
+          "source": "CharacterArmature|Roll",
+          "loop": false,
+          "reverse": false
+        }
+      ]
+    },
+    {
+      "id": "show3d_brute",
+      "fbx": "quaternius_rpg/Cleric.fbx",
+      "target_height": 2.05,
+      "yaw_offset_degrees": 90.0,
+      "upright": true,
+      "materials": [
+        {
+          "name": "Cleric_Texture",
+          "texture": "quaternius_rpg/Cleric_Texture.png"
+        },
+        {
+          "name": "Cleric_Staff_Texture",
+          "texture": "quaternius_rpg/Cleric_Staff_Texture.png"
+        }
+      ],
+      "default_clip": "show3d_brute_idle",
+      "clips": [
+        {
+          "id": "show3d_brute_idle",
+          "source": "CharacterArmature|Idle_Weapon",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_brute_idle_combat",
+          "source": "CharacterArmature|Attack_Idle",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_brute_walk",
+          "source": "CharacterArmature|Walk",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_brute_run",
+          "source": "CharacterArmature|Run_Weapon",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_brute_swing",
+          "source": "CharacterArmature|Staff_Attack",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_brute_hit_light",
+          "source": "CharacterArmature|RecieveHit",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_brute_hit_heavy",
+          "source": "CharacterArmature|RecieveHit_Attacking",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_brute_knockback",
+          "source": "CharacterArmature|RecieveHit_Attacking",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_brute_knockdown",
+          "source": "CharacterArmature|Death",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_brute_getup",
+          "source": "CharacterArmature|Death",
+          "loop": false,
+          "reverse": true
+        },
+        {
+          "id": "show3d_brute_death",
+          "source": "CharacterArmature|Death",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_brute_dodge",
+          "source": "CharacterArmature|Roll",
+          "loop": false,
+          "reverse": false
+        }
+      ]
+    },
+    {
+      "id": "show3d_dummy",
+      "fbx": "quaternius_rpg/Monk.fbx",
+      "target_height": 1.6,
+      "yaw_offset_degrees": 90.0,
+      "upright": true,
+      "materials": [
+        {
+          "name": "Monk_Texture",
+          "texture": "quaternius_rpg/Monk_Texture.png"
+        }
+      ],
+      "default_clip": "show3d_dummy_idle",
+      "clips": [
+        {
+          "id": "show3d_dummy_idle",
+          "source": "CharacterArmature|Idle",
+          "loop": true,
+          "reverse": false
+        },
+        {
+          "id": "show3d_dummy_hit_light",
+          "source": "CharacterArmature|RecieveHit",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_dummy_hit_heavy",
+          "source": "CharacterArmature|RecieveHit_Attacking",
+          "loop": false,
+          "reverse": false
+        },
+        {
+          "id": "show3d_dummy_death",
+          "source": "CharacterArmature|Death",
+          "loop": false,
+          "reverse": false
+        }
+      ]
+    }
+  ]
+}

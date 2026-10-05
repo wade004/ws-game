@@ -1272,12 +1272,54 @@ namespace Adapter.Unity.EngineAdapter
                 blobRenderer.shadowCastingMode = ShadowCastingMode.Off;
                 blobRenderer.receiveShadows = false;
                 var material = new Material(Shader.Find("Sprites/Default")) { color = new Color(0f, 0f, 0f, 0.5f) };
+                material.mainTexture = GetBlobTexture();
                 blobRenderer.material = material;
 
                 instance.BlobShadow = blob;
             }
 
             ApplyBlobShadowTransform(instance);
+        }
+
+        private static Texture2D? s_blobTexture;
+
+        /// <summary>
+        /// 判断记录（ADR-0158，影子成形）：Blob 影子此前是一块没有贴图的半透明黑色方片，在真实美术的地面上看起来是个方块。
+        /// 现在给它一张共享的软边圆形遮罩贴图（白色、径向渐变的透明度），颜色/整体透明度仍由材质的黑色半透明色决定，
+        /// 位置、朝向与缩放规则不变（"圆形阴影"本来就是 Blob 的设计意图，见类型顶部判断记录）。
+        /// </summary>
+        private static Texture2D GetBlobTexture()
+        {
+            if (s_blobTexture != null)
+            {
+                return s_blobTexture;
+            }
+
+            const int size = 64;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                name = "BlobShadowMask",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+            var pixels = new Color32[size * size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var dx = (x + 0.5f) / size * 2f - 1f;
+                    var dy = (y + 0.5f) / size * 2f - 1f;
+                    var d = Mathf.Sqrt(dx * dx + dy * dy);
+                    var a = Mathf.Clamp01((1f - d) / 0.45f); // 外圈 45% 软边渐隐
+                    pixels[y * size + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(a * a * (3f - 2f * a) * 255f));
+                }
+            }
+
+            texture.SetPixels32(pixels);
+            texture.Apply(false);
+            s_blobTexture = texture;
+            return texture;
         }
 
         /// <summary>PR140-01 根治新增：Blob 沿世界 Z 轴的微小偏移量，理由见
