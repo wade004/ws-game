@@ -300,6 +300,8 @@ namespace Adapter.Unity.Tests.LabHost
             Assert.IsFalse(pg.Model.PanelVisible, "演示场景调试面板缺省收起");
             Assert.IsNotNull(pg.Hud);
             Assert.IsTrue(pg.Hud!.Built);
+            Assert.AreEqual(ShowcaseHud.SkinRef, pg.Hud.LoadedSkinRef, "HUD 用参考皮肤");
+            Assert.IsFalse(pg.Hud.UsesPlaceholderSkin, "构建同步应把参考皮肤包放进工作台资源根（缺同步时 HUD 会悄悄退回占位皮肤，这里必须红）");
             var m = pg.Stage!.Showcase!.Model;
             Assert.AreEqual(4, m.Slots.Length);
             Assert.IsTrue(m.StaminaIsPresentationOnly);

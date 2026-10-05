@@ -30,7 +30,6 @@ namespace Adapter.Unity.Tests.LabHost
         private Adapters.Stub.StubInput? _input;
         private string _saveDir = string.Empty;
         private readonly List<string> _warnings = new List<string>();
-        private string _installedPack = string.Empty;
 
         [SetUp]
         public void SetUp()
@@ -38,7 +37,6 @@ namespace Adapter.Unity.Tests.LabHost
             _saveDir = Path.Combine(Path.GetTempPath(), "lab_showcase3d_test_" + Guid.NewGuid().ToString("N"));
             _warnings.Clear();
             Application.logMessageReceived += OnLog;
-            InstallReferencePack();
         }
 
         [TearDown]
@@ -46,57 +44,9 @@ namespace Adapter.Unity.Tests.LabHost
         {
             Application.logMessageReceived -= OnLog;
             Dispose();
-            if (_installedPack.Length > 0)
-            {
-                // 还原：只删本用例临时放进工作台资源根的皮肤包目录（及其 .meta），工作台本来就没有它。
-                if (Directory.Exists(_installedPack))
-                {
-                    Directory.Delete(_installedPack, true);
-                }
-
-                if (File.Exists(_installedPack + ".meta"))
-                {
-                    File.Delete(_installedPack + ".meta");
-                }
-
-                _installedPack = string.Empty;
-            }
-
             if (Directory.Exists(_saveDir))
             {
                 Directory.Delete(_saveDir, true);
-            }
-        }
-
-        /// <summary>
-        /// 把参考皮肤包（assets/_reference_fantasy）临时放进工作台资源根的 ui/skin/ 下：构建同步不把参考包同步进工作台（它属于皮肤用例自己的夹具），
-        /// 缺省工作台里演示场景 HUD 的皮肤引用解析到的目录不存在、框架回退链退回占位皮肤；这里让包在场，再断言 HUD 真的用它（做法同 2.5D 演示用例）。
-        /// </summary>
-        private void InstallReferencePack()
-        {
-            var source = Path.Combine(SkinTestKit.RepoRoot, "assets", "_reference_fantasy", "ui", "skin", "reference_fantasy");
-            Assert.IsTrue(Directory.Exists(source), "缺参考皮肤包 " + source);
-            var dest = Path.Combine(Application.streamingAssetsPath, "GameFoundation", "ui", "skin", "reference_fantasy");
-            if (Directory.Exists(dest))
-            {
-                return;
-            }
-
-            CopyDirectory(source, dest);
-            _installedPack = dest;
-        }
-
-        private static void CopyDirectory(string from, string to)
-        {
-            Directory.CreateDirectory(to);
-            foreach (var file in Directory.GetFiles(from))
-            {
-                File.Copy(file, Path.Combine(to, Path.GetFileName(file)), true);
-            }
-
-            foreach (var dir in Directory.GetDirectories(from))
-            {
-                CopyDirectory(dir, Path.Combine(to, Path.GetFileName(dir)));
             }
         }
 
@@ -570,7 +520,7 @@ namespace Adapter.Unity.Tests.LabHost
             Assert.IsTrue(pg.Hud!.Built);
             Assert.AreEqual(ShowcaseHud.SkinRef, "skin.reference_fantasy");
             Assert.AreEqual(ShowcaseHud.SkinRef, pg.Hud.LoadedSkinRef, "HUD 用参考皮肤");
-            Assert.IsFalse(pg.Hud.UsesPlaceholderSkin, "参考皮肤包在场时 HUD 不回落占位皮肤");
+            Assert.IsFalse(pg.Hud.UsesPlaceholderSkin, "构建同步应把参考皮肤包放进工作台资源根（缺同步时 HUD 会悄悄退回占位皮肤，这里必须红）");
             Assert.IsFalse(pg.Model.PanelVisible, "演示场景调试面板缺省收起");
             var m = pg.Stage!.Showcase!.Model;
             Assert.AreEqual(4, m.Slots.Length);

@@ -1319,7 +1319,15 @@ $resourceLayoutMap = (Get-Content -Path $resourceLayoutMapPath -Raw -Encoding UT
 foreach ($mapping in $resourceLayoutMap.mappings) {
     $sourceSubdir = $mapping.source
     $targetSubdir = $mapping.target
-    $mappingSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot ("assets\_placeholder\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_sample\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_showcase\" + $sourceSubdir))) -DestDir (Join-Path $StreamingAssetsRoot $targetSubdir)
+    $mappingSourceDirs = @((Join-Path $RepoRoot ("assets\_placeholder\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_sample\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_showcase\" + $sourceSubdir)))
+    # 参考界面皮肤包（assets/_reference_fantasy/ui/skin/reference_fantasy，ADR-0152、ADR-0154）：演示场景的 HUD 引用 skin.reference_fantasy，
+    # 皮肤包只按 StreamingAssets/GameFoundation/ui/skin/<名>/ 读取；此前构建同步不放它，普通检出里演示场景 HUD 悄悄退回占位皮肤、
+    # 只有测试临时拷贝时才看得到真皮肤。现在只同步 ui 这一棵（皮肤包本身）进工作台（不进 dist、不进发布打包，ADR-0152 决策 1 的"不进发布"口径不变）；
+    # 参考包的 icons、sprites 不并入（同名物品会覆盖占位美术，皮肤用例自己在临时根里叠放它们）。
+    if ($sourceSubdir -eq "ui") {
+        $mappingSourceDirs += (Join-Path $RepoRoot "assets\_reference_fantasy\ui")
+    }
+    $mappingSyncResult = Sync-ContentTree -SourceDirs $mappingSourceDirs -DestDir (Join-Path $StreamingAssetsRoot $targetSubdir)
     Write-Host ("  assets/_placeholder/{0} + assets/_sample/{0} -> StreamingAssets/GameFoundation/{1}（加载器路径规则，见 toolchain/resource_layout_map.json）：共 {2} 个文件，拷贝 {3}，跳过 {4}，删除 {5}" -f $sourceSubdir, $targetSubdir, $mappingSyncResult.Total, $mappingSyncResult.Copied, $mappingSyncResult.Skipped, $mappingSyncResult.Removed)
 }
 

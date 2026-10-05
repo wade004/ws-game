@@ -2,7 +2,7 @@
 // ShowcaseHud：演示场景（ADR-0154）的游戏内 HUD——玩家生命/体力条、敌人头顶血条、伤害飘字、技能栏（含扫光）、连击计数。
 //
 // 判断记录（走框架 UI + 皮肤契约）：HUD 全部是运行期 uGUI（UiWidgets 造控件、UiSkin 取色/字体/九宫格），技能栏槽位框走皮肤包的槽位框契约
-// （UiSkinPack.SlotFrameDefault）；皮肤包引用 skin.reference_fantasy，目录不存在时框架的回退链自动退回占位皮肤（本分支不带皮肤包，也不复制）。
+// （UiSkinPack.SlotFrameDefault）；皮肤包引用 skin.reference_fantasy，目录不存在时框架的回退链自动退回占位皮肤；构建同步（build.ps1 内容同步，只进工作台、不进 dist）把参考皮肤包放进资源根的 ui/skin/ 下，所以普通检出里 HUD 用的是真皮肤（演示场景用例断言 UsesPlaceholderSkin 为假，缺同步即红）。
 // 判断记录（只读读模型）：HUD 只读 ShowcaseHudModel（由 ShowcaseDirector 从逻辑事件推演），不读也不写逻辑世界。
 // 判断记录（定位）：飘字与头顶血条按舞台相机把世界坐标投到屏幕再换算到画布坐标；画布是屏幕空间叠加，随屏幕尺寸缩放（参考 1920x1080）。
 using System;
