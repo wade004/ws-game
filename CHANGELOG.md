@@ -463,6 +463,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 ### 新增
 
 - **手感演示场景 2.5D 版（[ADR-0157](architecture/adr/0157-手感演示场景2.5D版固定俯角下的直立广告牌表现.md)，纯加法）**：①新增场景 `LabShowcase_2_5d_action` 与菜单 `GameFoundation → 手感试玩 → 打开演示场景 2.5D（真实美术）`；`重建演示场景`与 `LabPlaygroundSceneBuilder.BuildAll` 一次生成 2D 与 2.5D 两个演示场景。②与原 2.5D 试玩场景同一逻辑会话（逻辑指纹逐字节相等），表现为固定俯角下的直立广告牌：英雄、小兵、精英、木桩三视图动画、特效、场景道具按相机平行的广告牌摆放，地面石砖、阴影、冲击波环躺在地面，HUD 沿用 reference_fantasy 皮肤。③共用代码泛化而非复制：新增内部类 `ShowcaseProjection`（平面 / 直立两种模式，平面即 2D 原公式），`ShowcaseDirector`、`ShowcaseHud`、`ShowcaseFxPlayer`、`EngineLabStage` 经它换算；`ShowcaseDamageNumber` 新增 `Height` 字段（2D 为 0）；`ShowcaseHud` 新增 `LoadedSkinRef`。④F1 面板与原试玩场景是同一份（武器、体型、tpl_* 模板、场景控制、调参 / 时间轴 / 轨迹 / 评分页），切换后真实美术不丢；英雄美术只有持单手剑一套。⑤新增 PlayMode 用例 `Showcase25DTests`（14 条，含"待机时没有两只单位的身体精灵叠在一起"，按精灵包围盒投到屏幕后量重叠，并带共点对照）；逻辑与数据行为、既有 2D 演示场景不变。
+- **手感演示场景 3D 版（[ADR-0158](architecture/adr/0158-手感演示场景3D版真实模型与模型包装配.md)，纯加法）**：①新增场景 `LabShowcase_3d_action` 与菜单 `GameFoundation → 手感试玩 → 打开演示场景 3D（真实美术）`；`重建演示场景`一并重建。②与原 3D 试玩场景同一逻辑会话（逻辑指纹逐字节相等），英雄/杂兵/精英/木桩是四个不同的 Quaternius RPG Character Pack（CC0）骨骼角色，经框架模型管线（`DisplayInfo(kind=Model)`、`display.anim_set` 行带命中帧事件）渲染；地面石砖贴图平面，道具与特效广告牌，HUD 沿用 reference_fantasy 皮肤。③新增内部类 `ModelGroundUpright`（预制体直立站姿）、编辑器工具 `ModelPackBuilder`（模型包确定性装配，结果不入库）、着色器 `GameFoundation/Showcase/ModelLit`；`ShowcaseProjection` 增"物理上方"模式（引入自并行的 2.5D 分支，合并时同一文件）；`UnityRenderer3D` 的假阴影贴图改为柔边圆；`build.ps1 Sync-ContentTree` 新增 `-PreserveExtensions`。④包里缺击退/击倒/起身/闪避剪辑，取最近剪辑并登记限制（ADR-0158）。新增 PlayMode 用例 `Showcase3dTests`（16 条）与 `toolchain/tests/test_showcase3d_assets.py`（6 条）。
 
 ### 变更
 

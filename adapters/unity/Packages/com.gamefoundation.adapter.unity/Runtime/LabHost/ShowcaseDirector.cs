@@ -71,6 +71,9 @@ namespace Adapter.Unity.LabHost
 
         private const string IconPrefix = "icon.show.";
         private const int UnitsLayerBase = 2000;
+
+        /// <summary>3D 演示里特效广告牌沿视线向相机拉近的距离（世界单位），见 <see cref="ShowcaseProjection.TowardCamera"/>。</summary>
+        private const float FxCameraPull = 0.55f;
         private const double HpMeaningfulLimit = 5000.0;
 
         private readonly Transform _root;
@@ -406,6 +409,15 @@ namespace Adapter.Unity.LabHost
 
         private float HeadHeight(Id entity)
         {
+            if (_projection.PhysicalUp)
+            {
+                // 3D 演示（ADR-0158）：头顶高度取模型包规格里该外形的身高（由测试对照预制体的实际包围盒），再留出一点头顶空隙。
+                var modelLook = entity.Equals(_ctx.PlayerId)
+                    ? ShowcaseDisplayRegistry.Hero
+                    : ShowcaseDisplayRegistry.LookOf(_ctx.Labels.TryGetValue(entity, out var modelLabel) ? modelLabel : entity.Value);
+                return ShowcaseDisplayRegistry.ModelHeadHeight(modelLook);
+            }
+
             if (entity.Equals(_ctx.PlayerId))
             {
                 return 1.1f;
@@ -490,7 +502,8 @@ namespace Adapter.Unity.LabHost
                 }
             }
 
-            var engineAngle = angle + Math.PI;
+            // 3D 模型外形（ADR-0158）不走精灵的方向档位约定：模型直接按朝向角转（朝向 0 = 世界 +X），不需要半圈偏移。
+            var engineAngle = _projection.PhysicalUp ? angle : angle + Math.PI;
             var result = logical.DirectionCount > 0 ? Direction.FromQuantized(engineAngle, logical.DirectionCount) : Direction.Continuous(engineAngle);
             _forwardedFacing[entity] = result;
             return result;
@@ -568,7 +581,7 @@ namespace Adapter.Unity.LabHost
             var scale = ScaleOf(hit.ImpactClass) * (hit.IsKill ? 1.4f : 1.0f);
             var contact = _projection.Lift(new Vector2((float)hit.ContactPoint.X, (float)hit.ContactPoint.Y), 0.45f);
             var order = UnitsLayerBase + 400;
-            if (_fx.Spawn(SparkFx, contact, _projection.Facing((tick * 47) % 360), scale, Color.white, order))
+            if (_fx.Spawn(SparkFx, _projection.TowardCamera(contact, FxCameraPull), _projection.Facing((tick * 47) % 360), scale, Color.white, order))
             {
                 Model.SparksSpawned++;
             }
@@ -577,7 +590,7 @@ namespace Adapter.Unity.LabHost
             {
                 var dir = new Vector2((float)hit.WorldDirection.X, (float)hit.WorldDirection.Y);
                 var dustAt = targetPos + dir * 0.15f;
-                if (_fx.Spawn(DustFx, new Vector3(dustAt.x, dustAt.y, 0f), _projection.Facing(0f), 0.9f, new Color(1f, 1f, 1f, 0.9f), UnitsLayerBase + 300))
+                if (_fx.Spawn(DustFx, _projection.TowardCamera(new Vector3(dustAt.x, dustAt.y, 0f), FxCameraPull), _projection.Facing(0f), 0.9f, new Color(1f, 1f, 1f, 0.9f), UnitsLayerBase + 300))
                 {
                     Model.DustSpawned++;
                 }
@@ -644,7 +657,7 @@ namespace Adapter.Unity.LabHost
             var isPlayer = entity.Equals(_ctx.PlayerId);
             var tint = isPlayer ? Color.white : new Color(1f, 0.55f, 0.4f, 1f);
             var scale = isPlayer ? 1.0f : 1.5f;
-            if (_fx.Spawn(SlashFx, pos, _projection.Facing(_projection.ScreenAngleDegrees(facing)), scale, tint, UnitsLayerBase + 350))
+            if (_fx.Spawn(SlashFx, _projection.TowardCamera(pos, FxCameraPull), _projection.Facing(_projection.ScreenAngleDegrees(facing)), scale, tint, UnitsLayerBase + 350))
             {
                 Model.SlashesSpawned++;
             }
@@ -661,6 +674,7 @@ namespace Adapter.Unity.LabHost
             }
 
             _fx.Update(dt);
+            OrientProps(); // 直立模式下道具广告牌跟着相机姿态转（模板预设会改俯角）；2D 空操作。
 
             for (var i = Model.Numbers.Count - 1; i >= 0; i--)
             {

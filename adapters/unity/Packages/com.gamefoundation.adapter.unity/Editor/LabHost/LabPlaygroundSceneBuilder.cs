@@ -61,7 +61,7 @@ namespace Adapter.Unity.LabHost.Editor
         // 判断记录（演示场景，ADR-0154 / ADR-0157）：真实美术的手感演示场景也是同一个薄场景——挂 LabPlayground、把"演示场景"字段打开；
         // 2D 演示场景的格子是 2d_action（正交俯视），2.5D 演示场景的格子是 2_5d_action（固定俯角透视，与 LabPlayground_2_5d_action 同一逻辑会话）。
         // 美术资源、数据行、HUD 都在运行时由 LabPlayground / EngineLabStage 装配，场景文件里不放任何内容。
-        public static readonly string[] ShowcaseCells = { "2d_action", "2_5d_action" };
+        public static readonly string[] ShowcaseCells = { "2d_action", "2_5d_action", "3d_action" };
 
         public static string ShowcaseScenePath => ShowcaseScenePathOf("2d_action");
 
@@ -69,7 +69,7 @@ namespace Adapter.Unity.LabHost.Editor
 
         public static string ShowcaseScenePathOf(string cell) => SceneDir + "/LabShowcase_" + cell + ".unity";
 
-        /// <summary>重建全部演示场景（2D 与 2.5D 各一个）。</summary>
+        /// <summary>重建全部演示场景（2D、2.5D、3D 各一个）。</summary>
         [MenuItem("GameFoundation/手感试玩/维护/重建演示场景", false, 201)]
         public static void BuildShowcase()
         {
@@ -102,8 +102,15 @@ namespace Adapter.Unity.LabHost.Editor
         [MenuItem("GameFoundation/手感试玩/打开演示场景 2D（真实美术）", false, 1)]
         public static void OpenShowcase() => EditorSceneManager.OpenScene(ShowcaseScenePath);
 
+        // 判断记录（3D 演示场景，ADR-0158）：同样是薄场景——格子 3d_action、演示开关打开；3D 追加的数据根（data/_showcase_3d）由 LabPlayground 按格子名并入，
+        // 模型预制体由包内编辑器工具 ModelPackBuilder 在编辑器加载时装配（见该类型），场景文件里不放任何内容。重建演示场景入口会连这个一起重建。
+        public static string Showcase3dScenePath => ShowcaseScenePathOf("3d_action");
+
         [MenuItem("GameFoundation/手感试玩/打开演示场景 2.5D（真实美术）", false, 2)]
         public static void OpenShowcase25D() => EditorSceneManager.OpenScene(Showcase25ScenePath);
+
+        [MenuItem("GameFoundation/手感试玩/打开演示场景 3D（真实美术）", false, 3)]
+        public static void OpenShowcase3d() => EditorSceneManager.OpenScene(Showcase3dScenePath);
 
         [MenuItem("GameFoundation/手感试玩/工程场景（占位美术）/打开试玩场景 2D（俯视精灵）", false, 100)]
         public static void Open2D() => EditorSceneManager.OpenScene(ScenePath("2d_action"));

@@ -93,3 +93,4 @@
 adapters/unity/ProjectSettings/*.asset eol=lf
 adapters/unity/Packages/manifest.json eol=lf
 adapters/unity/Packages/packages-lock.json eol=lf
+*.fbx binary

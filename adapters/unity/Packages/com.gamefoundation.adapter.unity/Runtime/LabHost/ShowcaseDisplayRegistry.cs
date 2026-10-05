@@ -21,13 +21,16 @@ namespace Adapter.Unity.LabHost
         public const string Dummy = "dummy";
 
         private readonly IDisplayInfoRegistry _inner;
+        private readonly bool _model;
         private readonly HashSet<string> _players = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _seen = new Dictionary<string, string>(StringComparer.Ordinal);
 
         /// <param name="inner">内核的外形登记。</param>
-        public ShowcaseDisplayRegistry(IDisplayInfoRegistry inner)
+        /// <param name="model">真：3D 模型外形（ADR-0158，经框架 3D 模型管线加载 model.show3d_*）；假：2D 精灵外形（ADR-0154）。</param>
+        public ShowcaseDisplayRegistry(IDisplayInfoRegistry inner, bool model = false)
         {
             _inner = inner;
+            _model = model;
         }
 
         /// <summary>登记玩家单位的外形逻辑 id（舞台在为玩家实体建视图前调用）：此后该逻辑 id 一律按英雄外形。</summary>
@@ -35,6 +38,21 @@ namespace Adapter.Unity.LabHost
 
         /// <summary>每个逻辑 id 最近一次被解析成的外形名（测试与诊断用）。</summary>
         public IReadOnlyDictionary<string, string> Resolved => _seen;
+
+        /// <summary>
+        /// 3D 外形的头顶高度（世界单位，飘字与血条定位用）：各外形模型身高（assets/_showcase/_source/build_data_3d.py 的 target_height，
+        /// 模型包规格里的同一个数）加一点头顶空隙；测试对照预制体实际包围盒核对。
+        /// </summary>
+        public static float ModelHeadHeight(string look)
+        {
+            switch (look)
+            {
+                case Brute: return 2.25f;
+                case Dummy: return 1.75f;
+                case Grunt: return 1.55f;
+                default: return 1.85f;
+            }
+        }
 
         /// <summary>按逻辑 id 的种类名取外形；规则只看 id 里的种类词，找不到的未知生物取哥布林。</summary>
         public static string LookOf(string logicalId)
@@ -68,8 +86,18 @@ namespace Adapter.Unity.LabHost
 
             var look = _players.Contains(logicalId.Value) ? Hero : LookOf(logicalId.Value);
             _seen[logicalId.Value] = look;
-            return Build(logicalId, look);
+            return _model ? BuildModel(logicalId, look) : Build(logicalId, look);
         }
+
+        /// <summary>
+        /// 3D 外形（ADR-0158）：模型引用与姿势集引用都是数据行 id（<c>model.show3d_&lt;look&gt;</c> 由编辑器工具装配的预制体承载，
+        /// <c>display.anim_set.show3d_&lt;look&gt;</c> 在 data/_showcase_3d）；方向与镜像是精灵的概念，模型靠朝向角直接转，不声明。
+        /// </summary>
+        private static DisplayInfo BuildModel(Id logicalId, string look) =>
+            new DisplayInfo(
+                new Id("display.map.show3d_" + look), DisplayCategory.Creature, logicalId, DisplayKind.Model, null, null, null, 1.0,
+                Core.Foundation.DisplayInfo.ShadowMode.Blob, 0.0, null,
+                null, new ModelInfo(new Id("model.show3d_" + look), new Id("display.anim_set.show3d_" + look)));
 
         private static DisplayInfo Build(Id logicalId, string look)
         {
