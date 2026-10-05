@@ -18,7 +18,7 @@
     "pytest": {
       "min_passed": 1430,
       "max_skipped": 0,
-      "measured_passed": 1591,
+      "measured_passed": 1599,
       "measured_skipped": 0,
       "measured_at": "2026-10-05"
     },
@@ -30,9 +30,9 @@
       "measured_at": "2026-10-05"
     },
     "unity_playmode": {
-      "min_passed": 550,
+      "min_passed": 580,
       "max_skipped": 0,
-      "measured_passed": 619,
+      "measured_passed": 647,
       "measured_skipped": 0,
       "measured_at": "2026-10-05"
     }
