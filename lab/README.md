@@ -252,7 +252,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 
 **这是什么**：三个可以直接按 Play 的场景，背后是实验室引擎宿主的同一套装配（不是另一套运行时）：你按键，输入被录成脚本事件，在真实适配器上渲染；面板上的每个影响逻辑的操作也是事件。整局可存成本地脚本，用无头命令行逐 tick 重放，"手上感觉到的"和"数字说的"是同一份。
 
-**怎么打开**：Unity Hub → Add project from disk → 选 **`D:\wt\playground\adapters\unity`**（本分支合并进主干之前；合并之后是仓库根下的 `adapters\unity`），编辑器版本 6000.3.23f1。第一次导入要约 11 分钟（资产多），之后秒开。打开后在菜单 `GameFoundation → 手感试玩 → 打开试玩场景 2D / 2.5D / 3D`，或在 Project 窗口打开 `Assets/Framework/Scenes/LabPlayground_2d_action.unity`（`_2_5d_action`、`_3d_action` 同目录），按 Play。三个场景分别是：二维俯视精灵（`2d_action`）、2.5D 固定俯仰精灵（`2_5d_action`）、三维固定俯仰模型（`3d_action`）。模型是占位白模，精灵是占位假人，不新增美术。
+**怎么打开**：Unity Hub → Add project from disk → 选 **`D:\wt\playground\adapters\unity`**（本分支合并进主干之前；合并之后是仓库根下的 `adapters\unity`），编辑器版本 6000.3.23f1。第一次导入要约 11 分钟（资产多），之后秒开。打开后在菜单 `GameFoundation → 手感试玩 → 工程场景（占位美术） → 打开试玩场景 2D / 2.5D / 3D`（占位美术，工程与回归用；要看真实美术与界面皮肤请用菜单首项 `打开演示场景 2D（真实美术）`，占位场景面板头部也有这行提示；两个重建入口在 `手感试玩 → 维护` 下），或在 Project 窗口打开 `Assets/Framework/Scenes/LabPlayground_2d_action.unity`（`_2_5d_action`、`_3d_action` 同目录），按 Play。三个场景分别是：二维俯视精灵（`2d_action`）、2.5D 固定俯仰精灵（`2_5d_action`）、三维固定俯仰模型（`3d_action`）。模型是占位白模，精灵是占位假人，不新增美术。
 
 **按键**（F2 在屏上显示同样的说明）：
 
