@@ -70,13 +70,14 @@ namespace Adapter.Unity.Tests.LabHost
             _pg = null;
         }
 
-        private LabPlayground NewPlayground(bool showcase)
+        private LabPlayground NewPlayground(bool showcase, Func<double>? flashScale = null)
         {
             _go = new GameObject("Showcase3dTest");
             var pg = _go.AddComponent<LabPlayground>();
             pg.Configure("3d_action");
             pg.Showcase = showcase;
             pg.ManualDrive = true;
+            pg.FlashIntensitySource = flashScale ?? (() => 1.0);   // 不读本机设置文件：用例给固定的玩家闪白强度
             _input = new Adapters.Stub.StubInput();
             pg.InputSource = _input;
             pg.PadReader = _ => false;
@@ -476,6 +477,57 @@ namespace Adapter.Unity.Tests.LabHost
             Assert.AreEqual(EngineLabStage.FlashAmount, FlashParamOf(root), 1e-6, "时长过半仍在闪");
             yield return Frames((int)Math.Ceiling(lifetime / Frame) + 6);
             Assert.AreEqual(0f, FlashParamOf(root), 1e-6, "超过数据时长后闪白复原为 0");
+        }
+
+        [UnityTest]
+        public IEnumerator HitFlash_HonoursPlayerFlashIntensity_ZeroIsOff_OtherwiseDefaultTimesScale()
+        {
+            // 玩家闪白强度（ADR-0148，feel.intensity.flash）与精灵管线同一条规则（FlashReceiver）：系数 0 = 关闭闪白（不落地、不计数），
+            // 否则强度 = 默认强度 × 系数。期望值由规则算出（默认强度 EngineLabStage.FlashAmount × 系数），不写裸数。
+            foreach (var scale in new[] { 0.0, 0.5, 1.0 })
+            {
+                var pg = NewPlayground(true, () => scale);
+                pg.SpawnDummy("elite");
+                yield return Frames(30);
+                var stage = pg.Stage!;
+                var director = stage.Showcase!;
+                var ctx = pg.Session!.Context!;
+                var elite = ctx.Dummies.First(d => d.Key.StartsWith("elite", StringComparison.Ordinal)).Value;
+                var root = stage.RenderedModels().First(m => m.Entity.Equals(elite)).Root;
+                var hitsBefore = director.HitLog.Count;
+                var flashesBefore = stage.FlashesApplied;
+
+                _input!.Press(AttackKey);
+                var guard = 0;
+                while (director.HitLog.Count == hitsBefore && guard++ < 240)
+                {
+                    yield return Frames(1);
+                }
+
+                _input.Release(AttackKey);
+                Assert.Greater(director.HitLog.Count, hitsBefore, "系数 " + scale + "：出手应命中精英");
+
+                var peak = 0f;
+                for (var i = 0; i < 30; i++)
+                {
+                    yield return Frames(1);
+                    peak = Mathf.Max(peak, FlashParamOf(root));
+                }
+
+                if (scale > 0.0)
+                {
+                    Assert.Greater(stage.FlashesApplied, flashesBefore, "系数 " + scale + "：命中后应触发闪白");
+                    Assert.AreEqual(EngineLabStage.FlashAmount * scale, peak, 1e-5, "系数 " + scale + "：闪白强度 = 默认强度 × 系数");
+                    Assert.AreEqual(scale, stage.LastFlashScale, 1e-9, "系数 " + scale + "：舞台记录的系数");
+                }
+                else
+                {
+                    Assert.AreEqual(flashesBefore, stage.FlashesApplied, "系数 0 = 关闭闪白：不落地也不计数");
+                    Assert.AreEqual(0f, peak, 1e-6, "系数 0：模型的闪白参数始终为 0");
+                }
+
+                Dispose();
+            }
         }
 
         [UnityTest]

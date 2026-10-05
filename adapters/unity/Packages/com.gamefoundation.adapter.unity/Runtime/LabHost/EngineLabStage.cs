@@ -757,6 +757,9 @@ namespace Adapter.Unity.LabHost
         /// <summary>闪白强度：与精灵管线的默认值同口径（FlashReceiver 的 DefaultIntensity = 1，着色器里颜色过曝到 (1 + 强度) 倍，不是整块填白）。</summary>
         public const double FlashAmount = 1.0;
 
+        /// <summary>最近一次落地的闪白所乘的玩家强度系数（测试/诊断用；从未闪白为 1）。</summary>
+        public double LastFlashScale { get; private set; } = 1.0;
+
         /// <summary>最近一次落到模型视图上的闪白时长（秒，取自闪白配置行的 lifetime；测试用来核对"时长跟随数据"）。</summary>
         public double LastModelFlashSeconds { get; private set; }
 
@@ -903,6 +906,14 @@ namespace Adapter.Unity.LabHost
                 return;
             }
 
+            // 玩家闪白强度（ADR-0148，与 FlashReceiver 同一条规则）：系数 0 = 关闭闪白（光敏类无障碍），不落地、不计数；否则强度 = 默认强度 × 系数。
+            var flashScale = _options.FlashIntensityScale != null ? _options.FlashIntensityScale() : 1.0;
+            if (!(flashScale > 0))
+            {
+                return;
+            }
+
+            LastFlashScale = flashScale;
             if (entry.View is UnityModelView model && _r3d != null)
             {
                 // 模型型外形（ADR-0158）：经框架 3D 渲染器的命名材质参数广播闪白（IRenderer3D.SetMaterialParam，与精灵的 flash_intensity 同名同义），
@@ -912,7 +923,7 @@ namespace Adapter.Unity.LabHost
                 var renderer3d = _r3d;
                 var seconds = FlashSeconds(profileId);
                 LastModelFlashSeconds = seconds;
-                renderer3d.SetMaterialParam(handle, UnitySpriteView.FlashIntensityShaderParam, FlashAmount);
+                renderer3d.SetMaterialParam(handle, UnitySpriteView.FlashIntensityShaderParam, FlashAmount * flashScale);
                 FlashesApplied++;
                 _flashFx.Add(new FlashFx { Clear = () => renderer3d.SetMaterialParam(handle, UnitySpriteView.FlashIntensityShaderParam, 0.0), Remaining = seconds });
                 return;
@@ -923,7 +934,7 @@ namespace Adapter.Unity.LabHost
                 return;
             }
 
-            sprite.SetFlash(1.0);
+            sprite.SetFlash(1.0 * flashScale);
             FlashesApplied++;
             _flashFx.Add(new FlashFx { Clear = sprite.ClearFlash, Remaining = 0.15 });
         }

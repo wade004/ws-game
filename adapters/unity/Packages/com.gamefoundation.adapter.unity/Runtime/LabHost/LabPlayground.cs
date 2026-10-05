@@ -98,6 +98,19 @@ namespace Adapter.Unity.LabHost
             set => showcase = value;
         }
 
+        /// <summary>
+        /// 玩家闪白强度来源（ADR-0148，<c>feel.intensity.flash</c>，0..1）；缺省 null = 读玩家的设置文件（与游戏同一份设置，缺省 1）。
+        /// 必须在 <see cref="Begin"/> 之前设置；测试在这里给固定值，不依赖本机设置文件。
+        /// </summary>
+        public Func<double>? FlashIntensitySource { get; set; }
+
+        private static Func<double> PlayerFlashIntensity()
+        {
+            // 与游戏装配根同一条读法：设置存储 -> 手感强度宿主；演示场景的闪白（精灵与模型）按这一份系数缩放。
+            var intensity = new global::Presentation.Camera.FeelIntensityHost(new global::Core.Foundation.SaveSystem.SettingsStore(UnityEngineHost.Ensure().FileSystem));
+            return () => intensity.Get(global::Presentation.Camera.FeelIntensityKind.Flash);
+        }
+
         /// <summary>演示场景的游戏内 HUD（非演示场景为 null）。</summary>
         public ShowcaseHud? Hud => _hud;
 
@@ -221,6 +234,7 @@ namespace Adapter.Unity.LabHost
                     GpuTiming = false,
                     ProbeParticles = false,
                     Showcase = showcase,
+                    FlashIntensityScale = FlashIntensitySource ?? PlayerFlashIntensity(),
                 };
                 _stage = new EngineLabStage(options);
                 Session = _host.Runner.StartLive(script, cell, null, _stage);

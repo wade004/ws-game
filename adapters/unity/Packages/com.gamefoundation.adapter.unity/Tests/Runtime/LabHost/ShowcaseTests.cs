@@ -74,6 +74,7 @@ namespace Adapter.Unity.Tests.LabHost
             pg.Configure(cell);
             pg.Showcase = showcase;
             pg.ManualDrive = true;
+            pg.FlashIntensitySource = () => 1.0;   // 不读本机设置文件：用例给固定的玩家闪白强度
             _input = new Adapters.Stub.StubInput();
             pg.InputSource = _input;
             pg.PadReader = _ => false;
