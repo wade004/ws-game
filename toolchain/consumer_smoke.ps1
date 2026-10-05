@@ -65,10 +65,14 @@
     在本脚本每一次拉起 Unity 批处理之前轮询系统里的 Unity.exe 进程，对每个进程调用
     _unity_smoke_wait_scope_guard.ps1 的纯函数 Get-UnitySmokeProcessWaitDecision（输入进程命令行
     + $RepoRoot + $WorkDir，输出 "Wait"/"NoWait"/"Unknown" 三态）分类：落在上述两处之一的算
-    "Wait"；命令行里明确解析出 -projectPath 且落在两处之外的算"NoWait"，不计入等待对象，但每次
-    检测到都会打一行提示（PID + 工程路径）说明"属于其它工程，不等待"，不静默忽略，留痕方便出问题
-    时现场可追溯；拿不到命令行、或命令行里没有 -projectPath 的算"Unknown"，无法判断归属，按原口径
-    当作"要等"处理。只有当前一轮扫描到的全部 Unity.exe 进程都判定为 NoWait（或系统里已经没有
+    "Wait"；命令行里明确解析出 -projectPath/-createProject 且落在两处之外的算"NoWait"，不计入等待
+    对象，但每次检测到都会打一行提示（PID + 命令行）说明"不属于本演练，不等待"，不静默忽略，留痕方便
+    出问题时现场可追溯；命令行里没有 -projectPath/-createProject 的同样算"NoWait"（2026-10-06，
+    fix/hub-serve_20261006：用户开着 Unity Hub 时，Hub 常驻的 `unity.exe serve` 后台进程不带工程路径、
+    不是 Editor、永远不会退出，原先按"无法判断归属"保守等待，60 秒后必然判演练失败，每次门禁都挂；
+    本演练自己拉起的批处理 Editor 一律显式带 -projectPath，没有工程路径参数的进程不可能是"本演练刚
+    退出、还在清理的 Editor"）；只有拿不到命令行（空）的算"Unknown"，无法判断归属，按原口径当作
+    "要等"处理。只有当前一轮扫描到的全部 Unity.exe 进程都判定为 NoWait（或系统里已经没有
     Unity.exe）时才放行，最多等 60 秒，超时才报错并给出诊断（PID + 命令行），不会无限期挂起、也
     不会假装没看见继续往下跑导致更难定位的失败。与 check.ps1 自己的 Test-NoResidualUnityProcess
     语义不同——那个函数只在乎"同一工程"、发现即报错不等待，因为残留可能是人正在交互使用的 Editor
@@ -186,10 +190,11 @@ function Resolve-UnityExe {
 $ResolvedUnityExe = Resolve-UnityExe -Explicit $UnityExe
 
 # 判断记录（P07 根治之一）见本文件头 .NOTES："起 Unity 前不检查残留进程"一节——每次拉起 Unity
-# 批处理（Editor，不含独立版产物自己的 exe）前先调用本函数，等到系统里没有 Unity.exe 进程了才
-# 真正启动，避免与上一步刚退出、还没走完清理流程的 Unity.exe 撞车导致的瞬时失败。不按工程路径过滤
-# （与 check.ps1 的 Test-NoResidualUnityProcess 语义不同，见该函数上方判断记录及本文件头 .NOTES
-# 的区分说明）。
+# 批处理（Editor，不含独立版产物自己的 exe）前先调用本函数，等到系统里没有可能撞车的 Unity.exe 进程了
+# 才真正启动，避免与上一步刚退出、还没走完清理流程的 Unity.exe 撞车导致的瞬时失败。"可能撞车"的范围
+# 由 Get-UnitySmokeProcessWaitDecision 判定（本仓库根/本演练工作目录下的工程要等；别的工程、无工程路径
+# 的辅助进程如 Unity Hub 后台 serve 不等）。与 check.ps1 的 Test-NoResidualUnityProcess 语义不同，见
+# 该函数上方判断记录及本文件头 .NOTES 的区分说明。
 function Wait-NoResidualUnityProcess {
     param([int]$TimeoutSeconds = 60)
 
@@ -212,7 +217,7 @@ function Wait-NoResidualUnityProcess {
             if ($decision -eq "NoWait") {
                 $residualProcId = [int]$proc.ProcessId
                 if (-not $notifiedOutOfScopePids.Contains($residualProcId)) {
-                    Write-Host "[消费方演练残留进程等待] PID $residualProcId：工程路径属于其它工程，不等待（命令行：$($proc.CommandLine)）" -ForegroundColor DarkGray
+                    Write-Host "[消费方演练残留进程等待] PID $residualProcId：属于其它工程或非 Editor 辅助进程（如 Unity Hub 后台 serve），不等待（命令行：$($proc.CommandLine)）" -ForegroundColor DarkGray
                     $notifiedOutOfScopePids.Add($residualProcId) | Out-Null
                 }
                 continue

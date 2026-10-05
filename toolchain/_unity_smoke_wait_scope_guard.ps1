@@ -13,8 +13,9 @@
 
     收窄口径：把"要等"限定为可能与本次演练撞车的两类工程——本仓库根目录下的（框架自己的工程，
     正是要防的那种残留）、本脚本工作目录下的（消费方演练自己刚起的临时工程）；拿不到命令行或
-    命令行里没有 -projectPath 时无法判断归属，按保守口径等；工程路径明确落在这两处之外的，判定
-    不等。
+    命令行为空时无法判断归属，按保守口径等；命令行里没有 -projectPath/-createProject 的（Unity Hub
+    后台 `unity.exe serve`、许可客户端等辅助进程，不是打开工程的 Editor）与工程路径明确落在这两处之外
+    的，判定不等。
 
     本文件只抽出"从命令行判断归属"这一段纯逻辑（无进程操作、无 I/O、无副作用），供
     toolchain/tests/test_unity_smoke_wait_scope_guard.py 用 pytest 驱动 PowerShell 直接调用
@@ -79,7 +80,7 @@ function Get-ProjectPathFromCommandLine {
     }
     $match = [System.Text.RegularExpressions.Regex]::Match(
         $CommandLine,
-        '(?i)-projectPath"?\s+("(?<quoted>[^"]*)"|(?<bare>\S+))'
+        '(?i)-(?:projectPath|createProject)"?\s+("(?<quoted>[^"]*)"|(?<bare>\S+))'
     )
     if (-not $match.Success) {
         return $null
@@ -114,19 +115,33 @@ function Get-ConsumerSmokeDefaultWorkDir {
 }
 
 # 主入口：三态返回值——
-#   "Wait"    ：-projectPath 落在本仓库根或本脚本工作目录之下（等）。
-#   "NoWait"  ：-projectPath 明确落在上述两处之外（别的工程，不等）。
-#   "Unknown" ：拿不到命令行，或命令行里没有 -projectPath（无法判断归属，调用方按保守口径当作
-#               "要等"处理，但用独立返回值区分开，不与真正判定为"本工程"的 Wait 混为一谈）。
+#   "Wait"    ：-projectPath/-createProject 落在本仓库根或本脚本工作目录之下（等）。
+#   "NoWait"  ：工程路径明确落在上述两处之外（别的工程，不等）；或命令行存在但没有
+#               -projectPath/-createProject（不是在打开工程的 Editor 批处理——例如 Unity Hub 常驻的
+#               `unity.exe serve` 后台进程、许可客户端等辅助进程，见下方判断记录，不等）。
+#   "Unknown" ：拿不到命令行（空，常见于权限不足读不到别的会话的进程），无法判断归属，调用方按保守口径
+#               当作"要等"处理，但用独立返回值区分开，不与真正判定为"本工程"的 Wait 混为一谈。
+#
+# 判断记录（2026-10-06，fix/hub-serve_20261006）：此前"有命令行但没有 -projectPath"也判 Unknown 并
+# 保守等待。用户开着 Unity Hub 时，Hub 的后台进程
+#   "...\UnityTechnologies.UnityHub_...\app\resources\unity.exe" serve
+# 以 Unity.exe 的进程名常驻、不带 -projectPath、本身也不是 Editor，永远不会退出，于是演练在 60 秒后
+# 必然报"残留 Unity.exe 未退出"，每次门禁都挂在消费方演练这一步。本演练自己拉起的批处理 Editor 一律
+# 显式带 -projectPath（见 consumer_smoke.ps1 各 Unity 调用点），所以"没有工程路径参数"的进程不可能是
+# "本演练刚退出、还在清理的 Editor"，没有等它的理由。空命令行仍保持 Unknown：那是"读不到"而不是
+# "读到了但与工程无关"，判不出归属时不替它下结论。
 function Get-UnitySmokeProcessWaitDecision {
     param(
         [string]$CommandLine,
         [string]$RepoRoot,
         [string]$WorkDir
     )
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
+        return "Unknown"
+    }
     $projectPath = Get-ProjectPathFromCommandLine -CommandLine $CommandLine
     if ([string]::IsNullOrEmpty($projectPath)) {
-        return "Unknown"
+        return "NoWait"
     }
     if (Test-FsPathIsUnderOrEqual -CandidatePath $projectPath -AncestorPath $RepoRoot) {
         return "Wait"

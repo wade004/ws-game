@@ -460,6 +460,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **用户开着 Unity Hub 时门禁在消费方演练一步必挂（仅工具链，不改产物）**：`consumer_smoke.ps1` 的 `Wait-NoResidualUnityProcess` 起 Unity 批处理前等残留 `Unity.exe` 退出，此前对"命令行里没有 `-projectPath`"的进程按"无法判断归属"保守等待；Unity Hub 常驻的后台进程 `unity.exe serve` 正是这种进程（不是 Editor、永不退出），60 秒后必判演练失败。`Get-UnitySmokeProcessWaitDecision`（`toolchain/_unity_smoke_wait_scope_guard.ps1`）改为：没有 `-projectPath`/`-createProject` 的进程判 `NoWait`（与"别的工程"同样打一行留痕提示），只有拿不到命令行（空）才保留 `Unknown`；本仓库根/演练工作目录下的工程仍然等。`-createProject` 现在与 `-projectPath` 一并解析。`check.ps1` 的 `Test-NoResidualUnityProcess` 只匹配"命令行含本工程路径"的进程，Hub `serve` 不含工程路径，不受影响，未改。`test_unity_smoke_wait_scope_guard.py` 补回归与不变量用例。
+
 ## [1.100.0] - 2026-10-05
 
 ### 新增
