@@ -581,17 +581,17 @@ namespace Adapter.Unity.LabHost
         public static readonly double SpawnSeparation = 2.0 * global::Lab.LabHost.DummyBodyRadius;
 
         /// <summary>
-        /// 正前方被占时，弧上相邻候选点的角间隔（弧度）：45 度。判断记录：逻辑上 30 度已满足 <see cref="SpawnSeparation"/>（弦长 1.14），
-        /// 但直立广告牌（2.5D/3D 演示）的身体精灵约 1.7 个世界单位宽高，30 度时屏幕上仍叠掉近三成；45 度（弦长 1.68）两只身体精灵基本分开。
+        /// 正前方被占时，弧上相邻候选点的角间隔（弧度）：60 度。判断记录：逻辑上 30 度已满足 <see cref="SpawnSeparation"/>（弦长 1.14），
+        /// 但直立广告牌（2.5D/3D 演示）的身体精灵约 1.7 个世界单位宽高，30 度时屏幕上仍叠掉近三成，实测 45 度时 2.5D 屏幕上精英与木桩的身体精灵仍叠约三成；60 度（弦长 2.2）两只身体精灵基本分开。
         /// </summary>
-        public const double SpawnArcStepRadians = Math.PI / 4.0;
+        public const double SpawnArcStepRadians = Math.PI / 3.0;
 
         private const int SpawnArcHalfSlots = 2;
         private const int SpawnRings = 24;
 
         /// <summary>
         /// 单只靶子的出场点（纯函数，确定性）：先试玩家正前方 <see cref="SpawnDistance"/> 处；那里与 <paramref name="occupied"/> 里任一在场靶子的距离小于
-        /// <see cref="SpawnSeparation"/> 就按固定顺序试同一半径的弧上候选点（相对正前方 +1、-1、+2、-2 个 <see cref="SpawnArcStepRadians"/>，即 ±45°、±90°），
+        /// <see cref="SpawnSeparation"/> 就按固定顺序试同一半径的弧上候选点（相对正前方 +1、-1、+2、-2 个 <see cref="SpawnArcStepRadians"/>，即 ±60°、±120°），
         /// 弧上都被占就把半径加一个 <see cref="SpawnSeparation"/> 换下一圈，取第一个空位。<paramref name="crowded"/> 为真表示所有候选点都被占满（场上靶子上限 60 只，
         /// 实际不会走到），此时回到正前方（与重叠前的行为一致）并由调用方提示。
         /// </summary>
