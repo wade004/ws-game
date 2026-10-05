@@ -301,8 +301,13 @@ def _trigger_hit(step: dict[str, Any], classified: list[dict[str, Any]], key: st
     if not triggers:
         return None
     allow_md = bool(step.get("trigger_md"))
+    # 步骤可登记 triggers_except：命中它的路径不触发本步骤（只作用于 triggers，不影响 always_triggers 与路径规则
+    # 显式登记的 steps）。例：toolchain_pytest 的 toolchain/** 触发，排除 gate_floors.json（它只需 floors_pytest）。
+    excluded = step.get("triggers_except", []) if key == "triggers" else []
     for c in classified:
         if c["path"].lower().endswith(".md") and not allow_md:
+            continue
+        if excluded and any_match(excluded, c["path"]):
             continue
         if any_match(triggers, c["path"]):
             return c["path"]

@@ -460,6 +460,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 变更
+
+- **发布提速（[ADR-0156](architecture/adr/0156-发布第五步复用全量记录改跑定向门禁与提交钩子合并跳过.md)，仅工具链，不改产物）**：1.99.0 发布约 3 小时，其中两次约 54 分钟的全量门禁（合并前一次、`build.ps1 -Release` 第 5 步一次）内容相同。①`build.ps1 -Release` 第 5 步默认复用第 3b 步已验证的含 Unity 全量记录：守卫放行（记录是 HEAD 或其祖先且其后只改文档类文件）且工作树除版本写回文件外无别的改动时，改跑定向门禁 `check.ps1 -Changed <记录提交> -AbiStrict -FailFast -NoTiming`（版本号写回波及的包清单一致性、DLL 同步、Unity 编译、消费方演练仍会跑），日志与状态文件写明复用的记录（run_id + 提交）与定向门禁结论行；守卫不放行、`-DryRun`、显式 `-FullRegate`（新增开关，不能与 `-Resume` 同传）仍跑全量。选择逻辑为 `toolchain/_release_regression_guard.ps1` 的 `Get-ReleaseGatePlan`。②模块表新增路径规则 `release_version_files`（`VERSION`、适配层/模板 `package.json`、`packages-lock.json` 记 T1 并选定上述步骤；此前"未被任何规则覆盖"判 T3）。③提交钩子新增 `MergeSkip` 档：合并提交的树与"有含 Unity 全量记录背书的第二父提交"逐字节相同时不再重复跑快速全量（树不同、无记录、章鱼合并、判定出错仍照常跑）。④只改 `toolchain/gate_floors.json` 的提交只跑 `floors_pytest`（`test_gate_floors_logic.py`），不再跑 toolchain 全量 pytest；`change_impact.py` 新增步骤字段 `triggers_except`。
+
 ## [1.99.0] - 2026-10-05
 
 ### 新增

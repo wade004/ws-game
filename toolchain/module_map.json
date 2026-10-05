@@ -317,14 +317,42 @@
       },
       {
         "id": "toolchain_tests_and_floors",
-        "label": "工具链测试与用例数下限：只改 pytest 用例或下限数，只跑 toolchain_pytest（外加秒级自检步骤）；toolchain/ 下其它路径仍归共享面 T3",
+        "label": "工具链测试：只改 pytest 用例，只跑 toolchain_pytest（外加秒级自检步骤）；toolchain/ 下其它路径仍归共享面 T3；用例数下限文件 gate_floors.json 单列（见 gate_floors_only）",
         "globs": [
-          "toolchain/tests/**",
-          "toolchain/gate_floors.json"
+          "toolchain/tests/**"
         ],
         "level": 1,
         "steps": [
           "toolchain_pytest"
+        ]
+      },
+      {
+        "id": "gate_floors_only",
+        "label": "用例数下限登记文件：它的唯一消费者是 test_gate_floors_logic.py（校验登记文件齐全且取值符合'实测 90% 向下取整'规则）与门禁里的 Invoke-GateTestFloorCheck；只改下限数只需跑 floors_pytest（该文件一个 pytest），不跑 toolchain 全量 pytest（约 20 分钟，2026-10-05 发布提速，ADR-0156）",
+        "globs": [
+          "toolchain/gate_floors.json"
+        ],
+        "level": 1,
+        "steps": [
+          "floors_pytest"
+        ]
+      },
+      {
+        "id": "release_version_files",
+        "label": "发布版本号写回文件：build.ps1 -Release 第 4 步写回的 VERSION、适配层/模板的 package.json、packages-lock.json。它们只影响版本号字段与包依赖解析，不改代码：记 T1，只跑受版本号影响的步骤——包清单一致性（pkg_manifest：打包 + npm pack）、DLL 同步、Unity 编译（UPM 解析包与锁文件）、消费方演练、Unity .meta 自检；不跑 dotnet 测试/ABI/仿真基线（2026-10-05 发布提速，ADR-0156：发布第 5 步在已有全量记录上改跑 -Changed <记录提交>）。此前这四个文件'未被任何规则覆盖'，一律保守判 T3 全量",
+        "globs": [
+          "VERSION",
+          "adapters/unity/Packages/*/package.json",
+          "adapters/unity/Packages/packages-lock.json",
+          "games/_template/package.json"
+        ],
+        "level": 1,
+        "steps": [
+          "pkg_manifest",
+          "sync_dll",
+          "unity_compile",
+          "consumer_drill",
+          "unity_meta"
         ]
       },
       {
@@ -780,7 +808,16 @@
       "base_tiers": [],
       "triggers": [
         "toolchain/**"
+      ],
+      "triggers_except": [
+        "toolchain/gate_floors.json"
       ]
+    },
+    {
+      "id": "floors_pytest",
+      "label": "pytest：用例数下限登记文件子集（test_gate_floors_logic.py，只改 gate_floors.json 时）",
+      "base_tiers": [],
+      "triggers": []
     },
     {
       "id": "pytest_env_matrix_utf8",

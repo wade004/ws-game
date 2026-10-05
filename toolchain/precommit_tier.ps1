@@ -24,6 +24,8 @@
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "_precommit_tiering_guard.ps1")
+# 合并提交的 MergeSkip 档（发布提速，ADR-0156）复用发布守卫的"含 Unity 全量记录"判定与只读 git 辅助函数。
+. (Join-Path $PSScriptRoot "_release_regression_guard.ps1")
 
 $stagedRaw = [Console]::In.ReadToEnd()
 $stagedPaths = @()
@@ -39,5 +41,18 @@ if ($stagedRaw) {
 $releaseCommitEnvSet = -not [string]::IsNullOrEmpty($env:WS_GAME_RELEASE_COMMIT)
 
 $result = Get-PreCommitCheckTier -StagedPaths $stagedPaths -ReleaseCommitEnvSet $releaseCommitEnvSet
+
+# 合并提交且被提交的树与"有含 Unity 全量记录背书的第二父提交"的树逐字节相同 -> MergeSkip（见
+# Get-PreCommitMergeSkip 的规则与理由）。只在本来要跑 Full 档时才判；任何一步判不了都保持 Full，不静默放行。
+if ($result.Tier -eq "Full") {
+    try {
+        $mergeSkip = Get-PreCommitMergeSkip -RepoRoot (Split-Path -Parent $PSScriptRoot)
+        if ($mergeSkip.Skip) {
+            $result = [PSCustomObject]@{ Tier = "MergeSkip"; Reason = $mergeSkip.Reason }
+        }
+    } catch {
+        # 判定出错就按原档位处理（宁可多跑，不能误放行）。
+    }
+}
 
 Write-Output ($result.Tier + "|" + $result.Reason)

@@ -435,8 +435,12 @@ def test_no_timing_wiring_in_hook_and_release() -> None:
     assert len(invocations) == 3
     for ln in invocations:
         assert "-NoTiming" in ln, f"预提交钩子调用门禁必须带 -NoTiming：{ln.strip()}"
+    # 发布第 5 步的参数由 Get-ReleaseGatePlan 给出（ADR-0156）：全量与定向两种形态都必须带 -NoTiming。
     build = BUILD_PS1.read_text(encoding="utf-8-sig")
-    assert '$checkArgs = @("-AbiStrict", "-FailFast", "-NoTiming")' in build
+    assert '$checkArgs = @($gatePlan.CheckArgs)' in build
+    guard = (BUILD_PS1.parent / "toolchain" / "_release_regression_guard.ps1").read_text(encoding="utf-8-sig")
+    assert '$fullArgs = @("-AbiStrict", "-FailFast", "-NoTiming")' in guard
+    assert 'CheckArgs  = @("-Changed", $verdict.Sha, "-AbiStrict", "-FailFast", "-NoTiming")' in guard
     check = CHECK_PS1.read_text(encoding="utf-8-sig")
     assert "[switch]$NoTiming" in check and "[string]$TimingTask" in check
     # 定向模式父进程把 -NoTiming / -TimingTask 传给干活的子进程
