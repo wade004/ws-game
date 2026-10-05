@@ -15,6 +15,7 @@ using Lab;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
+using Rect = UnityEngine.Rect;
 
 namespace Adapter.Unity.Tests.LabHost
 {
@@ -647,6 +648,139 @@ namespace Adapter.Unity.Tests.LabHost
             yield return SwitchAll(Cell2D, false);
         }
 
+        // ───────── 待机时没有两只单位的身体精灵叠在一起 ─────────
+
+        // 判断记录：试玩宿主的出靶子规则是"玩家前方固定距离"，连着出两只单个靶子（精英、木桩）会出在同一个逻辑坐标——
+        // 那是两个实体共点（每个实体仍只画一个身体），不是一个实体画了两个身体；规则属于逻辑（改它会改逻辑指纹），
+        // 所以演示布局的修法放在"怎么出靶子"：出下一只前先让玩家转向另一个方向（走几步）。截图与本类用例都用这个布局。
+
+        private IEnumerator SpawnEliteAndStakeApart()
+        {
+            var pg = _pg!;
+            pg.SpawnDummy("elite");
+            yield return Frames(4);
+            _input!.Press("w");
+            yield return Frames(14);
+            _input.Release("w");
+            yield return Frames(2);
+            pg.SpawnDummy("stake");
+            _input.Press("s");
+            yield return Frames(14);
+            _input.Release("s");
+            yield return Frames(2);
+            _input.Press("d");
+            yield return Frames(2);
+            _input.Release("d");
+            yield return Frames(2);
+        }
+
+        /// <summary>每个单位当前身体精灵的屏幕包围盒（由精灵自身的包围盒四角经渲染根投到屏幕，不写死像素）。</summary>
+        private Dictionary<string, Rect> BodyScreenRects(LabPlayground pg)
+        {
+            var stage = pg.Stage!;
+            var cam = stage.StageCamera!;
+            var result = new Dictionary<string, Rect>();
+            foreach (var pair in pg.Session!.Context!.Labels)
+            {
+                var layers = stage.LayersRootOf(pair.Key);
+                if (layers == null)
+                {
+                    continue;
+                }
+
+                var body = layers.GetComponentsInChildren<SpriteRenderer>(false).FirstOrDefault(r => r.enabled && r.sprite != null);
+                if (body == null)
+                {
+                    continue;
+                }
+
+                var b = body.sprite.bounds;
+                float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+                foreach (var sx in new[] { b.min.x, b.max.x })
+                {
+                    foreach (var sy in new[] { b.min.y, b.max.y })
+                    {
+                        var p = cam.WorldToScreenPoint(body.transform.TransformPoint(new Vector3(sx, sy, 0f)));
+                        minX = Mathf.Min(minX, p.x);
+                        maxX = Mathf.Max(maxX, p.x);
+                        minY = Mathf.Min(minY, p.y);
+                        maxY = Mathf.Max(maxY, p.y);
+                    }
+                }
+
+                result[pair.Value] = Rect.MinMaxRect(minX, minY, maxX, maxY);
+            }
+
+            return result;
+        }
+
+        private static float OverlapFractionOfSmaller(Rect a, Rect b)
+        {
+            var w = Mathf.Min(a.xMax, b.xMax) - Mathf.Max(a.xMin, b.xMin);
+            var h = Mathf.Min(a.yMax, b.yMax) - Mathf.Max(a.yMin, b.yMin);
+            if (w <= 0f || h <= 0f)
+            {
+                return 0f;
+            }
+
+            return w * h / Mathf.Min(a.width * a.height, b.width * b.height);
+        }
+
+        private static float WorstOverlap(Dictionary<string, Rect> rects, out string pair)
+        {
+            var worst = 0f;
+            pair = string.Empty;
+            var keys = rects.Keys.ToList();
+            for (var i = 0; i < keys.Count; i++)
+            {
+                for (var j = i + 1; j < keys.Count; j++)
+                {
+                    var f = OverlapFractionOfSmaller(rects[keys[i]], rects[keys[j]]);
+                    if (f > worst)
+                    {
+                        worst = f;
+                        pair = keys[i] + " × " + keys[j];
+                    }
+                }
+            }
+
+            return worst;
+        }
+
+        private const float MaxIdleOverlapFraction = 0.15f;
+
+        private IEnumerator AssertNoIdleOverlap(string cell)  // 2D 不建单位渲染根（LayersRootOf 为空），所以只在 2.5D 上量
+        {
+            var pg = NewPlayground(cell, true);
+            yield return SpawnEliteAndStakeApart();
+            yield return Frames(60);
+            var rects = BodyScreenRects(pg);
+            Assert.GreaterOrEqual(rects.Count, 3, "玩家 + 精英 + 木桩都有身体精灵：" + string.Join(",", rects.Keys));
+            var worst = WorstOverlap(rects, out var pair);
+            Assert.LessOrEqual(worst, MaxIdleOverlapFraction, cell + "：待机时两只单位的身体精灵不应叠在一起：" + pair);
+        }
+
+        [UnityTest]
+        public IEnumerator Showcase25D_IdleLayout_NoTwoBodySpritesOverlap()
+        {
+            yield return AssertNoIdleOverlap(Cell25);
+        }
+
+        [UnityTest]
+        public IEnumerator OverlapMetric_CatchesTwoSingleSpawnsAtTheSameLogicalPoint()
+        {
+            // 对照：不拉开布局，连出两只单个靶子，它们共点（两个实体各一个身体），度量必须报出重叠，证明上面的断言不是空转。
+            var pg = NewPlayground(Cell25, true);
+            pg.SpawnDummy("elite");
+            pg.SpawnDummy("stake");
+            yield return Frames(40);
+            var rects = BodyScreenRects(pg);
+            var worst = WorstOverlap(rects, out var pair);
+            Assert.Greater(worst, MaxIdleOverlapFraction, "共点的两个靶子应被度量为重叠");
+            StringAssert.Contains("elite", pair);
+            StringAssert.Contains("stake", pair);
+        }
+
         // ───────── 场景文件 ─────────
 
         [Test]
@@ -708,12 +842,14 @@ namespace Adapter.Unity.Tests.LabHost
             var director = pg.Stage!.Showcase!;
 
             // 一、精英单挑：全景、三连击命中瞬间。
-            pg.SpawnDummy("elite");
-            pg.SpawnDummy("stake");
-            yield return Frames(60);
+            yield return SpawnEliteAndStakeApart();
+            yield return Frames(40);
             yield return Shot(dir!, "01_overall_idle");
+            _input!.Press("d");
+            yield return Frames(12);
+            _input.Release("d");
             var n0 = director.HitLog.Count;
-            _input!.Press(AttackKey);
+            _input.Press(AttackKey);
             var ok = false;
             yield return UntilHits(director, n0, 90, r => ok = r);
             _input.Release(AttackKey);
