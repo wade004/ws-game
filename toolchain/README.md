@@ -1717,6 +1717,35 @@ build/test 步骤）。
 测试：`tests/test_release_resume.py`（库函数单元、前置校验每一种拒绝、真实 `build.ps1` 跑在 `tests/_release_skeleton.py` 搭的最小仓库骨架里：`dotnet`/`npm`/`gh` 是 PATH 上的桩，私服与 GitHub Release 是 JSON 文件，`git push` 推到本地裸仓库，绝不触及真实私服/GitHub）、
 `tests/test_prune_dist.py`（状态文件被瘦身保留）。
 
+## 发布提速：第 5 步复用全量记录、钩子合并跳过、下限文件单独判级（ADR-0156，2026-10-05）
+
+背景：1.99.0 发布约 3 小时。合并前在集成工作树跑过一次全量（54 分钟，`full-20261001-42`），`build.ps1 -Release` 第 5 步又在主检出把同一份全量原样重跑一遍（再 54 分钟，
+用例数逐项相同），而第 3b 步的发布守卫早已证明"该记录之后只改了文档类文件"；另有只改 `gate_floors.json` 的提交与"已测过的分支"的合并提交，各被提交钩子多跑约 20 分钟。
+
+**入口与行为**
+
+- `build.ps1 -Release <ver>`：第 5 步由 `toolchain/_release_regression_guard.ps1` 的 `Get-ReleaseGatePlan` 选择。守卫放行（含 Unity 全量记录是 HEAD 或其祖先且其后只改文档类文件）且工作树
+  除 `$ReleaseWritebackFiles` 外无改动 -> **定向**：`check.ps1 -Changed <记录提交> -AbiStrict -FailFast -NoTiming`（仍是 Windows PowerShell 5.1 宿主，`-Changed` 的父进程把三个开关转给干活的子进程）。
+  日志打印"第 5 步复用全量记录：<run_id>，记录提交 <sha>"，通过后打印"第 5 步结论：定向门禁（复用全量记录 …）：门禁通过：全部 N 步 …"，同一行写入状态文件 `gateConclusion`。
+  其余情形 -> **全量**（参数与此前相同），并打印为什么没能复用。`-FullRegate` 强制全量；`-DryRun` 保持全量（它不写回版本文件，定向门禁看不到发布特有的改动）；`-FullRegate` 不能与 `-Resume` 同传。
+- 版本写回波及的步骤由模块表规则 `release_version_files`（`VERSION`、适配层/模板 `package.json`、`packages-lock.json` 记 T1）选定：`pkg_manifest`、`sync_dll`、`unity_compile`、`consumer_drill`、`unity_meta`
+  外加基础步骤与 `validate_template_data`（模板 `package.json` 另命中 `game_template`）；不跑 dotnet 测试、ABI 探针、数值仿真基线、toolchain 全量 pytest。实测量级（`timing/20261003_feel-m4_20261003.jsonl` 的全量运行）：
+  `pkg_manifest` 185s + `sync_dll` 194s + `unity_compile` 429s + `consumer_drill` 507s，约为全量总墙钟 3660s 的三分之一，而且前几项分属两条并行线。
+- 提交钩子：`precommit_tier.ps1` 在 `Full` 档上调 `Get-PreCommitMergeSkip`（`_precommit_tiering_guard.ps1`）：`MERGE_HEAD` 恰一个、`git write-tree` 与 `<第二父提交>^{tree}` 相同、`Test-ReleaseRegressionRecord -Target <第二父提交>` 放行 -> 输出
+  `MergeSkip|…`，`.githooks/pre-commit` 与 `ReleaseSkip` 同样处理。树不同/无记录/章鱼合并/判定出错一律保持 `Full`。
+- 只改 `toolchain/gate_floors.json`：路径规则 `gate_floors_only` -> 步骤 `floors_pytest`（`check.ps1` 12.7，仅定向模式；只跑 `test_gate_floors_logic.py`）；`change_impact.py` 新增步骤字段 `triggers_except`，
+  使 `toolchain_pytest` 的 `toolchain/**` 触发不再覆盖该文件。与 `toolchain/tests/**` 同批改动时 `toolchain_pytest` 照旧。
+
+**判断记录（决定 + 理由）**
+
+1. 复用的凭据是"第 3b 步守卫已验证的记录"而不是新机制：同一份判定已经是发布的前置条件，第 5 步只是消费它的结论，不另造第二套"哪个记录算数"的规则。
+2. 工作树除版本写回文件外有任何改动即回退全量：守卫只证明了已提交部分；定向判定看整个工作树，混进未提交改动时不能当作"只有版本号"放行。
+3. 版本文件规则放宽了这四个文件在日常提交里的判级（原"未被任何规则覆盖"->T3）：它们改的是包清单而非代码，且合并前后全量仍按 AGENTS.md §1b 要求。残余风险与兜底（`-FullRegate`）写在 ADR-0156 的权衡一节。
+4. `MergeSkip` 的判据是"树逐字节相同"这一可机械核对的事实，加上第二父提交的记录背书；它不依赖提交说明或分支名，也不替代合并后的全量。
+5. 钩子里 `gate_floors.json` 此前并非 T3：判 T1，但选中的是整个 toolchain 用例套件（约 1300～1600s）；改成只跑它唯一的校验用例文件。
+
+测试：`tests/test_release_targeted_gate.py`（选择逻辑、端到端接线、合并跳过、静态接线）、`tests/test_change_impact.py`（`gate_floors_only`、`release_version_files` 判级）、`tests/test_release_regression_guard.py`（静态接线）。
+
 ## CI / Release 工作流与本机环境口径对齐（2026-10-02）
 
 背景：GitHub 上 CI 工作流（`check.ps1 -SkipUnity`）至少自 2026-09-30 起每次红灯（pytest `6 failed, 5 skipped`，门禁的 skip 上限为 0；b7ac4dc3 那次多一条耗时断言共 7 failed），Release 工作流至少自 v1.85.0 起每次红灯，v1.92.0、v1.93.0 的 GitHub Release 上只有本机上传的 zip/lock/samples/两个脚本，四个 `.tgz` 一直缺。

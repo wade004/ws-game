@@ -369,9 +369,15 @@ def test_build_script_wiring_for_release_regression_gate() -> None:
     assert "_release_regression_guard.ps1" in text
     assert "Test-ReleaseRegressionRecord" in text
     step5 = text.split("第 5 步：全量门禁")[1].split("check.ps1 未通过")[0]
-    assert '$checkArgs = @("-AbiStrict", "-FailFast", "-NoTiming")' in text, "发布门禁固定只传 -AbiStrict -FailFast -NoTiming（-NoTiming：门禁不得写 timing/ 弄脏工作树，否则打包自检看到 -dirty）"
-    assert "-Il2cpp" not in step5.split("$checkArgs =")[1].split("\n")[0], \
-        "发布门禁不得强制传 -Il2cpp（复盘 I-6 已回退：构建机缺 VS C++ 工作负载与 Windows SDK）"
+    # 发布提速（ADR-0156）：第 5 步的参数由 Get-ReleaseGatePlan 给出——全量形态固定只传 -AbiStrict -FailFast -NoTiming，
+    # 定向形态是 -Changed <记录提交> 加同样三个开关；两种都不得带 -Il2cpp/-SkipUnity。
+    guard_text = GUARD.read_text(encoding="utf-8-sig")
+    assert '$fullArgs = @("-AbiStrict", "-FailFast", "-NoTiming")' in guard_text, "发布门禁固定只传 -AbiStrict -FailFast -NoTiming（-NoTiming：门禁不得写 timing/ 弄脏工作树，否则打包自检看到 -dirty）"
+    assert 'CheckArgs  = @("-Changed", $verdict.Sha, "-AbiStrict", "-FailFast", "-NoTiming")' in guard_text
+    assert "Get-ReleaseGatePlan -RepoRoot" in step5 and '$checkArgs = @($gatePlan.CheckArgs)' in step5
+    gate_plan_body = guard_text.split("function Get-ReleaseGatePlan", 1)[1]
+    assert "-Il2cpp" not in gate_plan_body and "-SkipUnity" not in gate_plan_body, \
+        "发布门禁不得强制传 -Il2cpp（复盘 I-6 已回退：构建机缺 VS C++ 工作负载与 Windows SDK），也不得有跳过 Unity 的传参"
     assert "-SkipUnity" not in text.split("第 5 步：全量门禁")[1].split("check.ps1 未通过")[0], \
         "发布门禁不得再有任何跳过 Unity 的传参路径"
     # 检查必须在写回版本号之前（拒绝时不污染工作树）。

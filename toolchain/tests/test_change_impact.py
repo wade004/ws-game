@@ -230,8 +230,6 @@ def test_repro_generated_dir_is_public_surface(mmap: dict) -> None:
         "presentation/Presentation.Common.csproj",
         "adapters/unity/DiagnosticsForwarding/Adapters.Unity.DiagnosticsForwarding.csproj",
         "adapters/unity/Assets/Editor/GreyBoxSceneBuilder.cs",  # 未登记的引擎侧工作台工程内容：保守 T3
-        "adapters/unity/Packages/packages-lock.json",
-        "VERSION",
         "totally/unknown/file.bin",
     ],
 )
@@ -422,7 +420,7 @@ def test_repro_diag_forwarding_project_tests_are_t1_and_test_csproj_t2_but_produ
 
 def test_repro_toolchain_tests_and_floors_are_t1_toolchain_pytest_only(mmap: dict) -> None:
     # 复现：此前 toolchain/tests/**、gate_floors.json 归共享面 T3（全量门禁）。只改 pytest 用例或下限数，只需 toolchain_pytest。
-    for path in ("toolchain/tests/test_change_impact.py", "toolchain/tests/conftest.py", "toolchain/gate_floors.json"):
+    for path in ("toolchain/tests/test_change_impact.py", "toolchain/tests/conftest.py"):
         plan = _plan(mmap, path)
         assert plan["level"] == "T1", path
         assert plan["dotnet_test"]["mode"] == "none" and plan["engine"]["mode"] == "none", path
@@ -437,6 +435,62 @@ def test_repro_toolchain_tests_and_floors_are_t1_toolchain_pytest_only(mmap: dic
     # 与别的 T1 改动同批仍是 T1；与 T3 路径同批仍是 T3
     assert _plan(mmap, "toolchain/gate_floors.json", "core/foundation/event_bus/Impl.cs")["level"] == "T1"
     assert _plan(mmap, "toolchain/tests/conftest.py", "toolchain/change_impact.py")["level"] == "T3"
+
+
+def test_repro_gate_floors_only_runs_only_the_floors_test_not_full_pytest(mmap: dict) -> None:
+    """复现（2026-10-05 发布提速，ADR-0156）：只改 toolchain/gate_floors.json 的提交，此前判 T1 + toolchain_pytest（全量 pytest，
+    钩子里约 20 分钟）。它唯一的消费者是 test_gate_floors_logic.py，所以只需跑 floors_pytest（一个文件）+ 秒级基础步骤（含文档类检查）。"""
+    plan = _plan(mmap, "toolchain/gate_floors.json")
+    assert plan["level"] == "T1"
+    assert plan["dotnet_test"]["mode"] == "none" and plan["engine"]["mode"] == "none"
+    ids = _run_ids(plan)
+    assert "floors_pytest" in ids
+    assert "toolchain_pytest" not in ids, "gate_floors.json 单独改动不得再跑 toolchain 全量 pytest"
+    assert {"self_check", "ban_codename", "ban_arch_terms", "version_consistency", "module_map_check"} <= ids
+    heavy = {"dotnet_build", "dotnet_test", "abi_probe", "sim_baseline", "sync_dll", "registry_pytest", "unity_playmode",
+             "pkg_manifest", "consumer_drill", "unity_compile"}
+    assert not (heavy & ids)
+
+
+def test_invariant_floors_pytest_runs_only_with_gate_floors_and_full_pytest_still_runs_for_other_toolchain_changes(mmap: dict) -> None:
+    """不变量：floors_pytest 只因 gate_floors.json 出现；gate_floors.json 与 toolchain/tests 改动同批时两个都跑（全量 pytest 不丢）；
+    toolchain 下其它路径（T3 全量）里 toolchain_pytest 照旧在。"""
+    both = _plan(mmap, "toolchain/gate_floors.json", "toolchain/tests/conftest.py")
+    assert {"floors_pytest", "toolchain_pytest"} <= _run_ids(both)
+    assert "floors_pytest" not in _run_ids(_plan(mmap, "toolchain/tests/conftest.py"))
+    t3 = _plan(mmap, "toolchain/gate_floors.json", "toolchain/change_impact.py")
+    assert t3["level"] == "T3" and "toolchain_pytest" in _run_ids(t3)
+
+
+def test_repro_release_version_files_are_t1_with_version_sensitive_steps_only(mmap: dict) -> None:
+    """复现（2026-10-05 发布提速，ADR-0156）：build.ps1 -Release 第 4 步写回的四个版本文件此前"未被任何规则覆盖"，一律保守判 T3，
+    使发布第 5 步的 `check.ps1 -Changed <全量记录提交>` 退化成全量。现在记 T1，只跑受版本号影响的步骤。"""
+    files = [
+        "VERSION",
+        "adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json",
+        "adapters/unity/Packages/packages-lock.json",
+        "games/_template/package.json",
+    ]
+    for f in files:
+        plan = _plan(mmap, f)
+        assert plan["level"] == "T1", f
+        assert plan["dotnet_test"]["mode"] == "none", f
+        assert plan["engine"]["mode"] == "none", f
+        ids = _run_ids(plan)
+        assert {"pkg_manifest", "sync_dll", "unity_compile", "consumer_drill", "unity_meta", "version_consistency"} <= ids, f
+        assert not ({"dotnet_build", "dotnet_test", "abi_probe", "sim_baseline", "toolchain_pytest", "unity_playmode"} & ids), f
+    # 整批写回 + 文档类改动（发布第 5 步实际看到的改动集）仍是 T1，不会因为文档改动升级。
+    batch = _plan(mmap, *files, "CHANGELOG.md", "REGRESSION_LOG.md", "docs/复盘/x.md", "timing/20261005_x.jsonl")
+    assert batch["level"] == "T1"
+    assert {"pkg_manifest", "consumer_drill", "docs_pytest"} <= _run_ids(batch)
+
+
+def test_invariant_release_version_files_do_not_hide_code_changes(mmap: dict) -> None:
+    """不变量：版本文件规则只覆盖这四个确切路径；同批里出现任何代码/共享面改动，级别与步骤照常升高（不会被版本文件规则吞掉）。"""
+    assert _plan(mmap, "VERSION", "core/foundation/event_bus/Impl.cs")["level"] == "T1"
+    assert _plan(mmap, "VERSION", "build.ps1")["level"] == "T3"
+    assert _plan(mmap, "VERSION", "adapters/unity/Packages/manifest.json")["level"] == "T3"
+    assert _plan(mmap, "adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Ui/X.cs", "VERSION")["level"] == "T2"
 
 
 @pytest.mark.parametrize(
@@ -954,9 +1008,10 @@ def test_invariant_every_test_csproj_change_lists_its_own_test_project(mmap: dic
 
 
 def test_invariant_every_toolchain_tests_file_runs_only_toolchain_pytest(mmap: dict) -> None:
-    """toolchain/tests 下与 gate_floors.json 的任何受版本管理文件：T1，不跑 dotnet、不跑引擎侧，除 toolchain_pytest 外
-    不带别的 pytest/重步骤（私服回归用例文件自己的隔离步骤例外）。"""
-    files = _tracked("toolchain/tests") + ["toolchain/gate_floors.json"]
+    """toolchain/tests 下的任何受版本管理文件：T1，不跑 dotnet、不跑引擎侧，除 toolchain_pytest 外
+    不带别的 pytest/重步骤（私服回归用例文件自己的隔离步骤例外）。gate_floors.json 单列，见
+    test_repro_gate_floors_only_runs_only_the_floors_test_not_full_pytest。"""
+    files = _tracked("toolchain/tests")
     assert len(files) > 50
     heavy = {"dotnet_build", "dotnet_test", "abi_probe", "sim_baseline", "sync_dll", "docs_pytest", "hooks_pytest", "unity_playmode"}
     for f in files:

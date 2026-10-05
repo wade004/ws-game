@@ -199,9 +199,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\install_hooks.ps1
 
 该脚本把 `git config core.hooksPath` 指向 `.githooks/`（幂等，重复跑不报错）；`-Uninstall` 还原为默认值。
 
-安装后每次 `git commit` 前，`pre-commit` 先按本次暂存改动清单（`git diff --cached --name-only`，含重命名/删除；合并提交同样按这份清单判断，不特殊放行）分级，把判定结果打印成一行说明（档位 + 理由），再决定跑多重的门禁。发布提交（ReleaseSkip）的判定仍是 `toolchain/_precommit_tiering_guard.ps1` 里的纯函数 `Get-PreCommitCheckTier`（`toolchain/tests/test_precommit_tiering_guard.py` 单独覆盖），其余按改动影响集分级：
+安装后每次 `git commit` 前，`pre-commit` 先按本次暂存改动清单（`git diff --cached --name-only`，含重命名/删除；合并提交同样按这份清单判断，仅在下面 MergeSkip 条件全部满足时才跳过）分级，把判定结果打印成一行说明（档位 + 理由），再决定跑多重的门禁。发布提交（ReleaseSkip）的判定仍是 `toolchain/_precommit_tiering_guard.ps1` 里的纯函数 `Get-PreCommitCheckTier`（`toolchain/tests/test_precommit_tiering_guard.py` 单独覆盖），其余按改动影响集分级：
 
-- **ReleaseSkip**：`build.ps1 -Release` 在第 5 步全量门禁（含 `-AbiStrict`）通过后，于"第 6 步"提交版本号改动前设置 `WS_GAME_RELEASE_COMMIT=1`，且暂存清单确实只含该步骤 `git add` 的那五个版本文件（`VERSION`、两个 `package.json`、`packages-lock.json`、`CHANGELOG.md`）——不重复跑 `check.ps1`（全量门禁已经在这次提交之前跑过）。
+- **ReleaseSkip**：`build.ps1 -Release` 在第 5 步门禁（全量，或复用已验证全量记录时的定向门禁，含 `-AbiStrict`）通过后，于"第 6 步"提交版本号改动前设置 `WS_GAME_RELEASE_COMMIT=1`，且暂存清单确实只含该步骤 `git add` 的那五个版本文件（`VERSION`、两个 `package.json`、`packages-lock.json`、`CHANGELOG.md`）——不重复跑 `check.ps1`（门禁已经在这次提交之前跑过）。
+- **MergeSkip**（ADR-0156）：合并提交（`MERGE_HEAD` 恰有一个）且即将提交的树与第二父提交的树逐字节相同、该第二父提交在 `REGRESSION_LOG.md` 有含 Unity 全量通过记录背书（判定复用发布守卫，见 `toolchain/_precommit_tiering_guard.ps1` 的 `Get-PreCommitMergeSkip`）——被提交的内容就是测过的内容，不重复跑。主线有独立改动被合进来（树不同）、第二父提交没有记录、章鱼合并、判定出错都照常跑。
+- **只改 `toolchain/gate_floors.json`**（ADR-0156）：判 T1，只跑 `floors_pytest`（`test_gate_floors_logic.py` 一个文件）加秒级基础步骤，不再跑 toolchain 全量 pytest；与 `toolchain/tests/**` 同批改动时全量 pytest 照旧。
 - **其余一切情况**：跑 `check.ps1 -Staged -SkipUnity`，由 `toolchain/change_impact.py` 按暂存路径统一判级（ADR-0126，规则见 `toolchain/module_map.json`）。T0（全是文档，即旧 DocsOnly 档）只跑门禁自检、两道禁用词扫描（CLAUDE.md 硬性规则的唯一守门，任何档位都不跳过）、版本一致性、两个文档相关 pytest 用例，秒级完成；T1/T2 只跑命中层的测试工程与被触发的步骤；T3（共享面或未知路径）此前叫 Full，钩子对这一档额外带 `-Quick`（与旧 Full 档完全等价：`check.ps1 -SkipUnity -Quick`，目标总用时 30 秒左右，见上一节），完整全量留给里程碑与手工 `check.ps1`。每次判定先打印"本次判定"块，被跳过的步骤标 SKIP 与"T? 未触发"。
 
 暂存清单为空、判级脚本调用失败（如 `python`/`powershell` 不可用）一律退回旧 Full 档（`check.ps1 -SkipUnity -Quick`，不走定向），不静默放行。未通过则本次提交被拦截（终端打印失败明细，同 `check.ps1` 汇总表）；紧急情况需要跳过时用 `git commit --no-verify`（不建议常态化使用）。
@@ -221,6 +223,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\install_hooks.ps1
 ```powershell
 powershell -File build.ps1 -Release 1.0.0                                    # 完整发布：校验 → 写回版本号 → 全量门禁 → 打包+zip+lock → 提交 → 打标签
 powershell -File build.ps1 -Release 1.0.0 -DryRun                            # 只跑校验+打包，不改任何源码文件、不提交、不打标签（产物名带 -dryrun 后缀）
+powershell -File build.ps1 -Release 1.0.0 -FullRegate                       # 第 5 步强制重跑全量门禁（默认复用已验证的全量记录、只跑定向门禁，见下"流程内部"第 5 步）
 powershell -File build.ps1 -Release 1.0.0 -Publish                          # 打完标签后自动执行 git push 与创建 GitHub Release
 powershell -File build.ps1 -Release 1.0.0 -Resume [同样的 -PublishRegistry/-Publish]   # 发布提交之后失败（打包/自检/标签/私服/推送/GitHub Release）：从失败的阶段续跑，不重跑全量门禁、不改写历史
 ```
@@ -232,7 +235,7 @@ powershell -File build.ps1 -Release 1.0.0 -Resume [同样的 -PublishRegistry/-P
 3. 校验 `CHANGELOG.md` 已存在 `## [X.Y.Z]` 条目（没有则报错，提示先补齐变更记录）。
    另校验 `REGRESSION_LOG.md` 里有对应当前 `HEAD` 的"含 Unity 全量通过"记录（记录的提交就是 `HEAD`，或是其祖先且其后只改了 `docs/`、`architecture/`、`*.md`；结果列须以"通过"开头并含"含 Unity"或"PlayMode N/N"字样），没有则拒绝发布并打印原因——先在有 Unity 的机器上对当前提交跑 `check.ps1` 全量并登记一行；`-DryRun` 只警告不拦。发布不再有"跳过 Unity"的开关。
 4. 把版本号写回 `VERSION`、两个 `package.json` 与 `adapters/unity/Packages/packages-lock.json`（`com.gamefoundation.game-template` 条目下对适配层包依赖版本号的 UPM 镜像字段；`-DryRun` 时跳过这一步，不触碰任何源码文件）。
-5. 跑一遍 `check.ps1`（全量，固定传 `-AbiStrict -FailFast`：含 Unity 相关步骤；IL2CPP 三步仍是显式 `-Il2cpp` 开关，发布门禁不强制——构建机缺 Visual Studio C++ 工作负载与 Windows SDK，装好后再启用）。通过后（非 `-DryRun`）写门禁通过记录 `dist/release-<ver>.state.json`（被 `.gitignore` 覆盖，`-Resume` 的凭据）。
+5. 跑门禁 `check.ps1`（固定传 `-AbiStrict -FailFast -NoTiming`：含 Unity 相关步骤；IL2CPP 三步仍是显式 `-Il2cpp` 开关，发布门禁不强制——构建机缺 Visual Studio C++ 工作负载与 Windows SDK，装好后再启用）。**默认复用第 3 步已验证的全量记录，不再重跑同一份全量**（ADR-0156）：第 3 步守卫放行、且工作树除第 4 步写回的版本文件外没有别的改动时，改跑定向门禁 `check.ps1 -Changed <记录提交>`（记录之后只有文档类改动 + 版本号写回；模块表规则 `release_version_files` 仍会跑包清单一致性、DLL 同步、Unity 编译、消费方演练），日志写明复用的记录（run_id + 提交）与定向门禁结论行；守卫不放行、`-DryRun`、或显式传 `-FullRegate` 时仍跑全量（约 50 分钟）。通过后（非 `-DryRun`）写门禁通过记录 `dist/release-<ver>.state.json`（被 `.gitignore` 覆盖，`-Resume` 的凭据）。
 6. 非 `-DryRun` 时：门禁通过后立即提交 `VERSION`/两个 `package.json`/`packages-lock.json`/`CHANGELOG.md`（提交信息 `发布 <ver>`）——先于下一步打包，使打包阶段 `git rev-parse HEAD` 就是这次发布提交本身、工作树干净。
 7. 打包 `dist/<ver>/`、`dist/ws-game-<ver>.zip`（zip 内顶层目录 `ws-game-<ver>/`）与 `dist/ws-game-<ver>.lock`（版本号、`git_commit`、六个核心 DLL 的 sha256）；非 `-DryRun` 时打包完成后自检 `git_commit` 必须等于上一步的发布提交且不带 `-dirty` 后缀，不满足则报错退出（此时提交已产生但未打标签：修复原因后用打印的 `-Resume` 命令续跑；只有要放弃本次发布时才 `git reset --soft` 回退）；自检通过后打带注释标签 `v<ver>`（标签信息取 `CHANGELOG.md` 该版本条目正文），并打印后续需要人工/设计层执行的两条命令：
 
@@ -243,7 +246,7 @@ powershell -File build.ps1 -Release 1.0.0 -Resume [同样的 -PublishRegistry/-P
 
    `<当前分支>` 取自 `git rev-parse --abbrev-ref HEAD`（`-Release` 全程不切换分支，就是打标签所在的那个分支：主线发布是 `main`，维护分支 PATCH 发布是 `release/X.Y.x`），只推本次新建的这一个标签（不带 `--tags` 全量推送）——维护分支上跑 `-Release`/`-Publish` 不会把 `main` 隐式往前推、也不会把本机其它未推送的本地标签一并带出去。传 `-Publish` 则自动执行这两条命令；省略时只打印，由人工确认后自行运行（`.github/workflows/release.yml` 在标签推送后会检查 Release 是否已有对应 zip 附件，已有则跳过重新打包上传，不覆盖本机已验证的产物；没有才走它自己的兜底打包上传路径，见"持续集成"一节）。若本次版本号的 MAJOR 或 MINOR 段发生变化，额外打印建议的维护分支创建命令。
 
-**失败后续跑（`-Resume`）**：第 6 步产生发布提交之后，任一阶段（打包、自检、打标签、私服发布、推送、GitHub Release）失败，脚本末尾打印 `build.ps1 -Release <ver> -Resume [同样的开关]`。续跑只在状态文件与仓库现状严格吻合时执行（状态文件在且版本一致、`HEAD` 就是记录的发布提交、其父提交就是门禁测过的提交、发布提交只含那五个版本文件、工作树干净、`VERSION` 等于目标版本；任一不满足即拒绝并说明原因与下一步），跳过第 1～6 步，从第一个未完成的阶段起按序执行，每个阶段幂等：标签已在 `HEAD` 则跳过（指向别处则拒绝）；私服已有同版本包则比对 `integrity`（一致跳过、不一致拒绝，绝不覆盖；查询失败而非 404 一律中止）；远端已有标签且分支在 `HEAD` 则跳过推送；GitHub Release 已存在则只补传缺失附件（不带 `--clobber`，同名附件大小不符则拒绝）；打包重跑允许覆盖尚未打标签的 `dist/<ver>/` 与产物（标签已存在则由"发布不可变"守卫拒绝）。**不在续跑范围**：第 5 步（全量门禁）或更早、以及第 6 步提交之前的失败——此时没有门禁通过记录或没有发布提交，修好问题后重跑 `-Release`。`-Resume` 不能与 `-DryRun`、`-AllowOverwriteDist` 同传。
+**失败后续跑（`-Resume`）**：第 6 步产生发布提交之后，任一阶段（打包、自检、打标签、私服发布、推送、GitHub Release）失败，脚本末尾打印 `build.ps1 -Release <ver> -Resume [同样的开关]`。续跑只在状态文件与仓库现状严格吻合时执行（状态文件在且版本一致、`HEAD` 就是记录的发布提交、其父提交就是门禁测过的提交、发布提交只含那五个版本文件、工作树干净、`VERSION` 等于目标版本；任一不满足即拒绝并说明原因与下一步），跳过第 1～6 步，从第一个未完成的阶段起按序执行，每个阶段幂等：标签已在 `HEAD` 则跳过（指向别处则拒绝）；私服已有同版本包则比对 `integrity`（一致跳过、不一致拒绝，绝不覆盖；查询失败而非 404 一律中止）；远端已有标签且分支在 `HEAD` 则跳过推送；GitHub Release 已存在则只补传缺失附件（不带 `--clobber`，同名附件大小不符则拒绝）；打包重跑允许覆盖尚未打标签的 `dist/<ver>/` 与产物（标签已存在则由"发布不可变"守卫拒绝）。**不在续跑范围**：第 5 步（门禁）或更早、以及第 6 步提交之前的失败——此时没有门禁通过记录或没有发布提交，修好问题后重跑 `-Release`。`-Resume` 不能与 `-DryRun`、`-AllowOverwriteDist` 同传。
 
 `dist/ws-game-<ver>.zip` 内的 `dist/<ver>/` 目录本身与既有 `-Dist` 打快照的产物结构一致（`MANIFEST.txt` 记录内容见下）；单独打 `dist/<ver>/` 而不做发布流程仍用 `build.ps1 -Dist <version>`；只想在已有 `dist/<ver>/` 基础上补一份 zip+lock（不校验/不提交/不打标签）用 `build.ps1 -Dist <version> -Zip`。
 
