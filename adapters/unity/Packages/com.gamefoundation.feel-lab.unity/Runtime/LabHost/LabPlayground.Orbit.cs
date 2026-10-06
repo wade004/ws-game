@@ -31,6 +31,18 @@ namespace FeelLab.Unity
         /// <summary>环绕镜头的灵敏度与区间（缺省取 <see cref="OrbitCameraOptions"/> 缺省）；必须在 <see cref="Begin"/> 之前设置。</summary>
         public OrbitCameraOptions? OrbitOptions { get; set; }
 
+        /// <summary>相机声明的俯仰范围（度，ADR-0161；缺省 null = 不声明，相机仍是 [0, 89]）；越过水平（上限大于 90）才能抬头看天。环绕镜头的俯角区间（<see cref="OrbitOptions"/>）必须落在它之内。必须在 <see cref="Begin"/> 之前设置。</summary>
+        public (double MinDegrees, double MaxDegrees)? CameraPitchRange { get; set; }
+
+        /// <summary>相机绕其转的焦点离地高度（世界单位，缺省 0 = 地面；第三人称取角色头部高度）。必须在 <see cref="Begin"/> 之前设置。</summary>
+        public double CameraFocusHeight { get; set; }
+
+        /// <summary>相机是否贴地拉近（缺省 false）：会落到地面以下时沿视线向焦点靠近。必须在 <see cref="Begin"/> 之前设置。</summary>
+        public bool CameraGroundAvoidance { get; set; }
+
+        /// <summary>地面避让余量（世界单位，缺省 0.3）。必须在 <see cref="Begin"/> 之前设置。</summary>
+        public double CameraGroundAvoidanceMargin { get; set; } = Adapter.Unity.EngineAdapter.UnityCamera.DefaultGroundAvoidanceMargin;
+
         /// <summary>环绕镜头控制器；这个会话没有环绕镜头（非 3D 演示场景、或相机不带俯仰）时为 null。</summary>
         public OrbitCameraController? Orbit => _stage?.Orbit;
 

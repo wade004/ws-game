@@ -26,6 +26,12 @@ namespace Lab
 
         public const string CameraRelative = "camera_relative";
 
+        /// <summary>
+        /// 脚本里的偏航标记名（<see cref="ScriptEventKind.Marker"/>，<c>Value.X</c> = 偏航度，逆时针为正）：脚本声明 <c>meta.controlSpace = camera_relative</c>（ADR-0161）时，
+        /// 它是相机偏航流——标记所在固定步的意图采集之前生效；没声明的脚本里它仍是纯呈现标记，逻辑不读。
+        /// </summary>
+        public const string YawMarker = "camera_yaw";
+
         /// <summary>摇杆轴值经相机偏航转成世界平面方向（保持模长）；测试用的独立期望公式。</summary>
         public static Vec2 CameraRelativeToWorld(Vec2 stick, double yawRadians)
         {
@@ -37,6 +43,22 @@ namespace Lab
         /// <summary>相机的右轴/上轴在世界平面上的投影给出的期望方向：<c>x·right + y·up</c>。</summary>
         public static Vec2 ExpectedFromAxes(Vec2 stick, Vec2 cameraRight, Vec2 cameraUp) =>
             new Vec2(stick.X * cameraRight.X + stick.Y * cameraUp.X, stick.X * cameraRight.Y + stick.Y * cameraUp.Y);
+
+        /// <summary>
+        /// 脚本驱动的相机朝向查询（ADR-0161）：偏航只来自脚本里的偏航标记流（<see cref="YawMarker"/>），开局 0。宿主在固定步边界（脚本事件应用处）调用 <see cref="Commit"/>，
+        /// 输入映射每次更新取样的偏航因此只由脚本决定，与是否有引擎、有没有真实相机无关——录下来的相机相对会话在任何宿主里逐位复现。
+        /// </summary>
+        public sealed class ScriptYawOrientation : Core.Foundation.EngineAdapter.ICameraOrientation
+        {
+            /// <summary>当前偏航（度，逆时针为正）。</summary>
+            public double YawDegrees { get; private set; }
+
+            /// <summary><see cref="Core.Foundation.EngineAdapter.ICameraOrientation.YawRadians"/>：当前偏航（弧度）。</summary>
+            public double YawRadians => YawDegrees * Math.PI / 180.0;
+
+            /// <summary>提交一个偏航标记的取值（度）。</summary>
+            public void Commit(double yawDegrees) => YawDegrees = yawDegrees;
+        }
 
         /// <summary>两个方向的夹角（度，0～180）；任一为零向量时返回 0（没有方向可比）。</summary>
         public static double AngleDegrees(Vec2 a, Vec2 b)

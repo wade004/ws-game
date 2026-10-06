@@ -500,6 +500,135 @@ namespace FeelLab.Unity.Tests
             Assert.AreEqual(good.LogicProjection, broken.LogicProjection);
         }
 
+        // ───────── 自由镜头（ADR-0161）：越过水平的俯仰、脚本携带控制空间声明、声明错误 ─────────
+
+        [Test]
+        public void CameraRelative_NativeConversionMatchesTheRealCameraAxes_AtPitchesPastHorizontal()
+        {
+            // 复现 + 不变量：俯仰声明越过水平（90 度之后视线抬向天空）时，输入映射仍只按偏航换算；真实相机的右轴、"水平视线方向"（越过水平后屏幕上轴的投影翻到背面，
+            // 摇杆向上取视线水平方向）与偏航公式三向一致，世界移动方向与同偏航的无头参照逐位一致。焦点高度与地面避让只动相机位置，不得改逻辑。
+            var script = LabHostTestSupport.Script("diagonal");
+            foreach (var pitch in new[] { 90.0, 95.0, 120.0, 150.0 })
+            {
+                foreach (var yaw in new[] { 0.0, 30.0, 137.5, -75.0 })
+                {
+                    var options = new EngineLabOptions
+                    {
+                        ControlSpaceOverride = ControlSpace.CameraRelative,
+                        CameraYawDegrees = yaw,
+                        CameraPitchDegrees = pitch,
+                        CameraPitchRange = (0.0, 170.0),
+                        CameraPerspective = true,
+                        CameraFocusHeight = 1.6,
+                        CameraGroundAvoidance = true,
+                    };
+                    var tag = $"yaw={yaw} pitch={pitch}";
+                    var run = Host.Run(script, "3d_targeted", options);
+                    Assert.AreEqual(0, run.Engine.Errors.Count, tag + "：" + string.Join(" | ", run.Engine.Errors));
+                    Assert.Greater(run.Engine.Controls.Count, 0, $"{tag}：前置条件——脚本里应有摇杆输入");
+                    Assert.LessOrEqual(Num(run, "control_max_error_deg"), 0.01, $"{tag}：原生换算结果与真实相机轴/偏航公式的最大夹角（度）");
+                    Assert.LessOrEqual(Num(run, "control_max_screen_error_deg"), 0.05, $"{tag}：回到屏幕的夹角");
+
+                    var reference = Host.HeadlessRunner.Record(script, "3d_targeted", null, new FixedYawReference(yaw * Math.PI / 180.0));
+                    var last = run.Recording.Ticks.Count - 1;
+                    Assert.AreEqual(reference.Ticks[last].Position.X, run.Recording.Ticks[last].Position.X, 1e-3, $"{tag}：终点 X");
+                    Assert.AreEqual(reference.Ticks[last].Position.Y, run.Recording.Ticks[last].Position.Y, 1e-3, $"{tag}：终点 Y");
+                }
+            }
+        }
+
+        /// <summary>造一份声明了 camera_relative 的会话脚本：无头实时会话里按固定步边界转偏航并推摇杆（偏航流进脚本）。</summary>
+        private static InputScript RecordDeclaredOrbitScript(string id, double[] yaws, string cell)
+        {
+            var script = LabLive.CreateScript(id);
+            script.Meta.ControlSpace = ControlSpace.CameraRelative;
+            var session = Host.HeadlessRunner.StartLive(script, cell, null, null);
+            const double frame = 1.0 / 60.0;
+            void Frames(int n)
+            {
+                for (var i = 0; i < n; i++)
+                {
+                    session.Advance(frame);
+                }
+            }
+
+            Frames(3);
+            foreach (var yaw in yaws)
+            {
+                session.Inject(new ScriptEvent(0, ControlSpace.YawMarker, ScriptEventKind.Marker, new Vec2(yaw, 0.0)));
+                session.Inject(new ScriptEvent(0, "input.action.move", ScriptEventKind.Axis, new Vec2(0.6, 0.8)));
+                Frames(15);
+                session.Inject(new ScriptEvent(0, "input.action.move", ScriptEventKind.Axis, new Vec2(0.0, 1.0)));
+                Frames(15);
+                session.Inject(new ScriptEvent(0, "input.action.move", ScriptEventKind.Axis, Vec2.Zero));
+                Frames(3);
+            }
+
+            session.Finish();
+            return InputScript.Parse(session.Script.ToJson());
+        }
+
+        [Test]
+        public void DeclaredScript_ReplaysInTheEngineHost_WithTheHeadlessLogic_AndTheStageCameraFollowsTheYawStream()
+        {
+            // 复现 ADR-0159 已知限制的修复：录下的相机相对会话（脚本自带控制空间声明与偏航标记流）在引擎宿主（没有环绕镜头）里重放，
+            // 逻辑指纹与无头宿主逐字节一致；舞台相机跟着偏航流转，真实相机右/上轴与输入映射用的偏航仍然三向一致。
+            var yaws = new[] { 0.0, 90.0, 213.5, -47.0 };
+            var script = RecordDeclaredOrbitScript("engine_declared_orbit", yaws, "3d_action");
+            var headless = Host.RunHeadlessLogic(script, "3d_action");
+            var undeclared = InputScript.Parse(script.ToJson());
+            undeclared.Meta.ControlSpace = string.Empty;
+            Assert.AreNotEqual(headless, Host.RunHeadlessLogic(undeclared, "3d_action"), "前置条件：声明确实改变了逻辑（不是空转）");
+
+            var run = Host.Run(script, "3d_action");
+            Assert.AreEqual(0, run.Engine.Errors.Count, string.Join(" | ", run.Engine.Errors));
+            Assert.AreEqual(headless, run.LogicProjection, "引擎宿主按脚本声明重放，逻辑组与无头宿主逐字节一致");
+            Assert.Greater(run.Engine.Controls.Count, 0);
+            Assert.LessOrEqual(Num(run, "control_max_error_deg"), 0.01, "画面相机的右/上轴与偏航流一致");
+            Assert.LessOrEqual(Num(run, "control_max_screen_error_deg"), 0.05);
+        }
+
+        [Test]
+        public void CameraDeclarations_Invalid_AreStageAssemblyErrors_AndNeverChangeTheLogic()
+        {
+            // 负例：非法俯仰范围是声明错误（舞台装配失败，错误记入引擎记录），逻辑不受影响（引擎侧失败不得改变逻辑）。
+            var script = LabHostTestSupport.Script("diagonal");
+            var headless = Host.RunHeadlessLogic(script, "3d_targeted");
+            foreach (var range in new[] { (100.0, 50.0), (-5.0, 90.0), (0.0, 180.0), (double.NaN, 90.0) })
+            {
+                var run = Host.Run(script, "3d_targeted", new EngineLabOptions { CameraPitchRange = range, CameraPitchDegrees = 45.0 });
+                Assert.Greater(run.Engine.Errors.Count, 0, $"range={range}：应记入装配错误");
+                Assert.IsTrue(run.Engine.Errors.Any(e => e.Contains("俯仰角范围") || e.Contains("pitch", StringComparison.OrdinalIgnoreCase)), string.Join(" | ", run.Engine.Errors));
+                Assert.AreEqual(headless, run.LogicProjection, $"range={range}：舞台装配失败不改逻辑");
+            }
+
+            var good = Host.Run(script, "3d_targeted", new EngineLabOptions { CameraPitchRange = (0.0, 150.0), CameraPitchDegrees = 120.0, CameraPerspective = true });
+            Assert.AreEqual(0, good.Engine.Errors.Count, string.Join(" | ", good.Engine.Errors));
+            Assert.AreEqual(headless, good.LogicProjection);
+        }
+
+        [Test]
+        public void OrbitOptions_OutsideTheDeclaredCameraRange_AreAStageAssemblyError_InsideItAreAccepted()
+        {
+            // 环绕镜头的绝对俯角区间必须落在相机声明的范围内，否则相机会悄悄夹紧、控制器报的俯角与画面不一致——装配期声明错误，不静默。
+            var script = LabHostTestSupport.Script("diagonal");
+            EngineLabOptions Orbit(double pitchMax, (double, double)? range) => new EngineLabOptions
+            {
+                Interactive = true,
+                HonorCellCameraMode = true,
+                GpuTiming = false,
+                OrbitCamera = true,
+                ControlSpaceOverride = ControlSpace.CameraRelative,
+                OrbitOptions = new OrbitCameraOptions { PitchMinDegrees = 5.0, PitchMaxDegrees = pitchMax, PitchRangeAboveBase = 120.0 },
+                CameraPitchRange = range,
+            };
+
+            var outside = Host.Run(script, "3d_targeted", Orbit(120.0, null));
+            Assert.IsTrue(outside.Engine.Errors.Any(e => e.Contains("环绕镜头")), "不声明范围（缺省 [0, 89]）却要求上限 120：声明错误。" + string.Join(" | ", outside.Engine.Errors));
+            var inside = Host.Run(script, "3d_targeted", Orbit(120.0, (0.0, 150.0)));
+            Assert.AreEqual(0, inside.Engine.Errors.Count, string.Join(" | ", inside.Engine.Errors));
+        }
+
         // ───────── 输入噪声记录与回放 ─────────
 
         [Test]

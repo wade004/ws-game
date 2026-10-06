@@ -210,7 +210,14 @@ namespace FeelLab.Unity
                     options.OrbitOptions = OrbitOptions;
                     options.OrbitCameraStartsEnabled = OrbitCameraStartsEnabled;
                     options.ControlSpaceOverride = ControlSpace.CameraRelative;
+                    // 脚本带控制空间声明（ADR-0161）：录下的会话在任何宿主（含无头命令行）里按脚本里的偏航标记流复现相机相对移动。
+                    script.Meta.ControlSpace = ControlSpace.CameraRelative;
                 }
+
+                options.CameraPitchRange = CameraPitchRange;
+                options.CameraFocusHeight = CameraFocusHeight;
+                options.CameraGroundAvoidance = CameraGroundAvoidance;
+                options.CameraGroundAvoidanceMargin = CameraGroundAvoidanceMargin;
 
                 _stage = new EngineLabStage(options);
                 _yawMarkerDegrees = 0.0;

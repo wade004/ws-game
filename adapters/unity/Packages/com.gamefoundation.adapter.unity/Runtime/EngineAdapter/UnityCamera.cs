@@ -17,9 +17,16 @@
 //
 // 判断记录（俯仰与透视，M4-W4；取代此前"2D 渲染管线不支持透视俯角、fixed_pitch 未实现"的缺口）：
 //   - 约定：俯仰角 pitchDegrees 以"正俯视 = 0"为基准（视线沿 +Z 垂直看向世界平面 XY），增大则相机向后倾（相机在焦点的 -Y 侧上方，
-//     视线朝 +Y 方向压低），范围夹在 [0, 89]；俯仰只改相机姿态与位置，偏航仍是绕世界 Z 轴的逆时针角度，最终姿态 = Rz(偏航) * Rx(-俯仰)。
+//     视线朝 +Y 方向压低），缺省范围夹在 [0, 89]；俯仰只改相机姿态与位置，偏航仍是绕世界 Z 轴的逆时针角度，最终姿态 = Rz(偏航) * Rx(-俯仰)。
 //     相机右轴恒在世界平面上（(cos yaw, sin yaw)，俯仰绕右轴转）；"屏幕上方"在世界平面上的投影方向恒为 (-sin yaw, cos yaw)，
 //     所以相机相对输入只需要偏航（见 ICameraOrientation），俯仰只把世界平面在屏幕上沿"上"方向压扁 cos(俯仰) 倍。
+//   - 俯仰范围是游戏可声明的可选能力（DeclarePitchRange，ADR-0161）：约定不变——0 = 视线垂直向下，90 = 水平，大于 90 = 视线抬过地平线看向天空，180 = 垂直向上，
+//     声明范围夹在 [0, 179]。越过水平时：姿态仍按 Rz(偏航) * Rx(-俯仰) 显式合成（不用"看向目标"的朝向求解），所以在两极不会翻转；视线的水平分量
+//     恒为 sin(俯仰) * (-sin yaw, cos yaw)，sin(俯仰) 在 (0, 180) 内恒为正，因此"视线朝向的水平方向"仍只由偏航决定，相机相对输入的换算（只读偏航）继续正确——
+//     变的只是"屏幕上方"在世界平面上的投影：它含 cos(俯仰) 因子，俯仰越过 90 后符号翻转（屏幕上方指向背离视线水平方向的一侧），
+//     所以"摇杆向上 = 朝相机水平视线方向走"是相机相对输入在整个俯仰范围内的稳定语义（取代俯仰小于 90 时它与"屏幕上方"重合的说法）。
+//   - 绕焦点转的高度（FocusHeight，缺省 0 = 地面）与地面避让（GroundAvoidance，缺省关）配合仰视：焦点抬到角色头部高度，俯仰越过水平后相机落到焦点下方，
+//     若会低于地面（含余量），沿视线向焦点靠近到刚好离地余量处（第三人称相机常见的"贴地就拉近"），而不是穿进地面。
 //   - 渲染物仍然躺在世界平面（XY，Z = 0）上：精灵、特效是平面四边形，俯仰相机看到的是它们在地面上的透视投影（近大远小、纵向压扁），
 //     不做 billboard（让精灵朝向相机站起来）——那是渲染层的取舍，不在相机里偷偷做。
 //   - ScreenToWorld 对任意姿态都是"射线与 Z = 0 平面求交"；射线与平面平行（指向天空）或在相机身后返回 null，与契约一致。
@@ -148,8 +155,28 @@ namespace Adapter.Unity.EngineAdapter
         private const double MinFieldOfView = 10.0;
         private const double MaxFieldOfView = 120.0;
 
-        /// <summary>俯仰角合法范围上限（度）：0 = 正俯视，上限留出余量避免视线与世界平面平行。</summary>
-        private const double MaxPitchDegrees = 89.0;
+        /// <summary>缺省俯仰角范围的上限（度）：0 = 正俯视，上限留出余量避免视线与世界平面平行；游戏不声明范围时就是这个区间 [0, 89]（与引入范围声明之前逐位一致）。</summary>
+        public const double DefaultMaxPitchDegrees = 89.0;
+
+        /// <summary>
+        /// 游戏可声明的俯仰角上限的绝对天花板（度）。约定：0 = 视线垂直向下（正俯视），90 = 视线水平，大于 90 = 视线抬过地平线、看向天空，180 = 垂直向上。
+        /// 声明范围不得超过 179（留出余量，避免视线与垂直轴重合时偏航在视线轴上退化）。
+        /// </summary>
+        public const double AbsoluteMaxPitchDegrees = 179.0;
+
+        private double _pitchMinDegrees;
+        private double _pitchMaxDegrees = DefaultMaxPitchDegrees;
+        private double _focusHeight;
+        private bool _groundAvoidance;
+        private double _groundAvoidanceMargin = DefaultGroundAvoidanceMargin;
+        private double _currentDistance;
+        private bool _groundAvoidanceEngaged;
+
+        /// <summary>地面避让缺省余量（世界单位）：相机至少离地面这么高。</summary>
+        public const double DefaultGroundAvoidanceMargin = 0.3;
+
+        /// <summary>地面避让时相机沿视线最近只逼近到离焦点这么远（世界单位）：焦点高度不高于余量时没有"既贴地又离得开"的位置，退到这个下限而不是压到焦点上（避免距离为 0 的退化）。</summary>
+        private const double MinAvoidanceDistance = 0.01;
 
         /// <summary>
         /// 可选能力（默认关闭，关闭时行为与引入前逐位一致）：打开后 <see cref="Configure"/> 记下的 <c>yawDegrees</c> 会真正作用到相机朝向——
@@ -173,7 +200,7 @@ namespace Adapter.Unity.EngineAdapter
 
         /// <summary>
         /// 可选能力（默认关闭，关闭时行为与引入前逐位一致）：打开后 <see cref="Configure"/> 记下的 <c>pitchDegrees</c> 真正作用到相机姿态
-        /// （固定俯角，约定与范围见类型顶部判断记录：0 = 正俯视、夹在 [0, 89]）。相机相对输入不受影响（仍只用偏航），
+        /// （固定俯角，约定与范围见类型顶部判断记录：0 = 正俯视，缺省夹在 [0, 89]，游戏可经 <see cref="DeclarePitchRange"/> 声明更宽的范围）。相机相对输入不受影响（仍只用偏航），
         /// 世界平面在屏幕上沿"上"方向被压扁 cos(俯仰) 倍。
         /// </summary>
         public bool ApplyPitch
@@ -231,8 +258,132 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
-        /// <summary>当前生效的俯仰角（度）：没有打开 <see cref="ApplyPitch"/> 为 0，否则是配置值夹进 [0, 89]。</summary>
-        public double EffectivePitchDegrees => _applyPitch ? Math.Max(0.0, Math.Min(MaxPitchDegrees, _pitchDegrees)) : 0.0;
+        /// <summary>当前生效的俯仰角（度）：没有打开 <see cref="ApplyPitch"/> 为 0，否则是配置值夹进已声明的范围（缺省 [0, 89]，见 <see cref="DeclarePitchRange"/>）。</summary>
+        public double EffectivePitchDegrees => _applyPitch ? Math.Max(_pitchMinDegrees, Math.Min(_pitchMaxDegrees, _pitchDegrees)) : 0.0;
+
+        /// <summary>当前生效的俯仰角范围下限（度）；缺省 0。</summary>
+        public double PitchMinDegrees => _pitchMinDegrees;
+
+        /// <summary>当前生效的俯仰角范围上限（度）；缺省 <see cref="DefaultMaxPitchDegrees"/>（89）。</summary>
+        public double PitchMaxDegrees => _pitchMaxDegrees;
+
+        /// <summary>
+        /// 可选能力（默认不声明 = 范围 [0, 89]，与引入前逐位一致）：游戏声明自己的俯仰角范围，允许越过水平（&gt; 90 度 = 视线抬向天空，第三人称自由镜头）。
+        /// 约定见类型顶部判断记录：0 = 正俯视，90 = 水平，大于 90 = 仰视。声明期校验，非法立刻抛 <see cref="ArgumentException"/>（不静默夹紧）：
+        /// 两端必须是有限数、0 &lt;= <paramref name="minDegrees"/> &lt;= <paramref name="maxDegrees"/> &lt;= <see cref="AbsoluteMaxPitchDegrees"/>（179）。
+        /// 声明后当前配置的俯仰按新范围重新夹紧并刷新相机姿态。
+        /// </summary>
+        public void DeclarePitchRange(double minDegrees, double maxDegrees)
+        {
+            if (double.IsNaN(minDegrees) || double.IsInfinity(minDegrees) || double.IsNaN(maxDegrees) || double.IsInfinity(maxDegrees))
+            {
+                throw new ArgumentException($"俯仰角范围必须是有限数：[{minDegrees}, {maxDegrees}]");
+            }
+
+            if (minDegrees < 0.0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(minDegrees), minDegrees, "俯仰角范围下限不得小于 0（0 = 正俯视）");
+            }
+
+            if (maxDegrees > AbsoluteMaxPitchDegrees)
+            {
+                throw new ArgumentOutOfRangeException(nameof(maxDegrees), maxDegrees, $"俯仰角范围上限不得超过 {AbsoluteMaxPitchDegrees}（180 = 垂直向上，留出余量避免偏航退化）");
+            }
+
+            if (minDegrees > maxDegrees)
+            {
+                throw new ArgumentException($"俯仰角范围下限 {minDegrees} 大于上限 {maxDegrees}");
+            }
+
+            _pitchMinDegrees = minDegrees;
+            _pitchMaxDegrees = maxDegrees;
+            if (_applyPitch || _perspective)
+            {
+                RefreshOrientation();
+            }
+        }
+
+        /// <summary>恢复缺省俯仰角范围 [0, 89]。</summary>
+        public void ResetPitchRange() => DeclarePitchRange(0.0, DefaultMaxPitchDegrees);
+
+        /// <summary>
+        /// 可选能力（缺省 0 = 绕地面上的焦点转，与引入前逐位一致）：环绕焦点离地面的高度（世界单位，沿"向上"= 世界 −Z 方向抬高）。
+        /// 第三人称相机绕角色头部而不是脚下转：仰视时相机才在角色下方、仍高于地面；要和 <see cref="GroundAvoidance"/> 配合。非有限数或负数抛 <see cref="ArgumentOutOfRangeException"/>。
+        /// 缩放仍表示"焦点处地面（水平面）的可视半高"的换算基准：相机到焦点的距离不变。
+        /// </summary>
+        public double FocusHeight
+        {
+            get => _focusHeight;
+            set
+            {
+                if (double.IsNaN(value) || double.IsInfinity(value) || value < 0.0)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value), value, "焦点高度必须是非负有限数");
+                }
+
+                if (_focusHeight == value)
+                {
+                    return;
+                }
+
+                _focusHeight = value;
+                if (_applyPitch || _perspective)
+                {
+                    RefreshOrientation();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 可选能力（缺省关闭）：打开后，相机若会落到地面（含 <see cref="GroundAvoidanceMargin"/>）以下，沿视线向焦点靠近到刚好离地余量处，而不是穿进地面。
+        /// 余量实际取 min(<see cref="GroundAvoidanceMargin"/>, <see cref="FocusHeight"/>)：焦点自己低于余量时没有更近的位置可退（此时相机最近退到离焦点 0.01 处）。
+        /// 保证：离地高度 ≥ 实际余量。只作用于俯仰/透视相机的姿态刷新；纯表现，不回流逻辑层。
+        /// </summary>
+        public bool GroundAvoidance
+        {
+            get => _groundAvoidance;
+            set
+            {
+                if (_groundAvoidance == value)
+                {
+                    return;
+                }
+
+                _groundAvoidance = value;
+                if (_applyPitch || _perspective)
+                {
+                    RefreshOrientation();
+                }
+            }
+        }
+
+        /// <summary>地面避让余量（世界单位，缺省 <see cref="DefaultGroundAvoidanceMargin"/>）。非有限数或负数抛 <see cref="ArgumentOutOfRangeException"/>。</summary>
+        public double GroundAvoidanceMargin
+        {
+            get => _groundAvoidanceMargin;
+            set
+            {
+                if (double.IsNaN(value) || double.IsInfinity(value) || value < 0.0)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value), value, "地面避让余量必须是非负有限数");
+                }
+
+                _groundAvoidanceMargin = value;
+                if (_groundAvoidance && (_applyPitch || _perspective))
+                {
+                    RefreshOrientation();
+                }
+            }
+        }
+
+        /// <summary>相机离地面的高度（世界单位；"向上"= 世界 −Z，所以是 −position.z；测试/诊断用）。</summary>
+        public double CameraHeightAboveGround => -(double)_camera.transform.position.z;
+
+        /// <summary>相机到焦点的实际距离（含地面避让后的逼近；没有俯仰/透视时是名义固定距离；测试/诊断用）。</summary>
+        public double CurrentDistance => _currentDistance > 0.0 ? _currentDistance : CameraDistance;
+
+        /// <summary>最近一次姿态刷新里地面避让是否正在起作用（相机被拉近了；测试/诊断用）。</summary>
+        public bool GroundAvoidanceEngaged => _groundAvoidanceEngaged;
 
         /// <summary>
         /// <see cref="ICameraOrientation.YawRadians"/>：相机在世界平面上的实际偏航（弧度，逆时针为正）。<see cref="ApplyYawRotation"/> 没打开时相机
@@ -280,7 +431,7 @@ namespace Adapter.Unity.EngineAdapter
 
         /// <summary>
         /// 一次设置画面偏航与俯仰（度）并立刻刷新相机姿态；缩放走 <see cref="SetZoom"/>。与 <see cref="Configure"/> 的区别：不碰缩放区间，也不重新夹缩放，
-        /// 供每帧驱动的环绕镜头使用。偏航只在 <see cref="ApplyYawRotation"/> 打开时作用到相机，俯仰只在 <see cref="ApplyPitch"/> 打开时作用（俯仰夹在 [0, 89]）。
+        /// 供每帧驱动的环绕镜头使用。偏航只在 <see cref="ApplyYawRotation"/> 打开时作用到相机，俯仰只在 <see cref="ApplyPitch"/> 打开时作用（俯仰夹进已声明的范围，缺省 [0, 89]）。
         /// </summary>
         public void SetView(double yawDegrees, double pitchDegrees)
         {
@@ -356,9 +507,42 @@ namespace Adapter.Unity.EngineAdapter
             var rotation = Quaternion.Euler(0f, 0f, yaw) * Quaternion.Euler(-(float)EffectivePitchDegrees, 0f, 0f);
             _camera.transform.rotation = rotation;
             var forward = rotation * Vector3.forward;
+            // 焦点高度缺省 0：z 写字面 0f，与引入焦点高度之前逐位一致（"向上"是世界 −Z）。
             var focus = new Vector3(
-                _basePosition.x + _shakeOffset.x + _impulseOffset.x, _basePosition.y + _shakeOffset.y + _impulseOffset.y, 0f);
-            _camera.transform.position = focus - forward * (float)CameraDistance;
+                _basePosition.x + _shakeOffset.x + _impulseOffset.x, _basePosition.y + _shakeOffset.y + _impulseOffset.y,
+                _focusHeight > 0.0 ? -(float)_focusHeight : 0f);
+            var distance = CameraDistance;
+            _groundAvoidanceEngaged = false;
+            if (_groundAvoidance)
+            {
+                distance = AvoidGround(focus.z, forward.z, distance);
+            }
+
+            _currentDistance = distance;
+            _camera.transform.position = focus - forward * (float)distance;
+        }
+
+        /// <summary>
+        /// 地面避让：相机位置 z = 焦点 z − 视线 z × 距离，"离地高度"= −z。视线 z &lt; 0（视线向上）时距离越大相机越低；
+        /// 相机会低于 <c>min(余量, 焦点高度)</c> 时，把距离缩到刚好离地该余量处（不小于名义距离的 5%）。视线水平或向下时拉远不会降低高度，原样返回。
+        /// </summary>
+        private double AvoidGround(float focusZ, float forwardZ, double distance)
+        {
+            if (!(forwardZ < 0f))
+            {
+                return distance;
+            }
+
+            var margin = Math.Min(_groundAvoidanceMargin, _focusHeight);
+            // z(d) = focusZ − forwardZ·d ≤ −margin  ⇔  d ≤ (focusZ + margin) / forwardZ（两项都是负数，比值非负）。
+            var limit = (focusZ + margin) / forwardZ;
+            if (limit >= distance)
+            {
+                return distance;
+            }
+
+            _groundAvoidanceEngaged = true;
+            return Math.Max(limit, MinAvoidanceDistance);
         }
 
         public void Follow(Vec2 planePos, double smoothing)
@@ -393,6 +577,13 @@ namespace Adapter.Unity.EngineAdapter
             if (Mathf.Approximately(ray.direction.z, 0f))
             {
                 return null; // 射线与地面平行，找不到交点。
+            }
+
+            if (ray.origin.z >= 0f)
+            {
+                // 相机在地面平面上或之下（仰视且没开地面避让时才会出现；"向上"是 −Z，z ≥ 0 即在地面以下）：只会从背面穿过地面，不是玩家看到的地面点。
+                // 缺省俯视范围内相机恒在地面之上，不受影响。
+                return null;
             }
 
             var t = (0f - ray.origin.z) / ray.direction.z;

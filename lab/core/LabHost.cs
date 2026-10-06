@@ -574,9 +574,19 @@ namespace Lab
             // 控制空间（06 第 4 节第 3 点）：格子（或扩展的覆盖）声明 camera_relative 且扩展提供了相机朝向查询时，移动动作按框架原生的
             // camera_relative 控制空间声明，轴值由输入映射按相机偏航换算成世界方向（不再有宿主层自己的换算）；没有相机朝向查询的宿主
             // （无头宿主）不证明这条路径，按 world 跑，行为与此前逐位一致。扩展显式覆盖了控制空间却不提供朝向查询是装配错误，直接报错。
-            var controlSpace = extension?.ControlSpaceOverride ?? cell.ControlSpace;
+            // 脚本声明（ADR-0161，meta.controlSpace）：声明 camera_relative 的脚本自带偏航流（camera_yaw 标记），朝向查询由脚本驱动——任何宿主按同一串标记得到同一串偏航，
+            // 所以录下的相机相对会话在无头宿主里逐位复现；声明优先于格子，宿主扩展的显式覆盖仍优先于声明（扩展明确要求某个控制空间就按它办）。没声明的脚本一切与此前逐位一致。
+            var declaredSpace = script.Meta.ControlSpace;
+            ControlSpace.ScriptYawOrientation? scriptYaw = null;
+            var controlSpace = extension?.ControlSpaceOverride ?? (declaredSpace.Length > 0 ? declaredSpace : cell.ControlSpace);
             var orientation = extension?.CameraOrientation;
             var cameraRelative = string.Equals(controlSpace, ControlSpace.CameraRelative, StringComparison.Ordinal);
+            if (cameraRelative && string.Equals(declaredSpace, ControlSpace.CameraRelative, StringComparison.Ordinal))
+            {
+                scriptYaw = new ControlSpace.ScriptYawOrientation();
+                orientation = scriptYaw;
+            }
+
             if (cameraRelative && orientation == null && extension?.ControlSpaceOverride != null)
             {
                 throw new LabFormatException("宿主扩展要求 camera_relative 控制空间，但没有提供相机朝向查询（LabHostExtension.CameraOrientation）");
@@ -1044,7 +1054,13 @@ namespace Lab
 
                 if (e.Kind == ScriptEventKind.Marker)
                 {
-                    // 纯呈现标记：宿主逻辑不读，只转给扩展（重放引擎宿主时让视图复现）。
+                    // 纯呈现标记：宿主逻辑不读，只转给扩展（重放引擎宿主时让视图复现）。唯一例外：脚本声明了 camera_relative 控制空间（ADR-0161）时，
+                    // 偏航标记（camera_yaw）是偏航流，在这里（固定步的意图采集之前）提交给朝向查询；其余标记仍然逻辑不读。
+                    if (scriptYaw != null && string.Equals(e.Action, ControlSpace.YawMarker, StringComparison.Ordinal))
+                    {
+                        scriptYaw.Commit(e.Value.X);
+                    }
+
                     extension?.OnMarker(e);
                     return;
                 }
