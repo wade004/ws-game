@@ -41,6 +41,42 @@ namespace Adapter.Unity.LabHost
         public Vector3 TowardCamera(Vector3 point, float distance) =>
             PhysicalUp ? point - _camera!.transform.forward * distance : point;
 
+        /// <summary>
+        /// 真：按"沿相机视线在地面上的深度"排广告牌与地面贴花的遮挡次序（鼠标环绕镜头，ADR-0159：偏航会变，次序不能再按世界 Y 排，否则偏航 180 度时近处的道具会被远处的盖住）；
+        /// 假（缺省）：按世界 Y，即固定镜头的既有算法，逐位不变。
+        /// </summary>
+        public bool FineDepthSort { get; set; }
+
+        /// <summary>环绕镜头下遮挡次序的深度分辨率：每世界单位的次序档数（0.125 世界单位一档）。</summary>
+        private const float DepthSortScale = 8f;
+
+        /// <summary>环绕镜头下躺在地面上的贴花（墙面砖）的遮挡次序：低于一切直立广告牌、高于地面砖（-10000）。</summary>
+        private const int FlatDecalOrder = -9000;
+
+        /// <summary>
+        /// 直立广告牌（道具、冲击波环之上的东西）的遮挡次序：<paramref name="baseOrder"/> 减去地面点的深度档。固定镜头 = 基准 − round(世界 Y)；
+        /// 环绕镜头 = 基准 − round(沿相机"屏幕上"方向在地面上的投影 × <see cref="DepthSortScale"/>)——越远（屏幕越靠上）次序越小，先画。
+        /// </summary>
+        public int DepthOrder(Vector2 ground, int baseOrder)
+        {
+            if (!FineDepthSort || !Upright)
+            {
+                return baseOrder - (int)System.Math.Round(ground.y);
+            }
+
+            var up = _camera!.transform.up;
+            var length = Mathf.Sqrt(up.x * up.x + up.y * up.y);
+            var dir = length > 1e-6f ? new Vector2(up.x / length, up.y / length) : Vector2.up;
+            return baseOrder - (int)System.Math.Round((ground.x * dir.x + ground.y * dir.y) * DepthSortScale);
+        }
+
+        /// <summary>
+        /// 躺在地面上的方块贴花（墙）的遮挡次序：固定镜头沿用 <paramref name="baseOrder"/> − round(世界 Y) − 1；环绕镜头恒为 <see cref="FlatDecalOrder"/>
+        /// （平躺的东西不该盖住站在它上面或后面的广告牌，与偏航无关）。
+        /// </summary>
+        public int FlatDecalSortOrder(float bottomY, int baseOrder) =>
+            FineDepthSort && Upright ? FlatDecalOrder : baseOrder - (int)System.Math.Round(bottomY) - 1;
+
         /// <summary>舞台相机当前姿态（平面模式恒为单位旋转）。</summary>
         public Quaternion CameraRotation => Upright ? _camera!.transform.rotation : Quaternion.identity;
 
