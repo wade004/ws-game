@@ -9,9 +9,9 @@
   ],
   "suites": {
     "dotnet_test": {
-      "min_passed": 9180,
+      "min_passed": 9190,
       "max_skipped": 0,
-      "measured_passed": 10208,
+      "measured_passed": 10220,
       "measured_skipped": 0,
       "measured_at": "2026-10-06"
     },
@@ -30,9 +30,9 @@
       "measured_at": "2026-10-06"
     },
     "unity_playmode": {
-      "min_passed": 570,
+      "min_passed": 580,
       "max_skipped": 0,
-      "measured_passed": 641,
+      "measured_passed": 653,
       "measured_skipped": 0,
       "measured_at": "2026-10-06"
     }
