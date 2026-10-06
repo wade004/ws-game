@@ -460,7 +460,9 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-### 变更（破坏性，ADR-0160，发布时版本号升到 2.0.0）
+## [2.0.0] - 2026-10-06
+
+### 变更（破坏性，ADR-0160）
 
 - **框架三层拆分：适配层包只剩运行时，手感实验室成为两个可选包，演示场景迁往样板仓库（[ADR-0160](architecture/adr/0160-框架三层拆分运行时包手感实验室可选包与样板仓库.md)）**：
   ①`com.gamefoundation.adapter.unity` 不再含任何实验室内容——引擎实验室宿主、F1 面板、占位试玩场景构建器（及全部测试、三个实验室插件 DLL）迁入新包 `com.gamefoundation.feel-lab.unity`（程序集改名 `FeelLab.Unity`、`FeelLab.Unity.Editor`；运行期程序集带 `UNITY_EDITOR` 编译约束，插件 `.dll.meta` 只启用 Editor 平台，游戏独立版里没有它的任何字节）；
