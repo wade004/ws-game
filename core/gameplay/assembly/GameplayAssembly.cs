@@ -1950,18 +1950,7 @@ namespace Core.Gameplay.Assembly
             // README.md"CORE-180-01 根治"一节。放在本方法末尾——此时全部段都已经注册完毕，晚于
             // 构造函数但早于任何一次真正的 saveSystem.Load 调用（调用方约定顺序：先
             // RegisterPersistables，再才会有读档发生）。
-            saveSystem.SetDerivedStateRebuilder(new DerivedStateRebuilder(Carriers.Rules, player, Carriers.Units, _spatial, Death));
-
-            // 判断记录（消费方反馈 P2 缺口 7：冷启动"继续游戏"读档失败，LoadStatus.PersistableThrew）：玩家相关段（world.current_position 等）的
-            // Load 经 IUnitAccess/各宿主按单位 id 写入，要求玩家实体已经在世界里（WorldUnitAccess.Require）；而按模板写法玩家实体只在场景
-            // post_load 钩子里"缺失则加入"，所以进程刚启动、还没进过任何场景时（标题界面直接点"继续游戏"），读档在第一段就抛异常。
-            // 其余装配根（GameFoundationBootstrap）早已在构造期把玩家加入世界，只有模板与照搬模板的游戏漏了这一步。本方法是"玩家相关段
-            // 进入存档系统"的唯一入口，在这里保证"凡注册了玩家段，玩家实体就在世界里"，各装配根不再各自记得补；已在世界里（装配根
-            // 已自行加入）则什么都不做，行为与此前逐位一致。场景切换（ClearAll）会把玩家摘掉，post_load 钩子照旧负责补回。
-            if (_world.GetEntity(player.EntityId) == null)
-            {
-                _world.AddEntity(player);
-            }
+            saveSystem.SetDerivedStateRebuilder(new DerivedStateRebuilder(Carriers.Rules, player, Carriers.Units, _spatial, Death, _world));
         }
 
         /// <summary>
@@ -1999,6 +1988,7 @@ namespace Core.Gameplay.Assembly
             private readonly IUnitAccess _units;
             private readonly ISpatialQuery _spatial;
             private readonly Core.Gameplay.Death.DeathPolicyHost _death;
+            private readonly IWorldSim _world;
             private Id? _previousArchetypeId;
             private Id? _previousRaceId;
 
@@ -2014,8 +2004,10 @@ namespace Core.Gameplay.Assembly
                 PlayerUnit player,
                 IUnitAccess units,
                 ISpatialQuery spatial,
-                Core.Gameplay.Death.DeathPolicyHost death)
+                Core.Gameplay.Death.DeathPolicyHost death,
+                IWorldSim world)
             {
+                _world = world ?? throw new ArgumentNullException(nameof(world));
                 _rules = rules ?? throw new ArgumentNullException(nameof(rules));
                 _player = player ?? throw new ArgumentNullException(nameof(player));
                 _units = units ?? throw new ArgumentNullException(nameof(units));
@@ -2041,6 +2033,17 @@ namespace Core.Gameplay.Assembly
             /// </summary>
             public void BeforeLoad()
             {
+                // 判断记录（消费方反馈 P2 缺口 7：冷启动"继续游戏"读档失败，LoadStatus.PersistableThrew）：玩家相关段（world.current_position 等）的
+                // Load 经 IUnitAccess/各宿主按单位 id 写入，要求玩家实体已经在世界里（WorldUnitAccess.Require）；而按模板写法玩家实体只在场景
+                // post_load 钩子里"缺失则加入"，所以进程刚启动、还没进过任何场景时（标题界面直接点"继续游戏"），读档在第一段就抛异常。
+                // 在"真正开始逐段 Load 之前"这个唯一时点补加：玩家实体不在世界里就加进来，已在（装配根自行加入、场景已加载）则什么都不做。
+                // 不放在 RegisterPersistables 里提前加：那会让"注册之后再自行 world.AddEntity(player)"的既有装配写法撞上"实体 id 重复"。
+                // 场景切换（ClearAll）会把玩家摘掉，post_load 钩子照旧负责补回。
+                if (_world.GetEntity(_player.EntityId) == null)
+                {
+                    _world.AddEntity(_player);
+                }
+
                 _previousArchetypeId = _player.ArchetypeId;
                 _previousRaceId = _player.RaceId;
 

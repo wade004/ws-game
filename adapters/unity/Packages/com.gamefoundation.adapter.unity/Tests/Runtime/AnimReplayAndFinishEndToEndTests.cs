@@ -275,7 +275,10 @@ namespace Adapter.Unity.Tests.Runtime
             // 运动态本身——由于本来就在 Idle，误判不会改变 GetState 的观察结果，因此额外用事件计数
             // 交叉验证：StateChanged 在这段等待期间不应再触发）。
             var stateChangeCount = 0;
-            stateMachine.StateChanged += (_, _, _) => stateChangeCount++;
+            // 只数玩家自己的状态切换：世界里的其它单位（野兽）按各自的行为走停，走停结束落回 Idle 是正确行为（方向移动松开后落回 Idle，
+            // 消费方反馈 P2 缺口 8），不属于"玩家循环剪辑被误判播完"的观测范围。
+            var observedPlayerId = bootstrap.PlayerId;
+            stateMachine.StateChanged += (entityId, _, _) => { if (entityId.Equals(observedPlayerId)) stateChangeCount++; };
             yield return new WaitForSecondsRealtime(1.5f);
 
             Assert.AreEqual(AnimState.Idle, stateMachine.GetState(bootstrap.PlayerId));
@@ -393,7 +396,10 @@ namespace Adapter.Unity.Tests.Runtime
             // 对 loop:true 的剪辑恒把 FinishNotified 置 true，Tick 因此永不对它检测——等待超过一个
             // 循环周期，状态应当仍然是 Idle，不应有任何意外的状态切换。
             var stateChangeCount = 0;
-            stateMachine.StateChanged += (_, _, _) => stateChangeCount++;
+            // 只数玩家自己的状态切换：世界里的其它单位（野兽）按各自的行为走停，走停结束落回 Idle 是正确行为（方向移动松开后落回 Idle，
+            // 消费方反馈 P2 缺口 8），不属于"玩家循环剪辑被误判播完"的观测范围。
+            var observedPlayerId = bootstrap.PlayerId;
+            stateMachine.StateChanged += (entityId, _, _) => { if (entityId.Equals(observedPlayerId)) stateChangeCount++; };
             yield return new WaitForSecondsRealtime(1.5f);
 
             Assert.AreEqual(AnimState.Idle, stateMachine.GetState(bootstrap.PlayerId));

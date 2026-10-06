@@ -529,5 +529,5 @@ SceneRouter`（新增 `Hooks` 只读属性，见 `core/foundation/scene_router/R
 
 ## 判断记录（冷启动读档补玩家实体；跨地图复活接线，2026-10-06，消费方反馈 P2 缺口 7、1）
 
-1. **`RegisterPersistables` 保证玩家实体在世界里**：玩家相关存档段经按单位 id 写入的接口加载，要求实体已存在；模板写法只在场景 `post_load` 钩子里"缺失则加入"，标题界面冷启动直接读档会在第一段抛 `LoadStatus.PersistableThrew`。本方法是"玩家段进入存档系统"的唯一入口，在此补加（已在世界里则不动，装配根已自行加入的游戏行为逐位不变）。场景切换清场后 `post_load` 钩子照旧负责补回。用例 `GameplayAssemblyColdLoadTests`。
+1. **读档开始前补加玩家实体**：玩家相关存档段经按单位 id 写入的接口加载，要求实体已存在；模板写法只在场景 `post_load` 钩子里"缺失则加入"，标题界面冷启动直接读档会在第一段抛 `LoadStatus.PersistableThrew`。决定在派生状态重建钩子 `BeforeLoad`（"真正开始逐段 Load 之前"的唯一时点）里补加，已在世界里则不动。曾试过在 `RegisterPersistables` 里提前加，被 `EquipmentVisualSaveLoadResetTests` 否决：它在注册之后才自行 `AddEntity(player)`，提前加会撞"实体 id 重复"，既有装配写法被破坏；放在读档开始前则两种写法都成立。场景切换清场后 `post_load` 钩子照旧负责补回。用例 `GameplayAssemblyColdLoadTests`（含"注册后再自行加入"一例）。
 2. **`ReviveUnitOnMap` 自动接线**：`DeathPolicyOptions.ReviveUnitOnMap` 未设置时，装配把"`ApplyResolvedTeleport` 落地（路由接受才提交 MapId/位置，同传送惯例）+ `Revive`"接给它；路由正忙拒绝返回 `false`，由 `DeathPolicyHost` 下一 tick 重试。用例 `GameplayAssemblyDeathRespawnOtherMapTests`。

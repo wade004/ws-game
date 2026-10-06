@@ -17,7 +17,7 @@ namespace Tests.Gameplay.Assembly
     /// <summary>
     /// 消费方反馈 P2 缺口 7：冷启动"继续游戏"读档失败。复现：进程刚启动、玩家实体还没加入世界（模板写法只在场景 post_load 钩子里加入）时，
     /// <c>SaveSystem.Load</c> 在 <c>world.current_position</c> 段抛 <c>WorldUnitAccess: 单位不存在</c>，结果为
-    /// <see cref="LoadStatus.PersistableThrew"/>。不变量：注册玩家持久化段之后，玩家实体一定在世界里，冷启动读档成功并还原存档时的位置。
+    /// <see cref="LoadStatus.PersistableThrew"/>。不变量：读档开始前玩家实体一定在世界里（缺失则补加），冷启动读档成功并还原存档时的位置；注册之后再自行加入玩家实体的既有装配写法不受影响（见第二个用例）。
     /// </summary>
     public sealed class GameplayAssemblyColdLoadTests
     {
@@ -108,11 +108,27 @@ namespace Tests.Gameplay.Assembly
 
             // 第二次进程：冷启动，模板写法——玩家实体尚未加入世界，直接读档。
             var second = Boot(fs, addPlayerBeforeRegister: false);
-            Assert.NotNull(second.World.GetEntity(PlayerId));
+            Assert.Null(second.World.GetEntity(PlayerId));
 
             var load = second.Save.Load(Slot);
             Assert.True(load.Status == LoadStatus.Loaded || load.Status == LoadStatus.LoadedFromBackup, load.Status + ": " + load.Message);
+            Assert.NotNull(second.World.GetEntity(PlayerId));
             Assert.Equal(new Vec2(9, 9), second.Player.Position);
+        }
+
+        [Fact]
+        public void AddPlayerAfterRegisterPersistables_StillWorks_NoDuplicateEntityId()
+        {
+            // 既有装配写法：RegisterPersistables 之后再自行把玩家加入世界。补加玩家只发生在读档开始前，这种写法不会撞上"实体 id 重复"。
+            var fs = new StubFileSystem();
+            var rig = Boot(fs, addPlayerBeforeRegister: false);
+            rig.World.AddEntity(rig.Player);
+            rig.Gameplay.Carriers.Units.SetPosition(PlayerId, new Vec2(7, 3));
+            var saved = rig.Save.Save(new SaveRequest(Slot, "t2"));
+            Assert.True(saved.Success, saved.Message);
+            var load = rig.Save.Load(Slot);
+            Assert.True(load.Status == LoadStatus.Loaded || load.Status == LoadStatus.LoadedFromBackup, load.Status + ": " + load.Message);
+            Assert.Equal(new Vec2(7, 3), rig.Player.Position);
         }
     }
 }
