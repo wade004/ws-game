@@ -620,6 +620,10 @@ namespace Core.Carriers.Assembly
             // 该步骤此前只有文档约定、没有实现——本次补上）。
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new InteractIntentTickHandler(GameObjectInteractions));
 
+            // 使用物品意图消费（消费方反馈 2026-10-07 样板游戏 A P3 缺口 G1，见 UseItemIntentTickHandler 判断记录）：
+            // 按 item.template.on_use 以使用者为施法者施放技能，成功后扣物品。
+            world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new Core.Carriers.Item.UseItemIntentTickHandler(Inventory, Rules.Skill));
+
             // ADR-0051：生物侧 interact 意图消费者，与上一行的 gobj 侧处理器共用同一个
             // TickPhase.TriggerEvaluation 阶段、同一个 "interact" Kind，按 Args 形状分流（见
             // CreatureInteractIntentTickHandler/InteractIntentTickHandler 两者判断记录）。

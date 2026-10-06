@@ -35,6 +35,7 @@ T-N2-3/T-N2-4。
 | `stack_size` | Int | 是 | — | 最大堆叠数量；装备类（`slot` 指向 `is_equipment` 不为 false 的 `slot_definition`）必须为 1（`ItemStackSizeRule`，阶段 3 整理改判定依据，见下） |
 | `name_key` | TextKey | 是 | — | 显示名文本键（04 未展开，实现期补录） |
 | `requirements` | Object | 否 | — | `{level:Int?}`，可空；实现期补录，供 `EquipmentHost.Equip` 的 `RequirementNotMet` 判定 |
+| `on_use` | Object | 否 | — | P3 缺口 G1 新增：`{skill_ref:Reference(skill.def), consume:Bool?}`，`use_item` 意图消费时以使用者为施法者施放该技能，成功后按 `consume`（缺省 true）扣 1 个；缺省无（物品不可使用）。见 `UseItemIntentTickHandler` |
 | `enchant_slot` | Id | 否 | — | 07 第 1.6 节扩展位：指向未来 `item.enchant`，本版不展开 |
 | `socket_count` | Int | 否 | `0` | 07 第 1.6 节扩展位：宝石镶嵌槽数 |
 | `socket_ids` | IdList | 否 | `[]` | 07 第 1.6 节扩展位：宝石镶嵌结果 |
@@ -56,6 +57,8 @@ T-N2-3/T-N2-4。
 | `weapon_profile` | `damage_min`/`damage_max`/`speed` | Number | 否 | `0` | |
 | | `weapon_school` | Id | 否 | — | 无独立跨层可引用表，按 Id 登记 |
 | `requirements` | `level` | Int | 否 | 不限等级 | |
+| `on_use` | `skill_ref` | Reference→`skill.def` | 是 | — | P3 缺口 G1：使用时施放的技能；效果/冷却/资源都由技能表达 |
+| | `consume` | Bool | 否 | `true` | 施放成功后是否扣 1 个；`false` 为可重复使用 |
 | `stat_mix[]`（`item.affix`） | `stat` | Reference→`stat.definition` | 是 | — | T-N2-2 新增，同 `stats[].stat` 判断记录，L3 依赖 L1 合法 |
 | | `ratio` | Number | 是 | — | 范围 `(0,1]`；跨元素"之和不超过一"由 `ItemAffixStatMixRatioSumRule` 校验，登记表达不了 |
 | `grants`（`item.affix`） | `skills[]`/`auras[]` | Reference→`skill.def`/`skill.aura_def` | — | `[]` | T-N2-2 新增，复用 `item.template.grants` 同一 `GrantsSchema` 静态字段实例 |

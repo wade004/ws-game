@@ -96,6 +96,18 @@ namespace Core.Carriers.Item
             },
             description: "{level:Int?}");
 
+        /// <summary><c>item.template.on_use</c> 结构（消费方反馈 2026-10-07 样板游戏 A P3 缺口 G1；
+        /// <c>UseItemIntentTickHandler</c> 读取 <c>skill_ref</c>/<c>consume</c>）。</summary>
+        public static readonly FieldSchema OnUseSchema = new FieldSchema(
+            "on_use", FieldKind.Object, required: false, fields: new[]
+            {
+                new FieldSchema("skill_ref", FieldKind.Reference, required: true, referenceTable: "skill.def",
+                    description: "使用物品时由使用者施放的技能（效果、冷却、资源消耗都由该技能表达）"),
+                new FieldSchema("consume", FieldKind.Bool, required: false,
+                    description: "缺省 true：施放成功后扣 1 个；false 表示可重复使用、不消耗"),
+            },
+            description: "{skill_ref:Reference(skill.def), consume:Bool?}，缺省无（物品不可使用）");
+
 
         /// <summary><c>item.template</c>：物品模板（07 第 1.1 节全部字段 + 第 1.6 节扩展位留位 +
         /// 本模块实现期补录字段，见 schema/README.md）。</summary>
@@ -147,6 +159,7 @@ namespace Core.Carriers.Item
                 new FieldSchema("name_key", FieldKind.TextKey, required: true,
                     description: "显示名文本键（04 未展开，本模块实现期补录）"),
                 RequirementsSchema,
+                OnUseSchema,
                 new FieldSchema("enchant_slot", FieldKind.Id, required: false,
                     description: "07 第 1.6 节扩展位：预留 item.enchant 扩展表的挂载位，本版未定义该表，不登记 SoftReferenceTable（消费方反馈第 30 条核实）"),
                 new FieldSchema("socket_count", FieldKind.Int, required: false,
