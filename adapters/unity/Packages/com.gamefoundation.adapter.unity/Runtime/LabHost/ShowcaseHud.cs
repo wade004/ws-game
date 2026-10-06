@@ -61,6 +61,13 @@ namespace Adapter.Unity.LabHost
 
         public bool Built => _built;
 
+        /// <summary>某个敌人的血条此刻在画布上的位置（测试用）；血条没显示为 null。</summary>
+        public Vector2? EnemyBarAnchor(Id enemy) =>
+            _enemyBars.TryGetValue(enemy, out var view) && view.Root.gameObject.activeSelf ? view.Root.anchoredPosition : (Vector2?)null;
+
+        /// <summary>世界点到画布坐标（测试用，与血条、飘字定位同一个换算）；点在相机背后为 null。</summary>
+        public Vector2? CanvasPointOf(Vector3 world) => ToCanvas(world);
+
         public bool UsesPlaceholderSkin => _pack == null || _pack.IsPlaceholder || _pack.RefInvalid || !_pack.PackDirectoryExists;
 
         /// <summary>HUD 实际加载的皮肤引用（测试用：演示场景两个格子都应是参考皮肤）。</summary>
@@ -219,12 +226,18 @@ namespace Adapter.Unity.LabHost
             s.anchoredPosition = new Vector2(-48f, 52f);
         }
 
-        private Vector2 ToCanvas(Vector3 world)
+        /// <summary>世界点到画布坐标；点在相机背后（透视相机环绕、拉近时远处的敌人可能转到镜头后面）时为 null，调用方隐藏对应控件，不画镜像位置。</summary>
+        private Vector2? ToCanvas(Vector3 world)
         {
             var cam = _stage?.StageCamera;
             if (cam == null || _canvasRect == null)
             {
                 return Vector2.zero;
+            }
+
+            if (cam.WorldToScreenPoint(world).z <= 0f)
+            {
+                return null;
             }
 
             var screen = RectTransformUtility.WorldToScreenPoint(cam, world);
@@ -305,6 +318,8 @@ namespace Adapter.Unity.LabHost
                 var bar = pair.Value;
                 var e = director.PositionOf(pair.Key);
                 var visible = cam != null && !bar.Hidden && bar.Alive && e.HasValue && bar.SinceHit < 6.0;
+                var head = visible ? ToCanvas(director.Lift(e!.Value, director.HeadHeightOf(pair.Key) + 0.1f)) : null;
+                visible = visible && head.HasValue;
                 view.Root.gameObject.SetActive(visible);
                 if (!visible)
                 {
@@ -312,8 +327,7 @@ namespace Adapter.Unity.LabHost
                 }
 
                 shown++;
-                var head = ToCanvas(director.Lift(e!.Value, director.HeadHeightOf(pair.Key) + 0.1f));
-                view.Root.anchoredPosition = head;
+                view.Root.anchoredPosition = head!.Value;
                 view.Fill.fillAmount = (float)bar.Fraction;
                 view.Name.text = bar.Label;
                 view.Fill.color = bar.SinceHit < 0.25 ? new Color(1f, 0.9f, 0.5f, 1f) : new Color(0.85f, 0.2f, 0.18f, 1f);
@@ -349,10 +363,17 @@ namespace Adapter.Unity.LabHost
                     _numberPool.Add(label);
                 }
 
+                var origin = ToCanvas(director.Lift(new Vector2((float)n.WorldPos.X, (float)n.WorldPos.Y), n.Height));
+                if (!origin.HasValue)
+                {
+                    label.gameObject.SetActive(false);
+                    continue;
+                }
+
                 label.gameObject.SetActive(true);
                 var t = (float)n.Age;
                 var rise = Mathf.Min(1f, t * 3f);
-                var p = ToCanvas(director.Lift(new Vector2((float)n.WorldPos.X, (float)n.WorldPos.Y), n.Height)) +new Vector2(((lane % 3) - 1) * 56f, NumberBaseLift + 80f * rise + 22f * lane);
+                var p = origin.Value + new Vector2(((lane % 3) - 1) * 56f, NumberBaseLift + 80f * rise + 22f * lane);
                 label.rectTransform.anchoredPosition = p;
                 label.text = n.Text;
                 label.fontSize = n.IsCrit ? 66 : (n.ImpactClass == "heavy" || n.ImpactClass == "massive" ? 54 : 42);

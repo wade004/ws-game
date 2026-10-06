@@ -460,6 +460,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **3D 演示场景鼠标环绕镜头与相机相对移动（[ADR-0159](architecture/adr/0159-手感演示场景3D版鼠标环绕镜头与相机相对移动.md)，纯加法，框架契约无变化）**：①`LabShowcase_3d_action` 缺省"鼠标环绕"：右键按住拖动转镜头（水平偏航不限圈数，垂直俯角夹在缺省上下一个区间内），滚轮缩放（区间内）；新增 `OrbitCameraController`（纯数值，指数平滑，只依赖帧间隔）与 `LabPlayground` 的 `OrbitCameraAllowed`/`OrbitCameraStartsEnabled`/`OrbitOptions`/`SetOrbitCamera`/`ResetCamera`/`OrbitInput`。②移动随镜头偏航换算：舞台上的真实相机 `UnityCamera` 实现 `ICameraOrientation`（新增可选 `SampleYawAtCommit`/`CommitYaw`/`SetView`，缺省关，旧行为逐位不变），偏航变化录成脚本标记 `camera_yaw` 并在固定步边界提交；移动动作经宿主选项 `EngineLabOptions.ControlSpaceOverride = camera_relative` 声明（新增选项 `OrbitCamera`/`OrbitOptions`/`OrbitCameraStartsEnabled`），`3d_action` 格子数据与框架缺省不变。③F1 面板场景页新增"镜头"段（固定 / 鼠标环绕、复位镜头），角落热键提示追加"右键拖动转镜头　滚轮缩放"；固定模式姿态与此前逐位一致，逻辑指纹与原 3D 试玩场景逐字节一致。④旋转下的画面：广告牌特效每帧重新定向，遮挡次序按相机深度排，血条与飘字在相机背后时隐藏，地面砖在环绕可用时铺大。已知限制见 ADR-0159：俯角与缩放不录入脚本；脚本只带偏航标记，偏航不为 0 的环绕会话在无头宿主重放不能逐位复现逻辑。
+
 ### 修复
 
 - **用户开着 Unity Hub 时门禁在消费方演练一步必挂（仅工具链，不改产物）**：`consumer_smoke.ps1` 的 `Wait-NoResidualUnityProcess` 起 Unity 批处理前等残留 `Unity.exe` 退出，此前对"命令行里没有 `-projectPath`"的进程按"无法判断归属"保守等待；Unity Hub 常驻的后台进程 `unity.exe serve` 正是这种进程（不是 Editor、永不退出），60 秒后必判演练失败。`Get-UnitySmokeProcessWaitDecision`（`toolchain/_unity_smoke_wait_scope_guard.ps1`）改为：没有 `-projectPath`/`-createProject` 的进程判 `NoWait`（与"别的工程"同样打一行留痕提示），只有拿不到命令行（空）才保留 `Unknown`；本仓库根/演练工作目录下的工程仍然等。`-createProject` 现在与 `-projectPath` 一并解析。`check.ps1` 的 `Test-NoResidualUnityProcess` 只匹配"命令行含本工程路径"的进程，Hub `serve` 不含工程路径，不受影响，未改。`test_unity_smoke_wait_scope_guard.py` 补回归与不变量用例。

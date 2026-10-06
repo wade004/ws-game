@@ -237,7 +237,19 @@ namespace Adapter.Unity.LabHost
                     Showcase = showcase,
                     FlashIntensityScale = FlashIntensitySource ?? PlayerFlashIntensity(),
                 };
+                if (WantsOrbitCamera)
+                {
+                    // 3D 演示场景的鼠标环绕镜头（ADR-0159）：宿主扮演游戏，在自己的选项里声明移动动作用相机相对控制空间；
+                    // 相机朝向查询就是舞台上那台真实相机（输入映射每次更新自己取样偏航）。格子数据与框架缺省仍是 world，原 3D 试玩场景不受影响。
+                    options.OrbitCamera = true;
+                    options.OrbitOptions = OrbitOptions;
+                    options.OrbitCameraStartsEnabled = OrbitCameraStartsEnabled;
+                    options.ControlSpaceOverride = ControlSpace.CameraRelative;
+                }
+
                 _stage = new EngineLabStage(options);
+                _yawMarkerDegrees = 0.0;
+                _orbitDragging = false;
                 Session = _host.Runner.StartLive(script, cell, null, _stage);
                 BuildModel();
                 if (showcase)
@@ -335,6 +347,7 @@ namespace Adapter.Unity.LabHost
                 PollHotkeys();
             }
 
+            PollMouse();
             Tick(Time.unscaledDeltaTime);
         }
 
@@ -368,6 +381,7 @@ namespace Adapter.Unity.LabHost
             {
                 Model.FrameIntervalMs.Add(realDeltaSeconds * 1000.0);
                 RunDeferred();
+                PumpOrbit(realDeltaSeconds);
                 if (!_textFocus)
                 {
                     _poller?.Poll(OnInputEvent);
@@ -1121,7 +1135,9 @@ namespace Adapter.Unity.LabHost
                         // 演示场景：一条角落小字（右上），不占画面。
                         _small ??= new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
                         var corner = new GUIStyle(_small) { alignment = TextAnchor.UpperRight };
-                        GUI.Label(new UnityEngine.Rect(Screen.width / scale - 612, 6, 600, 20), "F1 展开调试面板　F12 切页　J 攻击　K 闪避　L 重击　U 蓄力　G 精英出手", corner);
+                        var hint = ShowcaseCornerHint();
+                        var hintWidth = hint.Length * 13f + 24f;
+                        GUI.Label(new UnityEngine.Rect(Screen.width / scale - hintWidth - 12, 6, hintWidth, 20), hint, corner);
                     }
                     else
                     {
@@ -1223,6 +1239,7 @@ namespace Adapter.Unity.LabHost
             if (GUILayout.Button("清场 (Backspace)")) ClearDummies();
             if (GUILayout.Button("精英出手 (G)")) EliteSwing();
             GUILayout.EndHorizontal();
+            DrawCameraSection(width);
 
             GUILayout.Label("武器 (F3)：" + LabLiveModel.FriendlyName(Model.Weapon) + "　体型 (F4)：" + LabLiveModel.FriendlyName(Model.Archetype));
             var flow = new List<KeyValuePair<string, bool>>();
@@ -1360,6 +1377,10 @@ namespace Adapter.Unity.LabHost
             return Model.DummyKinds[0].Id;
         }
 
+        /// <summary>演示场景的角落提示行（面板收起时右上角）；鼠标环绕镜头打开时追加镜头操作。</summary>
+        public string ShowcaseCornerHint() =>
+            "F1 展开调试面板　F12 切页　J 攻击　K 闪避　L 重击　U 蓄力　G 精英出手" + (OrbitCameraOn ? "　右键拖动转镜头　滚轮缩放" : string.Empty);
+
         private string HelpText()
         {
             var attack = _poller?.Describe("input.action.lab_a_attack") ?? string.Empty;
@@ -1367,6 +1388,7 @@ namespace Adapter.Unity.LabHost
             var skill = _poller?.Describe("input.action.lab_a_skill") ?? string.Empty;
             var charge = _poller?.Describe("input.action.lab_a_charge") ?? string.Empty;
             return "移动 WASD/方向键/左摇杆\n攻击(三连击) " + attack + "\n闪避 " + dodge + "\n技能(重击) " + skill + "\n蓄力(按住) " + charge
+                + (HasOrbitCamera ? "\n镜头 右键拖动转镜头（水平 = 偏航，垂直 = 俯角），滚轮缩放；面板“镜头”段可切回固定、复位镜头；移动随镜头偏航（W 朝屏幕上方）" : string.Empty)
                 + "\n数字键 1.. 出靶子（按住 Shift = 出一群）\nF3 换武器　F4 换体型　Tab A/B　F5 存脚本　F12 切页（场景/调参/时间轴/轨迹/评分）\nF6 震屏　F7 闪白　F8 顿帧　F9 音效　F10 镜头冲击　F11 角落闪块\n[ ] 时间尺度　P 暂停　. 单步 tick　, 单步帧　G 精英出手";
         }
 
