@@ -597,10 +597,11 @@ Invoke-Step "手感实验室（dist 内 feellab 预编译命令行）在消费�
     $copied = 0
     $copied += Copy-TreeMirror -SourceDir (Join-Path $streamingRoot "data\_framework") -DestDir (Join-Path $labRoot "data\_framework")
     $copied += Copy-TreeMirror -SourceDir (Join-Path $streamingRoot "data\_feel") -DestDir (Join-Path $labRoot "data\_feel")
+    # 可选包自带的自包含实验室根（先定下来，下面的模板根与实验室数据都取自它）。
+    $packagedLabRoot = Join-Path $feelLabPkgDir "labroot"
     # 默认手感模板根（ADR-0142）：标准脚本 feel_tpl_* 把它声明为额外数据根，取自 dist 快照（不经 StreamingAssets）。
     $copied += Copy-TreeMirror -SourceDir (Join-Path $packagedLabRoot "data\_feel_templates") -DestDir (Join-Path $labRoot "data\_feel_templates")
     # 实验室数据集、动作数据、占位装备集、标准脚本与基线夹具：取自可选包自带的自包含实验室根（dist 主树里不再有这些）。
-    $packagedLabRoot = Join-Path $feelLabPkgDir "labroot"
     foreach ($labPart in @("data\_lab", "data\_lab_action", "data\_equip", "lab\fixtures")) {
         $copied += Copy-TreeMirror -SourceDir (Join-Path $packagedLabRoot $labPart) -DestDir (Join-Path $labRoot $labPart)
     }
