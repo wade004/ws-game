@@ -224,6 +224,14 @@ namespace Lab
         /// </summary>
         public List<string> ExtraMetrics { get; } = new List<string>();
 
+        /// <summary>
+        /// 控制空间声明（<c>meta.controlSpace</c>，ADR-0161，格式版本 6）：空（缺省）= 不声明，控制空间取宿主扩展的覆盖或格子自己的声明，行为与既有脚本逐位一致；
+        /// <c>camera_relative</c> = 本脚本的移动轴按相机偏航换算成世界方向，偏航来自脚本里的 <c>camera_yaw</c> 标记流（<c>Value.X</c> = 偏航度，逆时针为正，
+        /// 开局偏航 0，每个标记在其所在固定步的意图采集之前生效）；任何宿主（含无头宿主）都据此复现同一串逻辑；<c>world</c> = 显式声明不换算。
+        /// 交互式试玩宿主录会话时，在宿主声明相机相对控制空间的场景里写进这个字段，偏航变化录成标记，所以录下的环绕镜头会话在无头宿主里逐位复现。
+        /// </summary>
+        public string ControlSpace { get; set; } = string.Empty;
+
         /// <summary>是否用到了手感场景的格式版本 3 字段。</summary>
         public bool UsesFeelFormat =>
             Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0 || SpaceExt != null || PoiseImpactScale.Count > 0
@@ -354,14 +362,25 @@ namespace Lab
         /// </summary>
         public const int InteractiveFormatVersion = 5;
 
+        /// <summary>
+        /// 控制空间声明格式版本（ADR-0161）：在交互式试玩格式之上再加 <c>meta.controlSpace</c>（<c>world</c>/<c>camera_relative</c>）。只有脚本声明了它才写本版本，
+        /// 其余脚本的序列化文本逐字不变；版本 1～5 的旧脚本照常读取（没有声明，行为与此前逐位一致）。更老的内核读到版本 6 会拒绝，而不是悄悄把相机相对会话当 <c>world</c> 重放。
+        /// </summary>
+        public const int ControlSpaceFormatVersion = 6;
+
         /// <summary>本内核读取的最高格式版本。</summary>
-        public const int MaxSupportedFormatVersion = InteractiveFormatVersion;
+        public const int MaxSupportedFormatVersion = ControlSpaceFormatVersion;
 
         /// <summary>该脚本序列化时写的格式版本。</summary>
         public int EffectiveFormatVersion
         {
             get
             {
+                if (Meta.ControlSpace.Length > 0)
+                {
+                    return ControlSpaceFormatVersion;
+                }
+
                 foreach (var e in Events)
                 {
                     if (e.Kind == ScriptEventKind.Spawn || e.Kind == ScriptEventKind.ClearDummies
@@ -493,6 +512,14 @@ namespace Lab
                         scaleObj[i].Key,
                         scaleObj[i].Value is JsonNumber scaleNum ? scaleNum.Value : throw new LabFormatException($"{what}.meta.poiseImpactScale.{scaleObj[i].Key} 必须是数值")));
                 }
+            }
+
+            meta.ControlSpace = LabJson.OptionalString(metaObj, "controlSpace", what + ".meta") ?? string.Empty;
+            if (meta.ControlSpace.Length > 0
+                && !string.Equals(meta.ControlSpace, Lab.ControlSpace.World, StringComparison.Ordinal)
+                && !string.Equals(meta.ControlSpace, Lab.ControlSpace.CameraRelative, StringComparison.Ordinal))
+            {
+                throw new LabFormatException($"{what}.meta.controlSpace 取值非法：{meta.ControlSpace}（{Lab.ControlSpace.World}|{Lab.ControlSpace.CameraRelative}）");
             }
 
             meta.PlayerClass = LabJson.OptionalString(metaObj, "playerClass", what + ".meta") ?? string.Empty;
@@ -763,6 +790,11 @@ namespace Lab
                     .Add("extraDataExcludeTables", new JsonArray(Meta.ExtraDataExcludeTables.ConvertAll(g => (JsonValue)LabJson.Str(g))))
                     .Add("extraDataExcludeRows", new JsonArray(Meta.ExtraDataExcludeRows.ConvertAll(g => (JsonValue)LabJson.Str(g))));
                 meta.Add("unarmedAttackSkill", LabJson.Str(Meta.UnarmedAttackSkill));
+            }
+
+            if (Meta.ControlSpace.Length > 0)
+            {
+                meta.Add("controlSpace", LabJson.Str(Meta.ControlSpace));
             }
 
             var metaValue = meta.Build();

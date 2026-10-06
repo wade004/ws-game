@@ -88,6 +88,7 @@ namespace FeelLab.Unity
         private double _simNow;
         private double _pumpMs;
         private bool _cameraRelative;
+        private bool _scriptYawDriven;
         private double _yawRadians;
         private double _pitchDegrees;
         private OrbitCameraController? _orbit;
@@ -245,7 +246,7 @@ namespace FeelLab.Unity
         }
 
         /// <summary>脚本标记名：环绕镜头的偏航（度）变了；<c>Value.X</c> 是偏航。逻辑读它（相机相对移动），所以宿主把它录进脚本。</summary>
-        public const string ScriptYawMarker = "camera_yaw";
+        public const string ScriptYawMarker = ControlSpace.YawMarker;
 
         public override void OnMarker(ScriptEvent marker)
         {
@@ -253,6 +254,12 @@ namespace FeelLab.Unity
             {
                 // 固定步边界上提交：输入映射在同一个固定步里取样的偏航由此确定（见 UnityCamera.SampleYawAtCommit）。
                 _unityCamera.CommitYaw(marker.Value.X);
+                if (_scriptYawDriven && _orbit == null)
+                {
+                    // 脚本回放（没有环绕镜头驱动画面）：画面偏航跟着脚本的偏航流转（内核已按同一个标记提交了朝向查询的偏航）。
+                    _unityCamera.ApplyYawRotation = true;
+                    _unityCamera.SetView(marker.Value.X, _unityCamera.PitchDegrees);
+                }
             }
         }
 
@@ -269,8 +276,13 @@ namespace FeelLab.Unity
             _rec.InputNoise = _options.NoiseReplay != null
                 ? _options.NoiseReplay.ModelId
                 : _options.Noise == null ? "none" : _options.Noise.Id;
-            var control = _options.ControlSpaceOverride ?? context.Cell.ControlSpace;
+            // 脚本声明的控制空间（ADR-0161）与内核同一条规则：扩展选项的显式覆盖 > 脚本声明 > 格子声明。
+            var declared = context.Script.Meta.ControlSpace;
+            var control = _options.ControlSpaceOverride ?? (declared.Length > 0 ? declared : context.Cell.ControlSpace);
             _cameraRelative = string.Equals(control, ControlSpace.CameraRelative, StringComparison.Ordinal);
+            // 声明了 camera_relative 的脚本自带偏航流（camera_yaw 标记）：内核按它驱动朝向查询。没有环绕镜头驱动画面时（脚本回放），舞台相机跟着偏航流转，
+            // 这样画面、真实相机的右/上轴与输入映射用的偏航是同一个量，三向检验照常成立。
+            _scriptYawDriven = _cameraRelative && string.Equals(declared, ControlSpace.CameraRelative, StringComparison.Ordinal);
             _yawRadians = _options.CameraYawDegrees * Math.PI / 180.0;
             _fallbackOrientation = new FallbackOrientation(_yawRadians);
             var honorCell = _options.HonorCellCameraMode
@@ -322,16 +334,24 @@ namespace FeelLab.Unity
 
                 var tr = _camera.transform;
                 var right = new Vec2(tr.right.x, tr.right.y);
-                var upXy = new Vec2(tr.up.x, tr.up.y);
+                // 摇杆"向上"的方向 = 相机水平视线方向（ADR-0161）：俯仰小于 90 度时它与"屏幕上轴"的世界平面投影同向；越过水平后上轴投影翻到背面（含 cos 俯仰因子），
+                // 所以按俯仰的符号取（越过水平取反），正好水平（上轴投影为零）时直接取视线的水平分量——整个范围内都是同一个量。
+                var cosPitch = Math.Cos(_unityCamera.EffectivePitchDegrees * Math.PI / 180.0);
+                var basis = cosPitch >= 1e-6 ? tr.up : (cosPitch <= -1e-6 ? -tr.up : tr.forward);
+                var upXy = new Vec2(basis.x, basis.y);
                 var upLength = Math.Sqrt(upXy.X * upXy.X + upXy.Y * upXy.Y);
                 var up = upLength > 1e-9 ? new Vec2(upXy.X / upLength, upXy.Y / upLength) : upXy;
                 var expected = ControlSpace.ExpectedFromAxes(stick, right, up);
                 var analytic = ControlSpace.CameraRelativeToWorld(stick, _unityCamera.YawRadians);
                 var axesError = Math.Max(ControlSpace.AngleDegrees(mapped, expected), ControlSpace.AngleDegrees(mapped, analytic));
                 var cameraSpace = _camera.worldToCameraMatrix.MultiplyVector(new Vector3((float)mapped.X, (float)mapped.Y, 0f));
-                var squash = Math.Max(1e-6, Math.Cos(_unityCamera.EffectivePitchDegrees * Math.PI / 180.0));
-                var screen = new Vec2(cameraSpace.x, cameraSpace.y / squash);
-                var screenError = ControlSpace.AngleDegrees(screen, stick);
+                // 回到屏幕：俯仰把屏幕"上"方向压扁 cosPitch 倍（越过水平后符号翻转），除回去再与摇杆比；正好水平时屏幕纵向没有信息（地面沿视线方向压成一条线），
+                // 只比横向（纵向置零后两者夹角无意义，记 0）。
+                var screenError = 0.0;
+                if (Math.Abs(cosPitch) >= 1e-3)
+                {
+                    screenError = ControlSpace.AngleDegrees(new Vec2(cameraSpace.x, cameraSpace.y / cosPitch), stick);
+                }
                 var sampleYawDegrees = _orbit != null ? _unityCamera.YawRadians * 180.0 / Math.PI : _options.CameraYawDegrees;
                 _rec.Controls.Add(new ControlSample(tick, stick, sampleYawDegrees, mapped, axesError, screenError));
             }
@@ -459,6 +479,15 @@ namespace FeelLab.Unity
             _unityCamera.ApplyYawRotation = Math.Abs(_options.CameraYawDegrees) > 1e-12;
             // 俯仰与透视是显式声明才生效的可选能力（M4-W4）：选项里不给俯仰且没有按格子相机模式取用，相机仍是原来的正交俯视。
             _unityCamera.FieldOfViewDegrees = _options.CameraFieldOfViewDegrees;
+            // 自由镜头的可选声明（ADR-0161，缺省都不声明 = 相机与此前逐位一致）：俯仰范围越过水平、绕头部高度转、贴地拉近。
+            if (_options.CameraPitchRange.HasValue)
+            {
+                _unityCamera.DeclarePitchRange(_options.CameraPitchRange.Value.MinDegrees, _options.CameraPitchRange.Value.MaxDegrees);
+            }
+
+            _unityCamera.FocusHeight = _options.CameraFocusHeight;
+            _unityCamera.GroundAvoidanceMargin = _options.CameraGroundAvoidanceMargin;
+            _unityCamera.GroundAvoidance = _options.CameraGroundAvoidance;
             _unityCamera.ApplyPitch = _pitchDegrees > 1e-12;
             _unityCamera.Perspective = _options.CameraPerspective ?? honorCell;
             if (_options.GpuTiming && !_options.Interactive)
@@ -489,6 +518,14 @@ namespace FeelLab.Unity
                 {
                     // 鼠标环绕镜头（ADR-0159）：偏航开关常开（偏航 0 时姿态与不开逐位相同），朝向查询改为固定步边界提交（见 OnMarker）。
                     _orbit = new OrbitCameraController(_options.OrbitOptions);
+                    // 环绕镜头的绝对俯角区间必须落在相机已声明的俯仰范围内：否则相机会悄悄夹紧，控制器报的俯角与画面不一致——这是装配期声明错误，不静默。
+                    if (_orbit.Options.PitchMinDegrees < _unityCamera.PitchMinDegrees - 1e-9 || _orbit.Options.PitchMaxDegrees > _unityCamera.PitchMaxDegrees + 1e-9)
+                    {
+                        throw new ArgumentException(
+                            $"环绕镜头的俯角区间 [{_orbit.Options.PitchMinDegrees}, {_orbit.Options.PitchMaxDegrees}] 超出相机声明的俯仰范围 "
+                            + $"[{_unityCamera.PitchMinDegrees}, {_unityCamera.PitchMaxDegrees}]（EngineLabOptions.CameraPitchRange）");
+                    }
+
                     _unityCamera.ApplyYawRotation = true;
                     _unityCamera.SampleYawAtCommit = true;
                     _orbit.SetEnabled(_options.OrbitCameraStartsEnabled);

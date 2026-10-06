@@ -1,6 +1,7 @@
 #nullable enable
 // EngineLabOptions：实验室引擎宿主的运行选项（手感设计/06 第 4 节）。全部有缺省值；不声明任何选项等于"只驱动引擎侧表现、不改逻辑输入"。
 using Adapter.Unity;
+using Adapter.Unity.EngineAdapter;
 using System;
 using Lab;
 
@@ -29,6 +30,21 @@ namespace FeelLab.Unity
         /// 但 <see cref="HonorCellCameraMode"/> 打开且格子相机模式是 <c>fixed_pitch</c> 时取 <see cref="FixedPitchDegrees"/>。
         /// </summary>
         public double? CameraPitchDegrees { get; set; }
+
+        /// <summary>
+        /// 舞台相机声明的俯仰范围（度，ADR-0161）：<c>null</c>（缺省）= 不声明，相机仍是缺省范围 [0, 89]（与此前逐位一致）；给出则经 <c>UnityCamera.DeclarePitchRange</c> 声明
+        /// （可越过水平：大于 90 = 视线抬向天空）。非法范围在舞台装配期报错（舞台标记装配失败，错误记入引擎记录），不静默夹紧。
+        /// </summary>
+        public (double MinDegrees, double MaxDegrees)? CameraPitchRange { get; set; }
+
+        /// <summary>舞台相机绕其转的焦点离地高度（世界单位，缺省 0 = 地面；第三人称取角色头部高度，仰视时相机才在头部下方、仍高于地面）。</summary>
+        public double CameraFocusHeight { get; set; }
+
+        /// <summary>舞台相机是否贴地拉近（缺省 false，见 <c>UnityCamera.GroundAvoidance</c>）：相机会落到地面以下时沿视线向焦点靠近，而不是穿地。</summary>
+        public bool CameraGroundAvoidance { get; set; }
+
+        /// <summary>地面避让余量（世界单位，缺省 0.3）。</summary>
+        public double CameraGroundAvoidanceMargin { get; set; } = UnityCamera.DefaultGroundAvoidanceMargin;
 
         /// <summary>舞台相机是否用透视投影：<c>null</c>（缺省）= 不声明（正交），但 <see cref="HonorCellCameraMode"/> 打开且格子相机模式是 <c>fixed_pitch</c> 时为真。</summary>
         public bool? CameraPerspective { get; set; }

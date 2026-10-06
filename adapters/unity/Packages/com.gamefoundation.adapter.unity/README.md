@@ -1626,7 +1626,8 @@ GameBootstrap.cs` 同样两根合并（`data/_framework` + 游戏自己的 `data
 2. **帧时间源**：`IFrameTimeSource`/`ManualFrameTimeSource`（`Runtime/EngineAdapter/FrameTimeSource.cs`）；`UnityFrameAnimPlayer.TimeSource`/`Step()`、`EffectSequencePlayer.TimeSource`/`Step()`、`UnityRenderer2D.EffectTimeSource`/`StepEffects()`。不设置时取 `Time.deltaTime`。
 3. **图标加载路径**：`UnityResourceLoader.ResolvePath` 对 `icon` 类别的图片资源转发 `AssetRefConventions.IconFile`；`toolchain/resource_layout_map.json` 新增 `icons` 映射（同步到 `StreamingAssets/GameFoundation/icons`）。
 4. **GPU 帧耗时探针**（`Runtime/LabHost/GpuFrameProbe.cs`，仅实验室引擎宿主）：渲染到离屏纹理并等回读完成；`-nographics` 下不可用。
-5. **复现/不变量（PlayMode）**：`UnityCameraTests`（缺省逐位恒等、偏航朝向与真实相机轴一致、俯仰压扁 cos(俯仰)、透视半高、冲击峰值按 `VisibleHalfHeight`）、`AnimationLayerTests`（两个播放器的时间源与缺省 `Time.deltaTime`）、`UnityResourceLoaderTests`（图标路径与加载）、`EngineLabHostMechanismTests`（原生相机相对输入对每个偏航与俯仰、GPU 状态度量、命中对齐根因）。
+5. **自由第三人称镜头（可选能力，[ADR-0161](../../../../architecture/adr/0161-自由第三人称镜头俯仰范围声明焦点高度地面避让与脚本携带控制空间.md)）**：`UnityCamera.DeclarePitchRange(min, max)` 把俯仰范围从写死的 [0, 89] 变成游戏声明（0 = 正俯视，90 = 水平，大于 90 = 仰视，上限 179），不声明逐位不变；姿态是"先俯仰再偏航"的显式合成，没有朝向求解，所以两极不翻转、不倒挂，相机相对只读偏航（越过水平后摇杆向上 = 朝相机水平视线方向走）。`FocusHeight`（缺省 0）把环绕焦点抬离地面，`GroundAvoidance`（缺省关）在相机会落到地面余量以下时沿视线向焦点拉近；二者与俯仰范围一样是显式声明才生效，非法声明在声明期抛参数错误、不静默夹紧。`ScreenToWorld` 在相机位于地面平面上或之下时返回没有交点。桩相机不建模俯仰，共享契约不变，不需要对齐。
+6. **复现/不变量（PlayMode）**：`UnityCameraTests`（自由镜头系列：缺省范围与姿态闭式、越过水平、非法范围、全范围扫描不翻转、相机相对只依赖偏航、焦点高度、地面避让开/关；缺省逐位恒等、偏航朝向与真实相机轴一致、俯仰压扁 cos(俯仰)、透视半高、冲击峰值按 `VisibleHalfHeight`）、`AnimationLayerTests`（两个播放器的时间源与缺省 `Time.deltaTime`）、`UnityResourceLoaderTests`（图标路径与加载）、`EngineLabHostMechanismTests`（原生相机相对输入对每个偏航与俯仰、GPU 状态度量、命中对齐根因）。
 
 ### 手感落地 M5-S5：镜头与音画反馈的引擎侧（2026-10-04，ADR-0148）
 

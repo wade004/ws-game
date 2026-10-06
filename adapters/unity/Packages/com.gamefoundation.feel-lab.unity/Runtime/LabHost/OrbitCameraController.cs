@@ -31,7 +31,12 @@ namespace FeelLab.Unity
         /// <summary>绝对俯角下限（度）。</summary>
         public double PitchMinDegrees { get; set; } = 12.0;
 
-        /// <summary>绝对俯角上限（度）：视野半角（透视视场角的一半，缺省 20 度）加它要小于 90，视野顶端才不越过地平线。</summary>
+        /// <summary>
+        /// 绝对俯角上限（度）：缺省 66——视野半角（透视视场角的一半，缺省 20 度）加它要小于 90，视野顶端才不越过地平线（地面铺得下）。
+        /// 自由镜头（ADR-0161）想抬头看天就把它调到 90 以上（0 = 正俯视，90 = 水平，大于 90 = 仰视），同时必须在相机上声明同样宽的俯仰范围
+        /// （<see cref="EngineLabOptions.CameraPitchRange"/>，缺省 [0, 89]）：区间落在声明范围之外是舞台装配期的声明错误。越过水平后视野顶端看到的是天空而不是地面边缘，
+        /// 场景要自己铺天空与远景，并让地面覆盖到视线与地面的交点（仰视时视线不再与地面相交）。
+        /// </summary>
         public double PitchMaxDegrees { get; set; } = 66.0;
 
         /// <summary>缩放系数下限（越小越近）：基准缩放 × 系数不得低于相机缩放区间下限，所以别设得太小。</summary>

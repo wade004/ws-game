@@ -460,6 +460,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **自由第三人称镜头与脚本携带控制空间声明（[ADR-0161](architecture/adr/0161-自由第三人称镜头俯仰范围声明焦点高度地面避让与脚本携带控制空间.md)）**：全部是加法，不声明任何新能力时相机、输入映射、脚本序列化逐位不变，升级无需改动。
+  - 相机适配器（`UnityCamera`）：`DeclarePitchRange(min, max)` / `ResetPitchRange()` 与 `PitchMinDegrees` / `PitchMaxDegrees`，把俯仰范围从写死的 [0, 89] 变成游戏声明的可选能力（0 = 正俯视，90 = 水平，大于 90 = 仰视天空，上限 179；非法范围在声明期抛参数错误且不改动已声明的范围）；`FocusHeight`（环绕焦点抬高，缺省 0）；`GroundAvoidance` / `GroundAvoidanceMargin`（缺省关；开启后相机沿视线向焦点拉近，离地不低于余量）；只读 `CameraHeightAboveGround` / `CurrentDistance` / `GroundAvoidanceEngaged`；新增常量 `DefaultMaxPitchDegrees` / `AbsoluteMaxPitchDegrees` / `DefaultGroundAvoidanceMargin`。相机位于地面平面上或之下时 `ScreenToWorld` 返回"没有交点"（缺省范围内相机恒在地面之上，不受影响）。相机相对仍只依赖偏航，越过水平后摇杆向上 = 朝相机水平视线方向走（ADR-0135 决策 5 精化）。
+  - 实验室内核：脚本 meta 新增可选 `controlSpace`（`world` / `camera_relative`）与格式版本 6（只有声明了才写；更老的内核读到会拒绝）；声明 `camera_relative` 的脚本自带 `camera_yaw` 偏航流，任何宿主（含无头命令行）逐位复现相机相对会话，补上 ADR-0159 登记的跨宿主回放缺口；没声明的旧脚本序列化与重放逐字不变。控制空间优先级：宿主覆盖 > 脚本声明 > 格子声明。
+  - 实验室引擎宿主：`EngineLabOptions` 与 `LabPlayground` 新增 `CameraPitchRange` / `CameraFocusHeight` / `CameraGroundAvoidance` / `CameraGroundAvoidanceMargin`（缺省不声明）；环绕镜头的俯角区间落在相机声明范围之外是装配期声明错误；相机相对三向检验按俯仰越过水平折算；引擎宿主重放声明了相机相对的脚本时舞台相机跟着偏航流转。
+
 ## [2.0.0] - 2026-10-06
 
 ### 变更（破坏性，ADR-0160）
