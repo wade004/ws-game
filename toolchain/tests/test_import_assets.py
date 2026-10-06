@@ -289,10 +289,10 @@ class SpriteBasicFlowTest(ImportAssetsTestBase):
         row = self.display_map["rows"][0]
         anchor_points = row["anchor_points"]
         # 默认档位是 canonical 列表第一个 = "front"；root=[20,60] / pixels_per_unit(32)。
-        self.assertAlmostEqual(20 / 32, anchor_points["root"]["x"])
-        self.assertAlmostEqual(60 / 32, anchor_points["root"]["y"])
-        self.assertAlmostEqual(35 / 32, anchor_points["hand_main"]["x"])
-        self.assertAlmostEqual(20 / 32, anchor_points["hand_main"]["y"])
+        self.assertAlmostEqual(20 / 32, anchor_points["root"]["offset"]["x"])
+        self.assertAlmostEqual(60 / 32, anchor_points["root"]["offset"]["y"])
+        self.assertAlmostEqual(35 / 32, anchor_points["hand_main"]["offset"]["x"])
+        self.assertAlmostEqual(20 / 32, anchor_points["hand_main"]["offset"]["y"])
 
     def test_check_passes_on_valid_output(self) -> None:
         code, output = run_cli(
@@ -391,8 +391,8 @@ class SpriteTrimTest(ImportAssetsTestBase):
 
         display_map = json.loads((data_root / "_test" / "display" / "display.map.json").read_text(encoding="utf-8"))
         row = display_map["rows"][0]
-        self.assertAlmostEqual(20 / 32, row["anchor_points"]["root"]["x"])
-        self.assertAlmostEqual(40 / 32, row["anchor_points"]["root"]["y"])
+        self.assertAlmostEqual(20 / 32, row["anchor_points"]["root"]["offset"]["x"])
+        self.assertAlmostEqual(40 / 32, row["anchor_points"]["root"]["offset"]["y"])
 
 
 class SpriteMirrorNoneTest(ImportAssetsTestBase):
@@ -646,7 +646,7 @@ class CheckMirrorPairsAndAnchorTest(ImportAssetsTestBase):
         assets_root, data_root, display_map_path = self._build_valid_sprite("anchor_missing")
         data = json.loads(display_map_path.read_text(encoding="utf-8"))
         row = data["rows"][0]
-        row["anchor_points"]["overhead"] = {"x": 0.0, "y": 1.0}
+        row["anchor_points"]["overhead"] = {"parent_layer": "body", "offset": {"x": 0.0, "y": 1.0}}
         write_json(display_map_path, data)
 
         code, output = self._run_check(assets_root, data_root)
@@ -2695,7 +2695,7 @@ class SpriteLiteralDriftRegressionTest(ImportAssetsTestBase):
 
         raw_text = display_map_path.read_text(encoding="utf-8")
         self.assertIn('"scale": 2,', raw_text)
-        self.assertIn('"root": {"x": 2, "y": 4}', raw_text)
+        self.assertIn('"offset": {"x": 2, "y": 4}', raw_text)
 
     def test_non_integer_float_args_are_preserved_as_float(self) -> None:
         case_dir = self.new_case_dir("sprite_literal_drift_frac")
@@ -2735,7 +2735,7 @@ class SpriteLiteralDriftRegressionTest(ImportAssetsTestBase):
 
         raw_text = display_map_path.read_text(encoding="utf-8")
         self.assertIn('"scale": 1.5,', raw_text)
-        self.assertIn('"root": {"x": 0.3125, "y": 0.625}', raw_text)
+        self.assertIn('"offset": {"x": 0.3125, "y": 0.625}', raw_text)
 
 
 class VfxLiteralDriftRegressionTest(ImportAssetsTestBase):

@@ -37,17 +37,8 @@ namespace Tests.Gameplay.EndToEnd
             Assert.NotNull(record);
             Assert.True(record!.EntityId.HasValue);
 
-            // 判断记录（夹具层面，非生产代码缺口）：Encounter.Start 在任何 Tick 之外直接调用，新生成
-            // 参战单位的 entity.created 仍在事件队列里未派发——EntitySpatialSyncHost 要等它派发才会
-            // 把新实体计入空间索引。若不在这里手动 DispatchPending 一次就直接进入下面的施法循环，
-            // 循环第一个 Tick 的 TriggerEvaluation 阶段（EncounterTickHandler）会在空间索引还没追上
-            // 的这一瞬间对 victory_condition（enemies.count_in_range(50) == 0）求值，把"敌人还没被
-            // 空间索引看见"误判成"敌人已清空"，遭遇被判定为提前胜利，连累 TimeModelSwitch 的 pending
-            // 覆盖被 encounter.won 处理器过早清空——这不是本任务要修的生产代码缺口（EncounterHost.
-            // Evaluate 的求值时机、EntitySpatialSyncHost 的同步时机都不在收边任务待补清单内），这里
-            // 用一次显式 DispatchPending 把 Start() 期间产生的事件（含 entity.created）先落地，让
-            // 空间索引与真实世界状态一致后再开始真正的战斗循环。
-            fx.Bus.DispatchPending();
+            // 判断记录：这里曾要手动 fx.Bus.DispatchPending() 绕过"开场同一拍被判胜利"（EncounterHost 求值早于参战单位 entity.created 派发）；
+            // 缺口已在 EncounterHost 内修复（见 EncounterStartSettleTests），夹具不再需要绕行。
 
             Assert.Equal(true, fx.Gameplay.TimeModelSwitch.PendingCombatModeOverride);
 

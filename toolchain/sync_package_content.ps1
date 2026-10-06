@@ -226,6 +226,13 @@ Sync-Tree -SourceDir (Join-Path $dataDir "data\_framework") -TargetDir (Join-Pat
 Write-Step "同步 Data~/data/_feel -> $DestDir\data\_feel"
 Sync-Tree -SourceDir (Join-Path $dataDir "data\_feel") -TargetDir (Join-Path $DestDir "data\_feel") -Label "data/_feel"
 
+# 消费方反馈 P2 缺口 3（默认手感模板数据根不随同步落地）：data/_feel_templates（ADR-0142，五套出厂手感模板预设与"模板 x 武器原型"武器行）
+# 随框架数据包分发（Data~/data/_feel_templates），但此前这里只同步 _framework 与 _feel 两棵：游戏按 ADR-0142 第 7 条把它加进
+# GameOptions.ExtraFrameworkDatasetRoots 后，运行期在 StreamingAssets 下找不到该根，数据校验报 feel.preset.tpl_* / feel.weapon.tpl_* 引用悬空而启动失败。
+# 与 _feel 同样镜像；旧版本包没有该目录时 Sync-Tree 只提示并跳过，不报错。
+Write-Step "同步 Data~/data/_feel_templates -> $DestDir\data\_feel_templates"
+Sync-Tree -SourceDir (Join-Path $dataDir "data\_feel_templates") -TargetDir (Join-Path $DestDir "data\_feel_templates") -Label "data/_feel_templates"
+
 Write-Step "同步 Data~/assets/_placeholder -> $DestDir\assets\_placeholder"
 Sync-Tree -SourceDir (Join-Path $dataDir "assets\_placeholder") -TargetDir (Join-Path $DestDir "assets\_placeholder") -Label "assets/_placeholder"
 

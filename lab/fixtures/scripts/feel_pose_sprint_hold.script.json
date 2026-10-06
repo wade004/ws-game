@@ -252,7 +252,7 @@
       "id": "auto.performance.event_count_total",
       "metric": "performance.event_count_total",
       "op": "eq",
-      "value": 430
+      "value": 431
     },
     {
       "id": "auto.performance.frames",
@@ -421,7 +421,7 @@
       "id": "auto.poseext.pose_requests",
       "metric": "poseext.pose_requests",
       "op": "eq",
-      "value": "10:player:Move"
+      "value": "10:player:Move;122:player:Idle"
     },
     {
       "id": "auto.poseext.hit_pose_total",

@@ -458,7 +458,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **手感落地 M4（1.96.0）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[1.96.0]` 正文。
 - **非手感已知限制清扫（1.96.0，[ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）**：数据与契约只增不改，编辑器按需跟进——`item.slot_definition` 新增可选布尔字段 `has_appearance`（缺省 `true`，写 `false` 的槽位物品不要求 `display.equip_visual` 行）；表达式可读事件 `combat.attack_avoided`、`combat.hit_confirmed` 的 `attackInstanceId` 现在可经表达式读取（为空时查不到）；`LootExpectedCurrencyOutcome.ExpectedRoundedAmount`（含取整与非正值跳过的精确货币期望，线性的 `ExpectedAmount` 保留，"理论与观测"面板应读前者）与 `LootTableAnalyzer.ExpectedAffixInclusion` 的 5 参数重载（大词缀池精确解，计算量预算 `exactMaxWork`）；`item.set` 数据重载后套装门槛立即对账（热重载后不必再等装备变化才见效果）；`simrunner fight` 子命令与 `--fight-log` 日志文件（`{schema_version, truncated, entries}`）；游戏模板 `GameOptions.PathFailurePolicy`/`BlockingChangePolicy`。详见下方 `[1.96.0]`"非手感已知限制清扫"。
 
-## [Unreleased]
+## [2.2.0] - 2026-10-07
+
+### 新增
+
+- **死亡复活可以回到另一张地图（`DeathPolicyOptions.RespawnMapId` / `ReviveUnitOnMap`，消费方反馈 P2 缺口 1）**：`respawn_point` 策略新增可选 `RespawnMapId`（缺省 `null` = 在死亡地图的默认复活点复活，既有行为逐位不变）与窄契约委托 `ReviveUnitOnMapDelegate`（返回 `false` 表示当前落不了地，`DeathPolicyHost` 下一 tick 重试，不丢复活）；`GameplayAssembly` 自动把"传送落地 + 复活"接到该委托。典型用法：死在地牢、回城镇复活。纯加法，不设 `RespawnMapId` 的游戏无需任何改动。
+
+### 修复
+
+- **区域触发开遭遇时，开场同一拍被判胜利（`EncounterHost`，缺口 5）**：刚生成的参战单位的 `entity.created` 还没派发，空间索引里看不到它们，`enemies.count_in_range(R) == 0` 在开场同一拍求值为真，遭遇开场即胜利、胜利奖励（如清理标志）在敌人还活着时发出。现在参战单位的 `entity.created` 派发完之前不做胜负判定（带两拍的安全阀，没有发该事件的自定义生成路径不会永远判不了）；波次与阶段条件照常求值。
+- **地图切换后本地玩家再也不能出招（`InputBufferHost`，缺口 6）**：地图切换清场会销毁玩家实体，`RemoveActor` 顺手把 `BindLocalInput` 的本地绑定置空，同一 id 的玩家重新加回世界后收不到任何按钮边沿，攻击/闪避/技能全部静默失效。本地绑定是"这套输入属于哪个行动者 id"的声明，不随实体生命周期解除，现已保留；缓冲对象照旧释放。
+- **键盘与手柄摇杆绑在同一个二维轴动作上，只有第一条轴型绑定生效（`InputMapHost`，缺口 4）**：`["composite2d:...", "pad_stick:left"]` 这种常规写法里手柄摇杆永远读不到（反过来键盘读不到）。现在按列出顺序逐条求值，第一条求值非零的绑定胜出；摇杆先按本动作的死区/曲线处理再判断非零，死区内不压住键盘。只有一条轴型绑定时逐位不变。
+- **冷启动"继续游戏"读档失败（`GameplayAssembly`，缺口 7）**：玩家相关存档段要求玩家实体已在世界里，而模板写法只在场景 `post_load` 钩子里加入玩家，标题界面直接读档在第一段抛 `LoadStatus.PersistableThrew`。现在读档开始前（派生状态重建钩子 `BeforeLoad`）发现玩家实体不在世界里就补加（已在则什么都不做；"注册之后再自行加入玩家"的既有写法不受影响）。
+- **方向移动松开后单位永远是"在走"（`MovementTickHandler`，缺口 8）**：没有方向意图、也没有路径/追击/受控位移时，自主移动模式（Walk/Run/Sprint）不会落回 Idle，也不发 `unit.state_changed`，动画状态机只认这条事件，站着的单位原地踏步。运动层开启时按速度归零（含减速滑行结束）判定，关闭时按没有方向意图判定；不动 Forced、有路径或追击的单位。手感实验室基线随之有意重烘焙：凡带"松开方向"的标准脚本，`performance.event_count_total` 多 1 个 `unit.state_changed`（15 个格子多 3 个），带姿势观测的脚本多一次 `Idle` 姿势请求；`feel_pose_sprint_hold` 脚本的自动期望清单重新导出；各格子的数据集哈希因手感模板数据更新而刷新，实时类度量桶不动。
+- **整身精灵（没有纸娃娃层）创建后第一次状态切换前整个不显示（`UnityViewFactory`，缺口 9）**：整身兜底渲染器要等第一次剪辑播放才有贴图，新出现的站立单位只剩影子。视图创建这一刻按当前状态与姿态播一次运动态剪辑；有纸娃娃层的外形仍由静态层负责初始显示，口径不变。
+- **导入工具产出的 `display.map.anchor_points` 过不了框架自己的校验器（`sprite_cmd.py`，缺口 2）**：锚点写成裸 `{x, y}`，而契约是 `{parent_layer, offset}`。现按契约写（`parent_layer` 取 `body`，纸娃娃精灵集没有 `body` 层时取第一层）。
+- **默认手感模板数据根不随内容同步落地（`toolchain/sync_package_content.ps1`，缺口 3）**：`data/_feel_templates` 随框架数据包分发，但同步脚本只镜像 `_framework` 与 `_feel`，按 ADR-0142 把它加进 `ExtraFrameworkDatasetRoots` 的游戏启动时数据校验报 `feel.preset.tpl_*` 引用悬空。现与 `_feel` 同样镜像，旧包没有该目录时只提示跳过。
+- **五套出厂手感模板的镜头震动按距离衰减，俯视镜头下震动被吃掉（`data/_feel_templates/feel/feel.preset.json`，数据）**：五个预设的 `camera_distance_attenuation` 由 `linear` 改为 `none`（出厂模板面向"相机跟着主角"的玩法，离相机远近不应改变震动幅度）。使用这些模板且依赖旧衰减的游戏需要在自己的覆盖行里写回 `linear`。
+- **（仅测试）`SfxEngineReportedFinishPlayModeTests` 偶发红**：等待上限按渲染帧数计，而极短 clip 的自然播完由混音线程的 DSP 块节奏决定，无头下二者没有固定比例；改为实时墙钟上限，条件满足立即返回。不是产品缺陷，不能写成稳定变红的用例。
 
 ## [2.1.0] - 2026-10-06
 

@@ -59,15 +59,19 @@ namespace Adapter.Unity.Tests.Runtime
             return source;
         }
 
-        private static IEnumerator WaitUntilNaturallyFinished(AudioSource source)
+        /// <summary>等极短 clip 自然播完。判据是音频混音线程的实时进度，不是渲染帧数：无头批处理下一帧
+        /// 只要零点几毫秒（300 帧约 36ms），而混音线程以 DSP 块（约 20ms 量级）为单位、与帧循环无关地推进，
+        /// 且首个 DSP 块之前 <c>isPlaying</c> 仍为 true。用帧数当上限会在混音线程慢一拍时误判"未播完"
+        /// （full-20261001-45 两次偶发红；根因是等待上限按帧数计，clip 约 4.5ms 的自然播完却由混音线程的 DSP 块节奏决定，二者没有固定比例，
+        /// 不是可确定性复现的缺陷，无法写成稳定变红的用例）。因此用实时墙钟作上限，条件满足立即返回。</summary>
+        private static IEnumerator WaitUntilNaturallyFinished(AudioSource source, float timeoutSeconds = 5f)
         {
-            var frames = 0;
-            while (source.isPlaying && frames < 300)
+            var deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (source.isPlaying && Time.realtimeSinceStartup < deadline)
             {
                 yield return null;
-                frames++;
             }
-            Assert.IsFalse(source.isPlaying, "极短 clip 应当早已自然播放结束");
+            Assert.IsFalse(source.isPlaying, "极短 clip 应当在混音线程推进后自然播放结束（实时上限 " + timeoutSeconds + " 秒）");
         }
 
         [Test]

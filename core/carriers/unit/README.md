@@ -786,3 +786,7 @@ M4-V 遗留的八条限制逐条解除（原文见上节第 6 条的旧版本，
 2. **边缘下落**：`FollowGround` 在单位走出支撑面起一段零速自然下落时给这段飞行打 `LedgeFall` 标记；起跳、击飞、`LaunchToApex` 等任何替换飞行的操作都清除它。`JumpFromLedge` 只在 `LedgeFall` 为真时成立：从当前高度以地面起跳速度起跳，不占空中跳跃次数，起跳后标记清除，所以不能连续宽限起跳。宽限窗口本身由输入层的 `grounded` 条件判定。
 3. **可变跳高**：`CutAscent(unitId, ratio)` 只在上升中（竖直速度 > 0）且 `0 < ratio < 1` 时把竖直速度乘 `ratio`，当前高度与空中跳跃次数不变；下降中、在地面、比例越界都拒绝并保持状态。已知边界：松键与起跳之间若这次上升已被别的运动（例如击飞）替换，裁切会作用在新的上升上；输入层只在"自己起的跳"上订阅松键，窗口很小，不额外追踪飞行来源。
 4. **复现与不变量**：`tests/VerticalAxisLedgeJumpTests.cs`（边缘下落可辨认、不开空中跳跃时普通跳起不来而 `JumpFromLedge` 成立、速度 `v = sqrt(2 g H)`、不占次数；地面/起跳飞行/被击飞后拒绝；裁切后速度 = `v × ratio` 且顶点高度按抛体公式、对照不裁切的同一跳更高）。
+
+## 判断记录（方向移动松开后落回 Idle，2026-10-06，消费方反馈 P2 缺口 8）
+
+方向输入松开后，单位没有路径/追击/受控位移，自主移动模式（Walk/Run/Sprint）此前不落回 Idle，也不发 `unit.state_changed`；动画状态机只认这条事件，站着的单位原地踏步。决定：`SettleToIdleIfReleased` 统一收口——运动层开启时在 `FinishMotionTick` 里按"速度为零且期望方向为零"判定（含减速滑行结束），关闭时在 `MovementTickHandler` 第二遍"没有路径"分支里判定；只动 Walk/Run/Sprint，不动 Forced（被击退/传送）与有路径、追击、位移的单位；运动层路径下冻结与死亡的单位不判。用例 `MotionArbiterTests.ReleaseToIdle`（5 例，红绿对照）；按 AGENTS 规则已列的跨层例外，引擎侧 `MovementStopAndBlockingPlayModeTests` 需定向重跑。

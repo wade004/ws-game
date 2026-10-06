@@ -58,7 +58,7 @@
         },
         "performance": {
           "ticks": 110,
-          "event_count_total": 286,
+          "event_count_total": 289,
           "frames": 110,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -200,7 +200,7 @@
         },
         "performance": {
           "ticks": 110,
-          "event_count_total": 290,
+          "event_count_total": 293,
           "frames": 110,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -342,7 +342,7 @@
         },
         "performance": {
           "ticks": 110,
-          "event_count_total": 286,
+          "event_count_total": 289,
           "frames": 110,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -484,7 +484,7 @@
         },
         "performance": {
           "ticks": 110,
-          "event_count_total": 290,
+          "event_count_total": 293,
           "frames": 110,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -626,7 +626,7 @@
         },
         "performance": {
           "ticks": 110,
-          "event_count_total": 286,
+          "event_count_total": 289,
           "frames": 110,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -768,7 +768,7 @@
         },
         "performance": {
           "ticks": 110,
-          "event_count_total": 290,
+          "event_count_total": 293,
           "frames": 110,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,

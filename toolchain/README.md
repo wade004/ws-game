@@ -1762,3 +1762,8 @@ build/test 步骤）。
 6. **CI：并行性用例读"并行阶段墙钟"**。`test_two_lines_run_concurrently` 原先断言外层总墙钟 < 40s + 25s 固定余量；托管运行器上固定开销（两次子进程启动、前置步骤、doc-pytest 子集）约 29s（本机 8～9s），同一次运行里并行阶段自己只用 41.5s，外层 70.8s 被顶过阈值。固定余量吸收不了环境量；改读门禁汇总表 `（并行阶段墙钟：…）` 行（check.ps1 对并行阶段单独计的实际耗时），阈值与串行预期下限不变，外层总墙钟只作诊断输出。
 7. **CI 依赖 GitHub Release 上存在 zip+lock 齐全的发布包（定案）**：全新仓库或 Release 被清空时那三条真实产物用例会 skip 并让 pytest 步骤红灯——这是有意的：把"没有可对照的发布产物"静默放过，等于让依赖真实产物的守卫形同虚设（`max_skipped=0` 的本意）。补救方式是先补传发布包（见第 3 条的 `gh release create` 指引），不是放宽下限。
 8. **Release 工作流的线上验证口径（验收方式，不是遗留缺口）**：工作流的比对与条目查找修复已用本机真实 1.92.0/1.93.0 的 zip 与 lock 逐项验证（`Test-WsGameCommitMatch`、`Get-WsGameZipEntry` 与桩 `gh` 模拟 tag 触发运行），两个步骤的 `run:` 正文语法已解析；GitHub 托管运行器上的真实运行只能由真实的 tag 推送或 `workflow_dispatch` 触发，开发会话不触发远端工作流（推送只由主会话按发布流程做）。因此线上验收 = 下一次发布推送标签之后查看该次 Release 运行结果：绿即验收通过；红则按其日志与第 1～3 条对照处理。
+
+### 判断记录（导入工具锚点契约；内容同步带上手感模板根，2026-10-06，消费方反馈 P2 缺口 2、3）
+
+1. `asset_import/sprite_cmd.py` 写进 `display.map.anchor_points` 的每条锚点改为契约形状 `{parent_layer, offset:{x,y}}`（此前是裸 `{x, y}`，过不了框架自己的校验器）；`parent_layer` 取 `body`（平图精灵集没有纸娃娃层，`body` 即整个精灵），纸娃娃精灵集没有 `body` 层时取第一层。用例 `test_import_assets_display_anchor_contract.py`（把导入产物喂给真实校验器）。
+2. `sync_package_content.ps1` 新增镜像 `Data~/data/_feel_templates`（ADR-0142 默认手感模板数据根，此前只同步 `_framework` 与 `_feel`），旧包没有该目录时只提示跳过；用例在 `test_sync_package_content.py`。

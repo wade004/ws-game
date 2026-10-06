@@ -15,6 +15,14 @@ namespace Core.Gameplay.Death
     public delegate void ReviveUnitDelegate(Id unitId, Vec2 position, double healthFraction);
 
     /// <summary>
+    /// 跨地图复活的窄契约委托（消费方反馈 P2 缺口 1）：把单位移到 <paramref name="mapId"/> 的
+    /// <paramref name="position"/>（必要时经场景路由切场景）并复活。返回 <c>true</c> 表示已落地；
+    /// 返回 <c>false</c> 表示当前不能落地（如场景路由正在加载另一张地图），<see cref="DeathPolicyHost"/>
+    /// 保留该条待复活记录、下一次 tick 重试。<c>GameplayAssembly</c> 把"传送落地 + 复活"接给本委托。
+    /// </summary>
+    public delegate bool ReviveUnitOnMapDelegate(Id unitId, Id mapId, Vec2 position, double healthFraction);
+
+    /// <summary>
     /// 解析"某张地图的默认复活点"委托：入参地图 id，命中时返回 <c>(该地图 id, 复活点世界坐标)</c>，
     /// 解析失败（地图不存在/无 <c>spawn_points</c>）返回 <c>null</c>。签名与
     /// <c>Core.Gameplay.Assembly.TeleportTargetResolver.Resolve</c> 完全一致——
@@ -97,6 +105,18 @@ namespace Core.Gameplay.Death
         /// <summary>解析默认复活点的窄契约，见 <see cref="ResolveDefaultSpawnDelegate"/>。为
         /// <c>null</c> 或解析失败时同上，只记诊断、不复活。</summary>
         public ResolveDefaultSpawnDelegate? ResolveDefaultSpawn { get; set; }
+
+        /// <summary>
+        /// 消费方反馈 P2 缺口 1：<c>respawn_point</c> 策略的复活地图。为 <c>null</c>（默认）时在死亡
+        /// 单位所属地图的默认复活点复活（既有行为，逐位不变）；非空时改在该地图的默认复活点
+        /// （<c>spawn_points[0]</c>）复活——典型用法是"死在地牢、回到城镇复活"。目标地图与死亡地图不同时
+        /// 经 <see cref="ReviveUnitOnMap"/> 落地（生产装配里由 <c>GameplayAssembly</c> 自动接线）。
+        /// </summary>
+        public Id? RespawnMapId { get; set; }
+
+        /// <summary>跨地图复活的窄契约，见 <see cref="ReviveUnitOnMapDelegate"/>。为 <c>null</c> 且复活地图
+        /// 与死亡地图不同时只记一条诊断、不复活（同 <see cref="ReviveUnit"/> 未装配的保守退化）。</summary>
+        public ReviveUnitOnMapDelegate? ReviveUnitOnMap { get; set; }
 
         /// <summary>
         /// 外部审核阻塞项 2 收口新增：<c>reload_save</c> 策略读档的窄契约，见

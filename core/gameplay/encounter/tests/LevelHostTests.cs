@@ -27,7 +27,7 @@ namespace Tests.Gameplay.Encounter
         {
             var bus = TestSupport.CreateBus();
             var registry = TestSupport.MakeRegistry(bus, DefRows, LevelRows);
-            var world = new FakeWorld();
+            var world = new FakeWorld { Bus = bus };
             var ai = new FakeAiHost();
             var hooks = new FakeHookRegistry();
             var rewards = new FakeRewardDispatcher();
@@ -53,11 +53,12 @@ namespace Tests.Gameplay.Encounter
         [Fact]
         public void EncounterWon_AdvancesToNextEncounterInSequence()
         {
-            var (levelHost, encounterHost, world, exprFactory, _) = MakeHosts();
+            var (levelHost, encounterHost, world, exprFactory, bus) = MakeHosts();
             levelHost.StartLevel(new Id("encounter.level.sample"), Player);
             var firstInstanceId = Assert.Single(encounterHost.ActiveInstanceIds);
 
             exprFactory.Set("self.is_alive", true);
+            bus.DispatchPending(); // 参战单位 entity.created 落地后才会判胜负
             encounterHost.Evaluate(firstInstanceId);
 
             Assert.Equal(2, world.SpawnCalls.Count);
@@ -67,14 +68,16 @@ namespace Tests.Gameplay.Encounter
         [Fact]
         public void LastEncounterWon_ClearsActiveRun_NoFurtherEncounterStarted()
         {
-            var (levelHost, encounterHost, world, exprFactory, _) = MakeHosts();
+            var (levelHost, encounterHost, world, exprFactory, bus) = MakeHosts();
             levelHost.StartLevel(new Id("encounter.level.sample"), Player);
             exprFactory.Set("self.is_alive", true);
 
             var firstInstanceId = Assert.Single(encounterHost.ActiveInstanceIds);
+            bus.DispatchPending();
             encounterHost.Evaluate(firstInstanceId); // -> 第二个遭遇开始
 
             var secondInstanceId = Assert.Single(encounterHost.ActiveInstanceIds);
+            bus.DispatchPending();
             encounterHost.Evaluate(secondInstanceId); // -> 第二个也胜利，序列结束
 
             Assert.Equal(2, world.SpawnCalls.Count); // 没有第三次 Start
@@ -179,13 +182,14 @@ namespace Tests.Gameplay.Encounter
         [Fact]
         public void AbortForMap_UnrelatedMap_DoesNotAffectActiveRun()
         {
-            var (levelHost, encounterHost, world, exprFactory, _) = MakeHosts();
+            var (levelHost, encounterHost, world, exprFactory, bus) = MakeHosts();
             levelHost.StartLevel(new Id("encounter.level.sample"), Player);
 
             levelHost.AbortForMap(new Id("map.unrelated"));
 
             var firstInstanceId = Assert.Single(encounterHost.ActiveInstanceIds);
             exprFactory.Set("self.is_alive", true);
+            bus.DispatchPending();
             encounterHost.Evaluate(firstInstanceId);
 
             Assert.Equal(2, world.SpawnCalls.Count); // 关卡运行未受影响，仍能正常推进到第二个遭遇

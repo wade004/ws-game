@@ -526,3 +526,8 @@ SceneRouter`（新增 `Hooks` 只读属性，见 `core/foundation/scene_router/R
 1. **问题**：动作时间线按 `SkillOptions.ActionStepSeconds`（缺省 1/60）把毫秒折成 tick，而装配此前不把时钟宿主的步长回填进去，非 60 Hz 的宿主得由调用方手工保证两者一致（实验室换装场景因此只能 tickRate 60）。
 2. **做法**：`SkillOptions` 新增 `ActionStepSecondsIsExplicit`（只读，赋过 `ActionStepSeconds` 即真）与 `ApplyHostStepSeconds(double)`（只在未显式赋值时回填，显式值保持不变）；`GameplayAssembly` 在带时钟宿主（`ISimClockHost`）的构造路径里调用它，`HeadlessWorldBuilder` 按 `HeadlessWorldOptions.StepSeconds` 同样回填。不带时钟宿主的最小组合路径、以及显式设置过选项的调用方，行为不变；缺省 1/60 的宿主结果逐位不变。
 3. **验证**：实验室 `equip_cycle_tick30`（30 Hz 宿主，相位 tick 数 = 毫秒 × 倍率 ÷ 30 Hz 步长）。
+
+## 判断记录（冷启动读档补玩家实体；跨地图复活接线，2026-10-06，消费方反馈 P2 缺口 7、1）
+
+1. **读档开始前补加玩家实体**：玩家相关存档段经按单位 id 写入的接口加载，要求实体已存在；模板写法只在场景 `post_load` 钩子里"缺失则加入"，标题界面冷启动直接读档会在第一段抛 `LoadStatus.PersistableThrew`。决定在派生状态重建钩子 `BeforeLoad`（"真正开始逐段 Load 之前"的唯一时点）里补加，已在世界里则不动。曾试过在 `RegisterPersistables` 里提前加，被 `EquipmentVisualSaveLoadResetTests` 否决：它在注册之后才自行 `AddEntity(player)`，提前加会撞"实体 id 重复"，既有装配写法被破坏；放在读档开始前则两种写法都成立。场景切换清场后 `post_load` 钩子照旧负责补回。用例 `GameplayAssemblyColdLoadTests`（含"注册后再自行加入"一例）。
+2. **`ReviveUnitOnMap` 自动接线**：`DeathPolicyOptions.ReviveUnitOnMap` 未设置时，装配把"`ApplyResolvedTeleport` 落地（路由接受才提交 MapId/位置，同传送惯例）+ `Revive`"接给它；路由正忙拒绝返回 `false`，由 `DeathPolicyHost` 下一 tick 重试。用例 `GameplayAssemblyDeathRespawnOtherMapTests`。

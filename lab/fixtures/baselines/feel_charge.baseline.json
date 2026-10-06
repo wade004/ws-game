@@ -6,7 +6,7 @@
       "key": {
         "script": "feel_charge",
         "scriptVersion": 1,
-        "dataset": "29eb0ef3679db274",
+        "dataset": "0133547cfafecbc7",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -142,7 +142,7 @@
       "key": {
         "script": "feel_charge",
         "scriptVersion": 1,
-        "dataset": "a917a72312c96bf6",
+        "dataset": "8402370aa59502dc",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -298,7 +298,7 @@
       "key": {
         "script": "feel_charge",
         "scriptVersion": 1,
-        "dataset": "29eb0ef3679db274",
+        "dataset": "0133547cfafecbc7",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -434,7 +434,7 @@
       "key": {
         "script": "feel_charge",
         "scriptVersion": 1,
-        "dataset": "a917a72312c96bf6",
+        "dataset": "8402370aa59502dc",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -590,7 +590,7 @@
       "key": {
         "script": "feel_charge",
         "scriptVersion": 1,
-        "dataset": "29eb0ef3679db274",
+        "dataset": "0133547cfafecbc7",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -726,7 +726,7 @@
       "key": {
         "script": "feel_charge",
         "scriptVersion": 1,
-        "dataset": "a917a72312c96bf6",
+        "dataset": "8402370aa59502dc",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",

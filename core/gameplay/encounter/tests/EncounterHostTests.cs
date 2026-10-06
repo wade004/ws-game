@@ -53,7 +53,7 @@ namespace Tests.Gameplay.Encounter
         {
             bus = TestSupport.CreateBus();
             var registry = TestSupport.MakeRegistry(bus, DefRows);
-            world = new FakeWorld();
+            world = new FakeWorld { Bus = bus };
             ai = new FakeAiHost();
             hooks = new FakeHookRegistry();
             rewards = new FakeRewardDispatcher();
@@ -159,8 +159,9 @@ namespace Tests.Gameplay.Encounter
         public void Start_SameEncounterSameMap_AfterPreviousInstanceWon_StartsNewInstance()
         {
             // 已结束（胜利/失败/Abort）的实例不算"进行中"，不会挡住重新 Start。
-            var host = MakeHost(out _, out _, out _, out _, out var exprFactory, out _);
+            var host = MakeHost(out _, out _, out _, out _, out var exprFactory, out var bus);
             var first = host.Start(new Id("encounter.sample_basic"), MapA, Player);
+            bus.DispatchPending(); // 参战单位 entity.created 落地后才会判胜负（见 EncounterHost.IsSettling）
             exprFactory.Set("self.is_alive", true);
             host.Evaluate(first); // Won -> IsActive=false
 
@@ -325,6 +326,7 @@ namespace Tests.Gameplay.Encounter
             EncounterWonEvent? captured = null;
             bus.Subscribe<EncounterWonEvent>(EncounterEventKeys.Won, evt => captured = evt);
             exprFactory.Set("self.is_alive", true);
+            bus.DispatchPending();
 
             host.Evaluate(instanceId);
 
@@ -343,6 +345,7 @@ namespace Tests.Gameplay.Encounter
             EncounterLostEvent? captured = null;
             bus.Subscribe<EncounterLostEvent>(EncounterEventKeys.Lost, evt => captured = evt);
             exprFactory.Set("target.is_alive", true);
+            bus.DispatchPending();
 
             host.Evaluate(instanceId);
 
@@ -569,9 +572,10 @@ namespace Tests.Gameplay.Encounter
         [Fact]
         public void ActiveInstanceIds_ExcludesWonInstance()
         {
-            var host = MakeHost(out _, out _, out _, out _, out var exprFactory, out _);
+            var host = MakeHost(out _, out _, out _, out _, out var exprFactory, out var bus);
             var instanceId = host.Start(new Id("encounter.sample_basic"), MapA, Player);
             exprFactory.Set("self.is_alive", true);
+            bus.DispatchPending();
 
             host.Evaluate(instanceId);
 

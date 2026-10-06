@@ -1326,6 +1326,21 @@ namespace Core.Gameplay.Assembly
             if (Carriers.Units is Core.Carriers.Unit.WorldUnitAccess worldUnitAccessForDeath)
             {
                 resolvedDeathPolicyOptions.ReviveUnit ??= worldUnitAccessForDeath.Revive;
+                // 消费方反馈 P2 缺口 1：respawn_point 在另一张地图复活（DeathPolicyOptions.RespawnMapId）。
+                // 先经 ApplyResolvedTeleport 落地（路由接受才提交 MapId/位置，同传送惯例），再复活；
+                // 路由正忙拒绝时返回 false，由 DeathPolicyHost 下一 tick 重试，不在未落地时复活。
+                resolvedDeathPolicyOptions.ReviveUnitOnMap ??= (unitId, mapId, position, fraction) =>
+                {
+                    ApplyResolvedTeleport(unitId, mapId, position);
+                    var moved = _world.GetEntity(unitId);
+                    if (moved == null || !moved.MapId.Equals(mapId))
+                    {
+                        return false;
+                    }
+
+                    worldUnitAccessForDeath.Revive(unitId, position, fraction);
+                    return true;
+                };
             }
 
             resolvedDeathPolicyOptions.ResolveDefaultSpawn ??= _teleportTargetResolver.Resolve;
@@ -1935,7 +1950,7 @@ namespace Core.Gameplay.Assembly
             // README.md"CORE-180-01 根治"一节。放在本方法末尾——此时全部段都已经注册完毕，晚于
             // 构造函数但早于任何一次真正的 saveSystem.Load 调用（调用方约定顺序：先
             // RegisterPersistables，再才会有读档发生）。
-            saveSystem.SetDerivedStateRebuilder(new DerivedStateRebuilder(Carriers.Rules, player, Carriers.Units, _spatial, Death));
+            saveSystem.SetDerivedStateRebuilder(new DerivedStateRebuilder(Carriers.Rules, player, Carriers.Units, _spatial, Death, _world));
         }
 
         /// <summary>
@@ -1973,6 +1988,7 @@ namespace Core.Gameplay.Assembly
             private readonly IUnitAccess _units;
             private readonly ISpatialQuery _spatial;
             private readonly Core.Gameplay.Death.DeathPolicyHost _death;
+            private readonly IWorldSim _world;
             private Id? _previousArchetypeId;
             private Id? _previousRaceId;
 
@@ -1988,8 +2004,10 @@ namespace Core.Gameplay.Assembly
                 PlayerUnit player,
                 IUnitAccess units,
                 ISpatialQuery spatial,
-                Core.Gameplay.Death.DeathPolicyHost death)
+                Core.Gameplay.Death.DeathPolicyHost death,
+                IWorldSim world)
             {
+                _world = world ?? throw new ArgumentNullException(nameof(world));
                 _rules = rules ?? throw new ArgumentNullException(nameof(rules));
                 _player = player ?? throw new ArgumentNullException(nameof(player));
                 _units = units ?? throw new ArgumentNullException(nameof(units));
@@ -2015,6 +2033,17 @@ namespace Core.Gameplay.Assembly
             /// </summary>
             public void BeforeLoad()
             {
+                // 判断记录（消费方反馈 P2 缺口 7：冷启动"继续游戏"读档失败，LoadStatus.PersistableThrew）：玩家相关段（world.current_position 等）的
+                // Load 经 IUnitAccess/各宿主按单位 id 写入，要求玩家实体已经在世界里（WorldUnitAccess.Require）；而按模板写法玩家实体只在场景
+                // post_load 钩子里"缺失则加入"，所以进程刚启动、还没进过任何场景时（标题界面直接点"继续游戏"），读档在第一段就抛异常。
+                // 在"真正开始逐段 Load 之前"这个唯一时点补加：玩家实体不在世界里就加进来，已在（装配根自行加入、场景已加载）则什么都不做。
+                // 不放在 RegisterPersistables 里提前加：那会让"注册之后再自行 world.AddEntity(player)"的既有装配写法撞上"实体 id 重复"。
+                // 场景切换（ClearAll）会把玩家摘掉，post_load 钩子照旧负责补回。
+                if (_world.GetEntity(_player.EntityId) == null)
+                {
+                    _world.AddEntity(_player);
+                }
+
                 _previousArchetypeId = _player.ArchetypeId;
                 _previousRaceId = _player.RaceId;
 

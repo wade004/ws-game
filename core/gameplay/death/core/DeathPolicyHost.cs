@@ -259,15 +259,18 @@ namespace Core.Gameplay.Death
                 return;
             }
 
-            var resolved = _options.ResolveDefaultSpawn(evt.MapId.Value);
+            var targetMap = _options.RespawnMapId ?? evt.MapId.Value;
+            var resolved = _options.ResolveDefaultSpawn(targetMap);
             if (resolved == null)
             {
                 _diagnostics.Error(
-                    $"DeathPolicyHost（respawn_point）：地图 \"{evt.MapId}\" 未能解析出默认复活点，单位 \"{evt.UnitId}\" 无法复活");
+                    $"DeathPolicyHost（respawn_point）：地图 \"{targetMap}\" 未能解析出默认复活点，单位 \"{evt.UnitId}\" 无法复活");
                 return;
             }
 
-            _pending.Add(new PendingRespawn(evt.UnitId, resolved.Value.Position, _options.RespawnDelayTicks));
+            _pending.Add(new PendingRespawn(
+                evt.UnitId, resolved.Value.MapId, resolved.Value.Position,
+                evt.MapId.Value.Equals(resolved.Value.MapId), _options.RespawnDelayTicks));
         }
 
         /// <summary>推进延迟复活队列，见类型注释"不区分 Continuous/Discrete"。</summary>
@@ -306,14 +309,37 @@ namespace Core.Gameplay.Death
                     continue;
                 }
 
-                if (_options.ReviveUnit == null)
+                if (pending.SameMapAsDeath)
                 {
-                    _diagnostics.Error(
-                        $"DeathPolicyHost（respawn_point）：未装配 ReviveUnit，单位 \"{pending.UnitId}\" 复活倒计时已到但无法执行");
-                    continue;
+                    if (_options.ReviveUnit == null)
+                    {
+                        _diagnostics.Error(
+                            $"DeathPolicyHost（respawn_point）：未装配 ReviveUnit，单位 \"{pending.UnitId}\" 复活倒计时已到但无法执行");
+                        continue;
+                    }
+
+                    _options.ReviveUnit(pending.UnitId, pending.Position, _options.RespawnHealthFraction);
+                }
+                else
+                {
+                    // 跨地图复活（RespawnMapId 与死亡地图不同）：落地（含切场景）与复活由 ReviveUnitOnMap 一并完成。
+                    if (_options.ReviveUnitOnMap == null)
+                    {
+                        _diagnostics.Error(
+                            $"DeathPolicyHost（respawn_point）：复活地图 \"{pending.MapId}\" 与死亡地图不同，但未装配 ReviveUnitOnMap，" +
+                            $"单位 \"{pending.UnitId}\" 无法复活");
+                        continue;
+                    }
+
+                    if (!_options.ReviveUnitOnMap(pending.UnitId, pending.MapId, pending.Position, _options.RespawnHealthFraction))
+                    {
+                        // 当前不能落地（如场景路由正忙）：保留记录，下一次 tick 重试，不丢复活。
+                        pending.TicksRemaining = 1;
+                        _pending.Add(pending);
+                        continue;
+                    }
                 }
 
-                _options.ReviveUnit(pending.UnitId, pending.Position, _options.RespawnHealthFraction);
                 ChargeRespawnFee(pending.UnitId);
                 _bus.PublishImmediate(new UnitRespawnedEvent(pending.UnitId, RespawnPolicy.RespawnPoint));
             }
@@ -400,13 +426,17 @@ namespace Core.Gameplay.Death
         private struct PendingRespawn
         {
             public readonly Id UnitId;
+            public readonly Id MapId;
             public readonly Vec2 Position;
+            public readonly bool SameMapAsDeath;
             public int TicksRemaining;
 
-            public PendingRespawn(Id unitId, Vec2 position, int ticksRemaining)
+            public PendingRespawn(Id unitId, Id mapId, Vec2 position, bool sameMapAsDeath, int ticksRemaining)
             {
                 UnitId = unitId;
+                MapId = mapId;
                 Position = position;
+                SameMapAsDeath = sameMapAsDeath;
                 TicksRemaining = ticksRemaining;
             }
         }
