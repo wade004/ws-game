@@ -53,6 +53,7 @@ COPIED_FILES = (
     "toolchain/_release_notes.ps1",
     "toolchain/_precommit_tiering_guard.ps1",
     "toolchain/_release_resume.ps1",
+    "toolchain/_release_candidate.ps1",
     "toolchain/prune_dist.ps1",
     "toolchain/resource_layout_map.json",
 )
@@ -123,6 +124,14 @@ def digests(path):
 
 if tool == "dotnet":
     code = int(os.environ.get("DOTNET_STUB_EXIT", "0")) if (args and args[0] == "build") else 0
+    # DOTNET_STUB_EXIT_FROM_BUILD=N：只有第 N 次及之后的 dotnet build 才失败（候选阶段的内层构建是第 1 次，正式打包是第 2 次）。
+    from_build = os.environ.get("DOTNET_STUB_EXIT_FROM_BUILD")
+    if code and from_build and log_path and os.path.exists(log_path):
+        with open(log_path, encoding="utf-8") as f:
+            builds = sum(1 for line in f if line.strip() and json.loads(line)["tool"] == "dotnet"
+                         and json.loads(line)["args"][:1] == ["build"])
+        if builds < int(from_build):
+            code = 0
     sys.exit(code)
 
 if tool == "npm":
@@ -135,8 +144,21 @@ if tool == "npm":
         src = args[1]
         dest = args[args.index("--pack-destination") + 1]
         pkg = json.load(open(os.path.join(src, "package.json"), encoding="utf-8-sig"))
+        # NPM_STUB_FAIL_PACK_VERSION=<版本>：只有打这个版本号的包时才失败（候选 rc 包不受影响）。
+        if os.environ.get("NPM_STUB_FAIL_PACK_VERSION") == pkg["version"]:
+            sys.stderr.write("stub: npm pack 注入失败（按版本）\n")
+            sys.exit(1)
         name = pkg["name"] + "-" + pkg["version"] + ".tgz"
         make_tgz(src, os.path.join(dest, name))
+        sys.exit(0)
+    if cmd == "view" and len(args) > 2 and args[2] == "versions":
+        # 候选阶段查"私服里某个包已有哪些版本"（取 rc 序号）：从模拟私服存储里按包名列出。
+        store = load(reg_path, {})
+        versions = [k.split("@", 1)[1] for k in store if k.split("@", 1)[0] == args[1]]
+        if not versions:
+            print(json.dumps({"error": {"code": "E404", "summary": "stub: not found"}}))
+            sys.exit(1)
+        print(json.dumps(versions))
         sys.exit(0)
     if cmd == "view":
         spec = args[1]
@@ -216,6 +238,30 @@ exit 0
 """
 
 
+SAMPLES_CHECK_STUB = """\
+$ErrorActionPreference = "Stop"
+if ($env:STUB_LOG) {
+    $entry = @{ tool = "samples-check.ps1"; args = @($args) } | ConvertTo-Json -Compress
+    [System.IO.File]::AppendAllText($env:STUB_LOG, $entry + "`n", (New-Object System.Text.UTF8Encoding($false)))
+}
+Write-Host "gate passed: stub samples check (skeleton)"
+Write-Host "门禁通过：桩样板 check.ps1（骨架样板仓库）"
+if ($env:SAMPLES_STUB_EXIT) { exit [int]$env:SAMPLES_STUB_EXIT }
+exit 0
+"""
+
+SAMPLES_UPGRADE_STUB = """\
+param([string]$Version, [string]$RegistryUrl)
+$ErrorActionPreference = "Stop"
+if ($env:STUB_LOG) {
+    $entry = @{ tool = "samples-upgrade"; args = @($Version) } | ConvertTo-Json -Compress
+    [System.IO.File]::AppendAllText($env:STUB_LOG, $entry + "`n", (New-Object System.Text.UTF8Encoding($false)))
+}
+if ($env:SAMPLES_STUB_UPGRADE_EXIT) { exit [int]$env:SAMPLES_STUB_UPGRADE_EXIT }
+exit 0
+"""
+
+
 @dataclass
 class Skeleton:
     root: Path          # 骨架仓库根（build.ps1 所在）
@@ -226,6 +272,7 @@ class Skeleton:
     release_version: str
     base_commit: str = ""
     extra_env: dict = field(default_factory=dict)
+    samples: Path | None = None   # 骨架样板仓库（候选阶段用；桩 check.ps1 + 桩升级脚本）
 
     @property
     def log_path(self) -> Path:
@@ -274,6 +321,8 @@ class Skeleton:
                 labels.append(f"npm view {args[1]}")
             elif tool == "dotnet":
                 labels.append(f"dotnet {args[0]}")
+            elif tool in ("samples-check.ps1", "samples-upgrade"):
+                labels.append(f"{tool} {' '.join(args)}".strip())
             elif tool == "gh":
                 labels.append(f"gh {' '.join(args[:2])}")
             else:
@@ -314,7 +363,8 @@ class Skeleton:
         env["NPM_STUB_REGISTRY"] = str(self.npm_store_path)
         env["GH_STUB_STORE"] = str(self.gh_store_path)
         for key in ("NPM_STUB_FAIL_PACK", "NPM_STUB_FAIL_PUBLISH_PKG", "NPM_STUB_VIEW_ERROR",
-                    "GH_STUB_FAIL_CREATE", "CHECK_STUB_EXIT", "DOTNET_STUB_EXIT"):
+                    "GH_STUB_FAIL_CREATE", "CHECK_STUB_EXIT", "DOTNET_STUB_EXIT", "DOTNET_STUB_EXIT_FROM_BUILD",
+                    "NPM_STUB_FAIL_PACK_VERSION", "SAMPLES_STUB_EXIT", "SAMPLES_STUB_UPGRADE_EXIT", "WS_GAME_SAMPLES"):
             env.pop(key, None)
         env.update(self.extra_env)
         if extra:
@@ -323,6 +373,11 @@ class Skeleton:
 
     def run_build(self, *args: str, env_extra: dict | None = None, timeout: int = 900) -> subprocess.CompletedProcess:
         exe = find_powershell()
+        # 真实发布（-Release 且非 -DryRun）默认要过候选阶段（ADR-0160）：没显式给样板仓库参数时，补上骨架样板仓库。
+        # 想测"没传"的路径，显式传 -SamplesRepo 指向别处或 -SkipSamplesCandidate。
+        if ("-Release" in args and "-DryRun" not in args and "-SamplesRepo" not in args
+                and "-SkipSamplesCandidate" not in args and self.samples is not None):
+            args = (*args, "-SamplesRepo", str(self.samples))
         proc = subprocess.run(
             [exe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(self.root / "build.ps1"), *args],
             cwd=str(self.root),
@@ -472,5 +527,11 @@ def build_skeleton(tmp_path: Path, *, base_version: str = "1.2.0", release_versi
     status = run_git(root, "status", "--porcelain").stdout.strip()
     assert status == "", f"骨架搭好后工作树应干净，实际：{status}"
 
+    # --- 骨架样板仓库（候选阶段）：只有桩 check.ps1 与桩升级脚本，不含真实内容 ---
+    samples = tmp_path / "ws-game-samples"
+    init_temp_repo(samples, branch="main")
+    _write(samples / "check.ps1", SAMPLES_CHECK_STUB, bom=True)
+    _write(samples / "tools" / "upgrade_framework.ps1", SAMPLES_UPGRADE_STUB, bom=True)
+
     return Skeleton(root=root, origin=origin, stub_dir=stub_dir, work=work,
-                    base_version=base_version, release_version=release_version, base_commit=base)
+                    base_version=base_version, release_version=release_version, base_commit=base, samples=samples)

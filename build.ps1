@@ -89,6 +89,12 @@
          使打包阶段 `git rev-parse HEAD` 就是这次发布提交本身、工作树干净，`dist/ws-game-<ver>.lock`
          与 `MANIFEST.txt` 的 `git_commit` 字段因此指向一个真实存在的发布提交而不是带 `-dirty`
          后缀的占位值（时序判断记录见脚本内该步骤注释）。
+      6b. 非 `-DryRun` 时：发布候选（ADR-0160，阶段 `candidate`）。先把 `X.Y.Z-rc.N`（N = 私服里已有最大 rc 序号 + 1）
+         的各个包发到本地私服（`npm publish --tag rc`，不打标签、不推送、不建 GitHub Release），再让样板仓库
+         （`-SamplesRepo`）升级到这个候选版本并跑它自己的全量门禁。样板门禁绿才继续打包/打标签/发布；红就在打标签前
+         终止（发布提交与门禁通过记录保留，修好后 `-Resume` 续跑，会发布新的 rc.N+1，不覆盖旧候选）。没有样板仓库默认拒绝，
+         显式 `-SkipSamplesCandidate` 才放行且留痕。候选包由本脚本自己以 `-Dist X.Y.Z-rc.N` 形式构建，内容与正式发布包一致，
+         只有 package.json 的 version 不同。
       7. 打包 `dist/<ver>/`（复用 `-Dist` 打包逻辑）、`dist/ws-game-<ver>.zip`（`Compress-Archive`，
          zip 内顶层目录为 `ws-game-<ver>/`）与 `dist/ws-game-<ver>.lock`（版本号、git_commit、
          六个核心 DLL 的 sha256，供游戏仓库复制为自己的 `ws-game.lock`）；非 `-DryRun` 时打包完成
@@ -171,6 +177,16 @@
       - 决定：续跑不支持 `-AllowOverwriteDist`。理由：续跑自己有"标签不存在才允许覆盖未发布产物"的规则，
         那个开关会绕过"已发布不可变"，与续跑的严格语义冲突。
 
+.PARAMETER SamplesRepo
+    仅与 `-Release` 同传有效（ADR-0160）。样板仓库（`ws-game-samples`）的本地路径，候选阶段（`-Release` 第 6b 步）用它
+    验证"这个版本发出去以后样板还绿"。省略时依次取环境变量 `WS_GAME_SAMPLES`、主工作树同级目录 `ws-game-samples`。
+    样板仓库必须有自己的 `check.ps1` 与 `tools/upgrade_framework.ps1`。
+
+.PARAMETER SkipSamplesCandidate
+    仅与 `-Release` 同传有效（ADR-0160）。显式放弃候选验证：没有样板仓库（或确定不需要验）时才用。默认没有样板仓库就
+    拒绝发布；传本开关放行，但放行本身被记录（控制台醒目警告 + 发布状态文件的 candidate 阶段说明里写 `OPT-OUT`）。
+    候选验证的流程见下面 `-Release` 的第 6b 步与 `toolchain/_release_candidate.ps1` 文件头。
+
 .PARAMETER Zip
     独立于 `-Release` 使用：与 `-Dist`/`-Dist auto` 同传时，额外打一份 `dist/ws-game-<ver>.zip`
     与 `dist/ws-game-<ver>.lock`（与 `-Release` 第 7 步同一份打包逻辑），但不做 `-Release`
@@ -232,7 +248,9 @@ param(
     [switch]$AllowOverwriteDist,
     [switch]$SkipManual,
     [switch]$Resume,
-    [switch]$FullRegate
+    [switch]$FullRegate,
+    [string]$SamplesRepo = "",
+    [switch]$SkipSamplesCandidate
 )
 
 $ErrorActionPreference = "Stop"
@@ -274,6 +292,9 @@ $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 # 与续跑的"发布提交只含版本文件"校验共用同一份，第 6 步的 git add 也直接用它，三处不会漂移）。
 . (Join-Path $RepoRoot "toolchain\_precommit_tiering_guard.ps1")
 . (Join-Path $RepoRoot "toolchain\_release_resume.ps1")
+# 判断记录（发布候选，2026-10-06，ADR-0160）：打标签之前先发 X-rc.N 到本地私服并让样板仓库跑完它自己的门禁；
+# 实现与判断记录见 toolchain/_release_candidate.ps1 文件头，测试见 toolchain/tests/test_release_candidate.py。
+. (Join-Path $RepoRoot "toolchain\_release_candidate.ps1")
 
 # 版本标签（ADR-0127，AGENTS.md §1b）：由 toolchain/version_label.py 按当前分支自动推导，经环境变量
 # WsGameVersionLabel 传给本脚本启动的 dotnet 构建（Directory.Build.props 据此写程序集信息版本）。
@@ -322,6 +343,9 @@ $DistDirVersion = ""
 # dryrun 验证、不是真实发布"标记的版本号，天然不会与任何真实版本号的发布产物混淆或互相覆盖，
 # 也不需要额外的目录名后缀区分（$DistDirVersion 与 $ResolvedDistVersion 相同）。
 $DistVersionDryRunPattern = '^\d+\.\d+\.\d+-dryrun$'
+# 发布候选（ADR-0160）：`-Dist X.Y.Z-rc.N` 同样是合法 semver 预发布标识，只由 -Release 的候选阶段（子进程）使用；
+# 与 -dryrun 同样不会与任何已发布版本的标签/产物冲突（git tag -l v<带后缀> 查不到），默认跳过手册。
+$DistVersionCandidatePattern = '^\d+\.\d+\.\d+-rc\.\d+$'
 if ($DistRequested) {
     if ($Dist -eq "auto") {
         $ResolvedDistVersion = Get-FrameworkVersionFromFile
@@ -329,9 +353,12 @@ if ($DistRequested) {
     } elseif ($Dist -match $DistVersionDryRunPattern) {
         $ResolvedDistVersion = $Dist
         Write-Host "-Dist $Dist：'-dryrun' 后缀形式（合法 semver 预发布标识），打包内容与目录名均使用这个完整字符串" -ForegroundColor Cyan
+    } elseif ($Dist -match $DistVersionCandidatePattern) {
+        $ResolvedDistVersion = $Dist
+        Write-Host "-Dist $Dist：'-rc.N' 候选形式（发布候选，ADR-0160），打包内容与目录名均使用这个完整字符串" -ForegroundColor Cyan
     } else {
         if ($Dist -notmatch $VersionFormatPattern) {
-            Write-Host "-Dist 版本号格式非法：'$Dist'（需形如 X.Y.Z，或 X.Y.Z-dryrun，或传 'auto' 从 VERSION 文件读取）" -ForegroundColor Red
+            Write-Host "-Dist 版本号格式非法：'$Dist'（需形如 X.Y.Z、X.Y.Z-dryrun 或 X.Y.Z-rc.N，或传 'auto' 从 VERSION 文件读取）" -ForegroundColor Red
             exit 1
         }
         $ResolvedDistVersion = $Dist
@@ -379,6 +406,10 @@ if ($Resume -and $AllowOverwriteDist) {
     Write-Host "-Resume 与 -AllowOverwriteDist 不能同传（续跑自己只在标签尚未创建时才重打未发布的产物；该开关会绕过'已发布不可变'守卫）" -ForegroundColor Red
     exit 1
 }
+if (($SamplesRepo -ne "" -or $SkipSamplesCandidate) -and (-not $ReleaseRequested)) {
+    Write-Host "-SamplesRepo/-SkipSamplesCandidate 仅在同传 -Release <版本号> 时有效（发布候选验证）" -ForegroundColor Red
+    exit 1
+}
 if ($Zip -and (-not $DistRequested) -and (-not $ReleaseRequested)) {
     Write-Host "-Zip 需要同传 -Dist/-Dist auto（或 -Release，其本身已隐含 -Zip 的效果）——没有 dist/<ver>/ 目录可打包" -ForegroundColor Red
     exit 1
@@ -418,6 +449,8 @@ function Get-ReleaseResumeCommandText {
     if ($RegistryUrl -ne "") { $cmd += " -RegistryUrl $RegistryUrl" }
     if ($Publish) { $cmd += " -Publish" }
     if ($SkipManual) { $cmd += " -SkipManual" }
+    if ($SamplesRepo -ne "") { $cmd += " -SamplesRepo $SamplesRepo" }
+    if ($SkipSamplesCandidate) { $cmd += " -SkipSamplesCandidate" }
     return $cmd
 }
 
@@ -528,6 +561,12 @@ function Invoke-ReleaseFinalStages {
         Write-Warning "dist 瘦身出错（不影响本次发布）：$($_.Exception.Message)"
     }
     $script:ReleaseFlowCompleted = $true
+}
+
+# 候选阶段（ADR-0160）：正常 -Release 在发布提交之后调用；-Resume 在算出起跑阶段之后调用（阶段函数自己检测"已完成"并跳过）。
+function Invoke-ReleaseCandidateStep {
+    $null = Invoke-ReleaseCandidateStage -RepoRoot $RepoRoot -Version $Release -StatePath $ReleaseStatePath `
+        -SamplesRepo $SamplesRepo -RegistryUrl $RegistryUrl -SkipSamplesCandidate:$SkipSamplesCandidate -Resume:$Resume
 }
 
 # 续跑状态（-Resume 时由下面前置校验填充；正常 -Release 在第 5 步通过后创建状态文件）。
@@ -842,7 +881,15 @@ if ($ReleaseRequested) {
         # 失败恢复提示在脚本末尾的 finally 里统一打印（见 Write-ReleaseResumeHintIfNeeded）；这里先"上膛"，之后任一阶段
         # 失败（含 exit 1）都会打印 `-Resume` 续跑命令。
         $ReleaseResumeHintArmed = $true
-        Write-Host "  提示：若接下来的打包/自检/打标签/发布步骤失败，发布提交 $ReleaseCommitHash 与门禁通过记录已保留；请先修复失败原因，再用 '$(Get-ReleaseResumeCommandText)' 续跑（不重跑全量门禁）。" -ForegroundColor Yellow
+        Write-Host "  提示：若接下来的候选/打包/自检/打标签/发布步骤失败，发布提交 $ReleaseCommitHash 与门禁通过记录已保留；请先修复失败原因，再用 '$(Get-ReleaseResumeCommandText)' 续跑（不重跑全量门禁）。" -ForegroundColor Yellow
+
+        # 第 6b 步（ADR-0160）：发布候选 + 样板仓库验证，红则在打标签前终止（上面已"上膛"，失败会打印续跑提示）。
+        try {
+            Invoke-ReleaseCandidateStep
+        } catch {
+            Write-ReleaseResumeHintIfNeeded
+            throw
+        }
     }
 
     # 续跑：不进入第 4～6 步；由状态文件还原本脚本后面各节用到的变量，并决定从哪个阶段起跑。
@@ -883,6 +930,13 @@ if ($ReleaseRequested) {
             exit 0
         }
         Write-Host "  将从阶段 '$($resumePlan.FirstUnfinished)' 起续跑（不重跑第 1～6 步，不改写历史）。" -ForegroundColor Cyan
+        # 候选阶段（ADR-0160）：未完成就先做（样板修好后重新验证）；已完成则函数内跳过。
+        try {
+            Invoke-ReleaseCandidateStep
+        } catch {
+            Write-ReleaseResumeHintIfNeeded
+            throw
+        }
         if ($resumePlan.NeedPackaging) {
             # 打包与自检视为一组：重新打包前先把 packaging 标回未完成，崩在打包中途也不会留下"已完成"的假记录。
             Set-ReleaseStage -StatePath $ReleaseStatePath -Stage "packaging" -Done $false
@@ -1570,7 +1624,7 @@ if ($DistRequested) {
     #      构建过（-SyncOnly 则要求产物已存在），不重复 dotnet build。
     # -------------------------------------------------------------------
     $manualFileCount = 0
-    $SkipManualEffective = ($SkipManual -or (($Dist -match $DistVersionDryRunPattern) -and (-not $ReleaseRequested)))
+    $SkipManualEffective = ($SkipManual -or ((($Dist -match $DistVersionDryRunPattern) -or ($Dist -match $DistVersionCandidatePattern)) -and (-not $ReleaseRequested)))
     if ($SkipManualEffective) {
         Write-Host "  已跳过 API 参考手册（-SkipManual，或直接传 -Dist X.Y.Z-dryrun 的打包验证形式；dist 内不含 manual/）" -ForegroundColor Yellow
     } else {

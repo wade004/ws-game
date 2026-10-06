@@ -141,10 +141,11 @@ function Get-ReleasePackageNames {
     return @($obj.packages | ForEach-Object { "$_" })
 }
 
-# 阶段标识（按执行顺序）：gate -> commit -> packaging -> selfCheck -> tag -> registry:<包名>×N -> push -> githubRelease。
+# 阶段标识（按执行顺序）：gate -> commit -> candidate -> packaging -> selfCheck -> tag -> registry:<包名>×N -> push -> githubRelease。
+# candidate（ADR-0160）：发布候选 X-rc.N 到本地私服并让样板仓库跑完它自己的门禁，见 toolchain/_release_candidate.ps1。
 function Get-ReleaseStageIds {
     param([Parameter(Mandatory = $true)][string[]]$PackageNames)
-    $ids = @("gate", "commit", "packaging", "selfCheck", "tag")
+    $ids = @("gate", "commit", "candidate", "packaging", "selfCheck", "tag")
     foreach ($n in $PackageNames) { $ids += ("registry:" + $n) }
     $ids += "push"
     $ids += "githubRelease"
@@ -429,8 +430,9 @@ function Test-ReleaseResumePreconditions {
 
 # 返回：Stages（每阶段 Id/Required/Done）、NeedPackaging（打包+自检需要（重）跑）、FirstUnfinished（首个未完成的
 # 必需阶段，全部完成为 $null）、Inconsistent（状态自相矛盾的说明，空串=无）。
-# 必需阶段：gate/commit/packaging/selfCheck/tag 恒必需；registry:* 仅传 -PublishRegistry；push/githubRelease
-# 仅传 -Publish。打包与自检视为一组（判断记录 4）：selfCheck 未完成则 packaging 一律视为未完成。
+# 必需阶段：gate/commit/candidate/packaging/selfCheck/tag 恒必需（candidate 在没有样板仓库而显式 OPT-OUT 时由阶段函数
+# 自己记为完成）；registry:* 仅传 -PublishRegistry；push/githubRelease 仅传 -Publish。
+# 打包与自检视为一组（判断记录 4）：selfCheck 未完成则 packaging 一律视为未完成。
 function Get-ReleaseResumePlan {
     param(
         [Parameter(Mandatory = $true)]$State,
@@ -444,7 +446,7 @@ function Get-ReleaseResumePlan {
     $needPackaging = (-not ($packagingDone -and $selfCheckDone))
     foreach ($id in (Get-ReleaseStageIds -PackageNames $PackageNames)) {
         $required = $false
-        if (@("gate", "commit", "packaging", "selfCheck", "tag") -contains $id) { $required = $true }
+        if (@("gate", "commit", "candidate", "packaging", "selfCheck", "tag") -contains $id) { $required = $true }
         elseif ($id.StartsWith("registry:")) { $required = [bool]$PublishRegistry }
         else { $required = [bool]$Publish }
         $done = Test-ReleaseStageDone -State $State -Stage $id
@@ -457,7 +459,7 @@ function Get-ReleaseResumePlan {
     }
     $inconsistent = ""
     if ($needPackaging) {
-        $later = @($rows | Where-Object { $_.Id -ne "gate" -and $_.Id -ne "commit" -and $_.Id -ne "packaging" -and $_.Id -ne "selfCheck" -and (Test-ReleaseStageDone -State $State -Stage $_.Id) })
+        $later = @($rows | Where-Object { $_.Id -ne "gate" -and $_.Id -ne "commit" -and $_.Id -ne "candidate" -and $_.Id -ne "packaging" -and $_.Id -ne "selfCheck" -and (Test-ReleaseStageDone -State $State -Stage $_.Id) })
         if ($later.Count -gt 0) {
             $inconsistent = "状态文件自相矛盾：打包/自检未完成，但后续阶段已标记完成（" + (($later | ForEach-Object { $_.Id }) -join ", ") + "）"
         }
