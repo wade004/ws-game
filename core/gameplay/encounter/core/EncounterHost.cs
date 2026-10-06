@@ -8,6 +8,7 @@ using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
 using Core.Foundation.Expr;
 using Core.Foundation.HookRegistry;
+using Core.Foundation.SimLoop;
 using Core.Gameplay.Common;
 using Core.Rules.Common;
 using Core.Rules.ExprHost;
@@ -67,6 +68,13 @@ namespace Core.Gameplay.Encounter
             public int CurrentPhaseIndex = -1;
             public List<Id> ParticipantUnitIds = new List<Id>();
             public bool IsActive = true;
+
+            /// <summary>刚生成、<c>entity.created</c> 还没派发完的参战单位（见 <see cref="EncounterHost.BeginSettle"/>）；
+            /// 为 null 表示空间索引已与参战单位同步，可以判胜负。</summary>
+            public HashSet<Id>? AwaitingCreated;
+
+            /// <summary>安全阀：最多再跳过几次胜负判定（见 <see cref="EncounterHost.IsSettling"/>）。</summary>
+            public int SettleGrace;
         }
 
         private readonly SortedDictionary<string, CompiledDef> _defs = new SortedDictionary<string, CompiledDef>(StringComparer.Ordinal);
@@ -109,6 +117,7 @@ namespace Core.Gameplay.Encounter
             _spawnRequester = spawnRequester ?? throw new ArgumentNullException(nameof(spawnRequester));
             var schema = exprSchema ?? RulesExprSchema.Base;
             _diagnostics = diagnostics ?? new ExprDiagnosticsRecorder();
+            _bus.Subscribe<EntityCreatedEvent>(SimEventKeys.EntityCreated, OnEntityCreated);
 
             foreach (var record in registry.GetAll(EncounterSchemas.Def.Name))
             {
@@ -186,6 +195,7 @@ namespace Core.Gameplay.Encounter
             };
 
             SpawnInitialUnits(instance);
+            BeginSettle(instance, instance.ParticipantUnitIds);
 
             _instances[instanceId.Value] = instance;
             _instanceOrder.Add(instanceId);
@@ -268,6 +278,7 @@ namespace Core.Gameplay.Encounter
                         instance.ParticipantUnitIds.AddRange(ids);
                     }
                 }
+                BeginSettle(instance, spawnedIds);
                 _bus.PublishImmediate(new EncounterWaveSpawnedEvent(instanceId, i, spawnedIds));
             }
 
@@ -293,6 +304,16 @@ namespace Core.Gameplay.Encounter
                     ResetInstance(instance);
                     return;
                 }
+            }
+
+            // 判断记录（消费方反馈 P2 缺口 5：区域触发开遭遇，开场同一拍就被判胜利）：刚生成的参战单位 entity.created 还在事件队列里，
+            // EntitySpatialSyncHost 要等它派发才把单位计入空间索引；EncounterTickHandler 与区域触发处理在同一个 TriggerEvaluation 阶段，
+            // 开场同一拍求值 `enemies.count_in_range(R) == 0` 看到的是"空索引"，把"敌人还没被索引看见"误判成"敌人已清空"，遭遇开场即胜利、
+            // 奖励（清理标志）立刻发出而敌人还活着。参战单位的 entity.created 全部派发（空间索引已同步，订阅顺序保证同步宿主先收到）之前，
+            // 本次 Evaluate 不做胜负判定；波次与阶段的条件仍照常求值。
+            if (IsSettling(instance))
+            {
+                return;
             }
 
             // 4) 胜负判定。
@@ -394,6 +415,70 @@ namespace Core.Gameplay.Encounter
         // 内部辅助
         // -----------------------------------------------------------------
 
+        /// <summary>记下"刚生成、<c>entity.created</c> 尚未派发"的参战单位，派发完之前 <see cref="IsSettling"/> 为真。
+        /// 只登记世界里确实存在的单位；没有可等的单位（如本次没生成任何东西）时不进入等待状态，行为与此前一致。</summary>
+        private void BeginSettle(Instance instance, IEnumerable<Id> unitIds)
+        {
+            HashSet<Id>? waiting = null;
+            foreach (var id in unitIds)
+            {
+                if (_units.Exists(id))
+                {
+                    waiting = waiting ?? new HashSet<Id>();
+                    waiting.Add(id);
+                }
+            }
+
+            if (waiting == null)
+            {
+                return;
+            }
+
+            if (instance.AwaitingCreated == null)
+            {
+                instance.AwaitingCreated = waiting;
+            }
+            else
+            {
+                instance.AwaitingCreated.UnionWith(waiting);
+            }
+
+            instance.SettleGrace = 2;
+        }
+
+        private void OnEntityCreated(EntityCreatedEvent evt)
+        {
+            foreach (var id in _instanceOrder)
+            {
+                if (_instances.TryGetValue(id.Value, out var instance) && instance.AwaitingCreated != null)
+                {
+                    instance.AwaitingCreated.Remove(evt.EntityId);
+                    if (instance.AwaitingCreated.Count == 0)
+                    {
+                        instance.AwaitingCreated = null;
+                    }
+                }
+            }
+        }
+
+        /// <summary>是否还在等参战单位的 <c>entity.created</c> 派发。安全阀：最多连续跳过两次胜负判定，之后无论如何放行
+        /// （没有发 <c>entity.created</c> 的自定义生成路径不会因此永远判不了胜负）。</summary>
+        private static bool IsSettling(Instance instance)
+        {
+            if (instance.AwaitingCreated == null)
+            {
+                return false;
+            }
+
+            if (instance.SettleGrace-- <= 0)
+            {
+                instance.AwaitingCreated = null;
+                return false;
+            }
+
+            return true;
+        }
+
         private void SpawnInitialUnits(Instance instance)
         {
             foreach (var unit in instance.Def.Units)
@@ -437,6 +522,7 @@ namespace Core.Gameplay.Encounter
             instance.CurrentPhaseIndex = -1;
 
             SpawnInitialUnits(instance);
+            BeginSettle(instance, instance.ParticipantUnitIds);
         }
 
         /// <summary>把 <c>phases[].ai_rotation_override</c> 应用到参战单位（06 第 6.4 节"Boss 阶段 =

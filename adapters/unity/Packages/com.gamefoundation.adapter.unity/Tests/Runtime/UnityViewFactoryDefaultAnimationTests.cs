@@ -148,6 +148,40 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreNotEqual(castClipId.Value, hitClipId.Value, "hit 剪辑应与 cast 剪辑是不同的 clipId");
         }
 
+        /// <summary>
+        /// 消费方反馈 P2 缺口 9（整身外形创建后不显示）：没有声明纸娃娃层的生物外形没有静态底图，视图创建后到第一次状态切换之前
+        /// 整身兜底渲染器没有任何贴图（只剩影子）。不变量：整身外形创建完成即在播运动态（idle）剪辑，渲染器上有贴图；
+        /// 声明了纸娃娃层的外形创建时什么都不播（静态层负责初始显示，口径与 1.89.0 一致）。
+        /// </summary>
+        [Test]
+        public void CreateView_FlatCreature_StartsIdleClipAtCreation_LayeredCreatureDoesNot()
+        {
+            var (bus, layeredInfo, entityId, displayInfo) = BuildFixture();
+            var flatInfo = new DisplayInfo(
+                id: new Id("display.map.default_anim_test_flat"),
+                category: DisplayCategory.Creature,
+                logicalId: new Id("creature.default_anim_test_flat"),
+                kind: DisplayKind.Sprite,
+                iconId: null, vfxId: null, sfxId: null, scale: 1.0,
+                shadow: ShadowMode.None, sortOffset: 0.0, weaponStyleRef: null,
+                sprite: new SpriteInfo(spriteSetId: "sprite.default_anim_test_flat", directionCount: 4, paperdollLayers: new List<string>()),
+                model: null);
+            displayInfo.Add(flatInfo);
+            var factory = new UnityViewFactory(_renderer, new RenderConventionHost(), displayInfo, _resourceLoader, bus: bus, dataRegistry: null);
+
+            var flatView = (UnitySpriteView)factory.CreateView(ViewKind.Unit, flatInfo.LogicalId, entityId);
+            var flatPlayer = _renderer.GetSpriteRoot(flatView.EngineHandle)!.GetComponentInChildren<UnityFrameAnimPlayer>();
+            Assert.IsNotNull(flatPlayer);
+            Assert.IsTrue(flatPlayer.CurrentClipId.HasValue, "整身外形创建完成即应在播运动态剪辑");
+            Assert.IsTrue(flatPlayer.CurrentClipId!.Value.Value.EndsWith(".idle", StringComparison.Ordinal), $"站着应播 idle，实际：{flatPlayer.CurrentClipId.Value}");
+            Assert.IsNotNull(flatPlayer.SpriteRenderer.sprite, "在播剪辑后整身兜底渲染器应当有贴图（不再只剩影子）");
+
+            var layeredEntity = new Id("unit.default_anim_test_layered_entity");
+            var layeredView = (UnitySpriteView)factory.CreateView(ViewKind.Unit, layeredInfo.LogicalId, layeredEntity);
+            var layeredPlayer = _renderer.GetSpriteRoot(layeredView.EngineHandle)!.GetComponentInChildren<UnityFrameAnimPlayer>();
+            Assert.IsNull(layeredPlayer.CurrentClipId, "声明了纸娃娃层的外形创建时什么都不播（静态层负责初始显示）");
+        }
+
         /// <summary>非生物分类（item/gobj/projectile 一类）不应挂接默认动画——见
         /// UnityViewFactory.CreateView 判断记录"只给生物挂默认动画"。</summary>
         [Test]

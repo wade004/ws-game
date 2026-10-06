@@ -6,7 +6,7 @@
       "key": {
         "script": "feel_projectile_expire",
         "scriptVersion": 1,
-        "dataset": "fb63f509774f303a",
+        "dataset": "0133547cfafecbc7",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -142,7 +142,7 @@
       "key": {
         "script": "feel_projectile_expire",
         "scriptVersion": 1,
-        "dataset": "13d59c9f0d86b521",
+        "dataset": "8402370aa59502dc",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -294,7 +294,7 @@
       "key": {
         "script": "feel_projectile_expire",
         "scriptVersion": 1,
-        "dataset": "fb63f509774f303a",
+        "dataset": "0133547cfafecbc7",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -430,7 +430,7 @@
       "key": {
         "script": "feel_projectile_expire",
         "scriptVersion": 1,
-        "dataset": "13d59c9f0d86b521",
+        "dataset": "8402370aa59502dc",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -582,7 +582,7 @@
       "key": {
         "script": "feel_projectile_expire",
         "scriptVersion": 1,
-        "dataset": "fb63f509774f303a",
+        "dataset": "0133547cfafecbc7",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -718,7 +718,7 @@
       "key": {
         "script": "feel_projectile_expire",
         "scriptVersion": 1,
-        "dataset": "13d59c9f0d86b521",
+        "dataset": "8402370aa59502dc",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",

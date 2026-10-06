@@ -113,6 +113,15 @@ namespace Tests.Gameplay.Encounter
 
         public readonly List<(Id SpawnId, Id MapId)> SpawnRequesterCalls = new List<(Id, Id)>();
 
+        /// <summary>与真实世界一致：生成单位时把 <c>entity.created</c> 入队（不立即派发），由测试在 Tick 点调用
+        /// <c>Bus.DispatchPending()</c> 落地。为空则不发事件（只关心生成结果的用例）。</summary>
+        public IEventBus? Bus { get; set; }
+
+        private void EnqueueCreated(Id entityId)
+        {
+            Bus?.Enqueue(new Core.Foundation.SimLoop.EntityCreatedEvent(entityId, "creature", entityId));
+        }
+
         public void SetPlayerPosition(Id playerUnitId, Vec2 position)
         {
             _existing.Add(playerUnitId.Value);
@@ -132,6 +141,7 @@ namespace Tests.Gameplay.Encounter
             _positions[entityId.Value] = Vec2.Zero;
 
             SpawnRequesterCalls.Add((spawnId, mapId));
+            EnqueueCreated(entityId);
             return new[] { entityId };
         }
 
@@ -149,6 +159,7 @@ namespace Tests.Gameplay.Encounter
             _positions[entityId.Value] = position;
 
             SpawnCalls.Add((templateId, mapId, position, facing));
+            EnqueueCreated(entityId);
             return entityId;
         }
 

@@ -351,7 +351,18 @@ namespace Core.Carriers.Unit
                     continue;
                 }
 
-                if (unit.MovementState.CurrentPath == null) continue;
+                if (unit.MovementState.CurrentPath == null)
+                {
+                    // 方向移动的收口：本 tick 没有方向意图、也没有路径/追击/位移，自主移动模式（Walk/Run/Sprint）必须落回 Idle 并发
+                    // unit.state_changed，否则松开方向键后单位永远是"在走"（动画状态机只认这条事件，站着的单位会原地踏步）。
+                    // 运动层开启时由 FinishMotionTick 按速度归零判定（带减速滑行），这里只管没有运动层的连续步。
+                    if (!_motionOn)
+                    {
+                        SettleToIdleIfReleased(unit);
+                    }
+
+                    continue;
+                }
 
                 if (IsLocked(unit)) continue;
 
@@ -364,6 +375,21 @@ namespace Core.Carriers.Unit
 
             // 运动层收尾：恢复路径、无意图单位的减速滑行、运动学状态写回。
             FinishMotionTick(world, dt);
+        }
+
+        /// <summary>
+        /// 方向移动松开后的收口：单位处于自主移动模式（Walk/Run/Sprint）、没有路径/追击/受控位移时，状态收回
+        /// <see cref="MoveMode.Idle"/> 并发 <c>unit.state_changed</c>。调用方保证"本 tick 没有该单位的方向意图"。
+        /// 不动 Forced（被击退/传送）、不动有路径或追击的单位。
+        /// </summary>
+        private void SettleToIdleIfReleased(Unit unit)
+        {
+            var state = unit.MovementState;
+            if (state.Mode != MoveMode.Walk && state.Mode != MoveMode.Run && state.Mode != MoveMode.Sprint) return;
+            if (state.CurrentPath != null || state.Chase.HasValue || state.Displacement.HasValue) return;
+
+            unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0);
+            RaiseStateChangedIfNeeded(unit.EntityId, state.Mode, MoveMode.Idle);
         }
 
         /// <summary>本 tick 的意图列表 <paramref name="intents"/> 中，<paramref name="stopIndex"/>

@@ -289,10 +289,18 @@ def run(args: argparse.Namespace) -> int:
     atlas_json_path = sprite_out_dir / "atlas.json"
     anchors_json_path = sprite_out_dir / "anchors.json"
 
+    # 判断记录（消费方反馈 P2 缺口 2）：display.map.anchor_points 的每条锚点必须是 {parent_layer, offset}（09 第 3.3.1 节，
+    # DisplayInfo.ParseAnchorDef 缺字段即抛异常，校验器 required_field 同口径）；此前这里写成裸 {x, y}，导入工具的产出
+    # 过不了框架自己的校验器、游戏启动数据校验即阻断。parent_layer 取 "body"（平图精灵集没有纸娃娃层，"body" 是整个精灵本身）；
+    # 纸娃娃精灵集若没有名为 body 的层，取第一层。偏移量仍是默认档位锚点的世界单位换算值。
+    anchor_parent_layer = "body" if (not paperdoll_layers or "body" in paperdoll_layers) else paperdoll_layers[0]
     display_anchor_points = {
         name: {
-            "x": round(px / effective_pixels_per_unit, 6),
-            "y": round(py / effective_pixels_per_unit, 6),
+            "parent_layer": anchor_parent_layer,
+            "offset": {
+                "x": round(px / effective_pixels_per_unit, 6),
+                "y": round(py / effective_pixels_per_unit, 6),
+            },
         }
         for name, (px, py) in _iter_vec2(per_direction_anchors[default_slot]["anchors"])
     }

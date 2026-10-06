@@ -6,7 +6,7 @@
       "key": {
         "script": "equip_cycle_tick30",
         "scriptVersion": 1,
-        "dataset": "fa2dfdb0a5c3b278",
+        "dataset": "255ceae1832444c4",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "feel.calibration.std_equip",
         "poseSet": "display.anim_set.std_dummy_biped",
@@ -113,7 +113,7 @@
       "key": {
         "script": "equip_cycle_tick30",
         "scriptVersion": 1,
-        "dataset": "fa2dfdb0a5c3b278",
+        "dataset": "255ceae1832444c4",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "feel.calibration.std_equip",
         "poseSet": "display.anim_set.std_dummy_biped",
@@ -220,7 +220,7 @@
       "key": {
         "script": "equip_cycle_tick30",
         "scriptVersion": 1,
-        "dataset": "fa2dfdb0a5c3b278",
+        "dataset": "255ceae1832444c4",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "feel.calibration.std_equip",
         "poseSet": "display.anim_set.std_dummy_biped",
@@ -327,7 +327,7 @@
       "key": {
         "script": "equip_cycle_tick30",
         "scriptVersion": 1,
-        "dataset": "fa2dfdb0a5c3b278",
+        "dataset": "255ceae1832444c4",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "feel.calibration.std_equip",
         "poseSet": "display.anim_set.std_dummy_biped",
@@ -434,7 +434,7 @@
       "key": {
         "script": "equip_cycle_tick30",
         "scriptVersion": 1,
-        "dataset": "fa2dfdb0a5c3b278",
+        "dataset": "255ceae1832444c4",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "feel.calibration.std_equip",
         "poseSet": "display.anim_set.std_dummy_biped",
@@ -541,7 +541,7 @@
       "key": {
         "script": "equip_cycle_tick30",
         "scriptVersion": 1,
-        "dataset": "fa2dfdb0a5c3b278",
+        "dataset": "255ceae1832444c4",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "feel.calibration.std_equip",
         "poseSet": "display.anim_set.std_dummy_biped",

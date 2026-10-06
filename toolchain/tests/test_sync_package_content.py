@@ -331,3 +331,23 @@ def test_corrupt_manifest_is_treated_as_empty_with_warning(synced_project: Path)
     assert (target / "tables" / "b.json").exists(), "清单损坏时不清理 stale（保守）"
     # 本次运行后清单被重写为合法 JSON，并且不再包含已从源里消失的 b.json
     assert not any(p.endswith("b.json") for p in _managed(target))
+
+
+# ----------------------------------------------------------------------------
+# 6. 默认手感模板数据根（消费方反馈 P2 缺口 3）
+# ----------------------------------------------------------------------------
+
+def test_feel_and_feel_templates_data_roots_are_mirrored(project: Path) -> None:
+    """不变量：包 Data~/data 下分发的每一棵框架级数据根（_framework、_feel、_feel_templates）都同步进 StreamingAssets。
+    复现：此前 _feel_templates 不落地，按 ADR-0142 把它作为额外框架根加载的游戏启动即数据校验失败。"""
+    pkg = _make_package(project, FRAMEWORK_DATA)
+    _fill_data(pkg)
+    _write(pkg / "Data~" / "data" / "_feel" / "feel" / "feel.preset.json", '{"table":"feel.preset"}')
+    _write(pkg / "Data~" / "data" / "_feel_templates" / "feel" / "feel.preset.json", '{"table":"feel.preset","tpl":1}')
+    proc = _run("-UnityProjectPath", str(project))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    dest = _dest(project)
+    for root, expected in (("_feel", '{"table":"feel.preset"}'), ("_feel_templates", '{"table":"feel.preset","tpl":1}')):
+        synced = dest / "data" / root / "feel" / "feel.preset.json"
+        assert synced.exists(), f"data/{root} 没有同步进 StreamingAssets"
+        assert synced.read_text(encoding="utf-8") == expected

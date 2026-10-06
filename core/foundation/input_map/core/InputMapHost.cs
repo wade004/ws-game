@@ -329,11 +329,7 @@ namespace Core.Foundation.InputMap
 
                         break;
                     case ActionKind.Axis2D:
-                        state.CachedAxis = EvaluateAxis2D(state.ParsedBindings, input, out var analog2d);
-                        if (analog2d && state.Effective is AxisProcessing processing2d)
-                        {
-                            state.CachedAxis = ProcessAxis(state, processing2d, state.CachedAxis);
-                        }
+                        state.CachedAxis = EvaluateAxis2D(state, input);
 
                         if (state.Definition.ControlSpace == InputControlSpace.CameraRelative)
                         {
@@ -421,21 +417,44 @@ namespace Core.Foundation.InputMap
             return 0;
         }
 
-        private Vec2 EvaluateAxis2D(List<ParsedBinding> bindings, IInput input, out bool analog)
+        /// <summary>
+        /// 判断记录（消费方反馈 P2 缺口 4：键盘与手柄摇杆同时绑在一个二维轴动作上，只有第一条轴型绑定生效）：此前这里在遇到第一条
+        /// <c>composite2d</c>/<c>pad_stick</c> 绑定时直接返回——<c>["composite2d:key:w|key:s|key:a|key:d", "pad_stick:left"]</c> 这种
+        /// "键盘 + 手柄都能移动"的常规写法里，手柄摇杆永远读不到（反过来写则键盘读不到），且没有任何诊断。
+        /// 现在按列出顺序逐条求值，<b>第一条求值非零的绑定胜出</b>；全部为零时返回零。摇杆绑定先按本动作的轴处理（死区、响应曲线、平滑）
+        /// 求值再判断是否非零，所以摇杆在死区内（处理后为零）不会压住键盘。只有一条轴型绑定时结果与改动前逐位相同。
+        /// 同一动作声明两条摇杆绑定时，平滑状态只随"被求值到的那条"推进（排在非零绑定之后的不求值）。
+        /// </summary>
+        private Vec2 EvaluateAxis2D(ActionState state, IInput input)
         {
-            analog = false;
+            var bindings = state.ParsedBindings;
             for (int i = 0; i < bindings.Count; i++)
             {
                 var b = bindings[i];
+                Vec2 value;
                 switch (b.Kind)
                 {
                     case BindingKind.Composite2D:
-                        return EvaluateComposite2D(b);
+                        value = EvaluateComposite2D(b);
+                        break;
                     case BindingKind.PadStick:
-                        analog = true;
-                        return EvaluatePadStick(b, input);
+                        value = EvaluatePadStick(b, input);
+                        if (state.Effective is AxisProcessing processing)
+                        {
+                            value = ProcessAxis(state, processing, value);
+                        }
+
+                        break;
+                    default:
+                        continue;
+                }
+
+                if (value.X != 0.0 || value.Y != 0.0)
+                {
+                    return value;
                 }
             }
+
             return Vec2.Zero;
         }
 

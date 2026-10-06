@@ -58,7 +58,7 @@
         },
         "performance": {
           "ticks": 150,
-          "event_count_total": 430,
+          "event_count_total": 431,
           "frames": 150,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 1,
@@ -127,11 +127,11 @@
           "confirmed_without_damage": 0
         },
         "poseext": {
-          "pose_requests": "10:player:Move",
+          "pose_requests": "10:player:Move;122:player:Idle",
           "hit_poses": "",
           "hit_pose_total": 0,
           "hit_pose_counts": "",
-          "rates": "10:player:Move:1;10:player:Move:0.5;13:player:Move:0.6;14:player:Move:0.75;15:player:Move:0.85;50:player:Move:0.8;51:player:Move:1.1;52:player:Move:1.4;53:player:Move:1.6;90:player:Move:1.35;91:player:Move:1.15;92:player:Move:1;93:player:Move:0.85;94:player:Move:0.75;95:player:Move:0.65;96:player:Move:0.85;120:player:Move:0.5;122:player:Move:1",
+          "rates": "10:player:Move:1;10:player:Move:0.5;13:player:Move:0.6;14:player:Move:0.75;15:player:Move:0.85;50:player:Move:0.8;51:player:Move:1.1;52:player:Move:1.4;53:player:Move:1.6;90:player:Move:1.35;91:player:Move:1.15;92:player:Move:1;93:player:Move:0.85;94:player:Move:0.75;95:player:Move:0.65;96:player:Move:0.85;120:player:Move:0.5;122:player:Idle:1",
           "rate_max": 1.6,
           "rate_min": 0.5
         },
@@ -203,7 +203,7 @@
         },
         "performance": {
           "ticks": 150,
-          "event_count_total": 430,
+          "event_count_total": 431,
           "frames": 150,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -272,11 +272,11 @@
           "confirmed_without_damage": 0
         },
         "poseext": {
-          "pose_requests": "10:player:Move",
+          "pose_requests": "10:player:Move;122:player:Idle",
           "hit_poses": "",
           "hit_pose_total": 0,
           "hit_pose_counts": "",
-          "rates": "10:player:Move:1;10:player:Move:0.5;13:player:Move:0.6;14:player:Move:0.75;15:player:Move:0.85;50:player:Move:0.8;51:player:Move:1.1;52:player:Move:1.4;53:player:Move:1.6;90:player:Move:1.35;91:player:Move:1.15;92:player:Move:1;93:player:Move:0.85;94:player:Move:0.75;95:player:Move:0.65;96:player:Move:0.85;120:player:Move:0.5;122:player:Move:1",
+          "rates": "10:player:Move:1;10:player:Move:0.5;13:player:Move:0.6;14:player:Move:0.75;15:player:Move:0.85;50:player:Move:0.8;51:player:Move:1.1;52:player:Move:1.4;53:player:Move:1.6;90:player:Move:1.35;91:player:Move:1.15;92:player:Move:1;93:player:Move:0.85;94:player:Move:0.75;95:player:Move:0.65;96:player:Move:0.85;120:player:Move:0.5;122:player:Idle:1",
           "rate_max": 1.6,
           "rate_min": 0.5
         },
@@ -348,7 +348,7 @@
         },
         "performance": {
           "ticks": 150,
-          "event_count_total": 430,
+          "event_count_total": 431,
           "frames": 150,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -417,11 +417,11 @@
           "confirmed_without_damage": 0
         },
         "poseext": {
-          "pose_requests": "10:player:Move",
+          "pose_requests": "10:player:Move;122:player:Idle",
           "hit_poses": "",
           "hit_pose_total": 0,
           "hit_pose_counts": "",
-          "rates": "10:player:Move:1;10:player:Move:0.5;13:player:Move:0.6;14:player:Move:0.75;15:player:Move:0.85;50:player:Move:0.8;51:player:Move:1.1;52:player:Move:1.4;53:player:Move:1.6;90:player:Move:1.35;91:player:Move:1.15;92:player:Move:1;93:player:Move:0.85;94:player:Move:0.75;95:player:Move:0.65;96:player:Move:0.85;120:player:Move:0.5;122:player:Move:1",
+          "rates": "10:player:Move:1;10:player:Move:0.5;13:player:Move:0.6;14:player:Move:0.75;15:player:Move:0.85;50:player:Move:0.8;51:player:Move:1.1;52:player:Move:1.4;53:player:Move:1.6;90:player:Move:1.35;91:player:Move:1.15;92:player:Move:1;93:player:Move:0.85;94:player:Move:0.75;95:player:Move:0.65;96:player:Move:0.85;120:player:Move:0.5;122:player:Idle:1",
           "rate_max": 1.6,
           "rate_min": 0.5
         },
@@ -493,7 +493,7 @@
         },
         "performance": {
           "ticks": 150,
-          "event_count_total": 430,
+          "event_count_total": 431,
           "frames": 150,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -562,11 +562,11 @@
           "confirmed_without_damage": 0
         },
         "poseext": {
-          "pose_requests": "10:player:Move",
+          "pose_requests": "10:player:Move;122:player:Idle",
           "hit_poses": "",
           "hit_pose_total": 0,
           "hit_pose_counts": "",
-          "rates": "10:player:Move:1;10:player:Move:0.5;13:player:Move:0.6;14:player:Move:0.75;15:player:Move:0.85;50:player:Move:0.8;51:player:Move:1.1;52:player:Move:1.4;53:player:Move:1.6;90:player:Move:1.35;91:player:Move:1.15;92:player:Move:1;93:player:Move:0.85;94:player:Move:0.75;95:player:Move:0.65;96:player:Move:0.85;120:player:Move:0.5;122:player:Move:1",
+          "rates": "10:player:Move:1;10:player:Move:0.5;13:player:Move:0.6;14:player:Move:0.75;15:player:Move:0.85;50:player:Move:0.8;51:player:Move:1.1;52:player:Move:1.4;53:player:Move:1.6;90:player:Move:1.35;91:player:Move:1.15;92:player:Move:1;93:player:Move:0.85;94:player:Move:0.75;95:player:Move:0.65;96:player:Move:0.85;120:player:Move:0.5;122:player:Idle:1",
           "rate_max": 1.6,
           "rate_min": 0.5
         },
@@ -638,7 +638,7 @@
         },
         "performance": {
           "ticks": 150,
-          "event_count_total": 430,
+          "event_count_total": 431,
           "frames": 150,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -707,11 +707,11 @@
           "confirmed_without_damage": 0
         },
         "poseext": {
-          "pose_requests": "10:player:Move",
+          "pose_requests": "10:player:Move;122:player:Idle",
           "hit_poses": "",
           "hit_pose_total": 0,
           "hit_pose_counts": "",
-          "rates": "10:player:Move:1;10:player:Move:0.5;13:player:Move:0.6;14:player:Move:0.75;15:player:Move:0.85;50:player:Move:0.8;51:player:Move:1.1;52:player:Move:1.4;53:player:Move:1.6;90:player:Move:1.35;91:player:Move:1.15;92:player:Move:1;93:player:Move:0.85;94:player:Move:0.75;95:player:Move:0.65;96:player:Move:0.85;120:player:Move:0.5;122:player:Move:1",
+          "rates": "10:player:Move:1;10:player:Move:0.5;13:player:Move:0.6;14:player:Move:0.75;15:player:Move:0.85;50:player:Move:0.8;51:player:Move:1.1;52:player:Move:1.4;53:player:Move:1.6;90:player:Move:1.35;91:player:Move:1.15;92:player:Move:1;93:player:Move:0.85;94:player:Move:0.75;95:player:Move:0.65;96:player:Move:0.85;120:player:Move:0.5;122:player:Idle:1",
           "rate_max": 1.6,
           "rate_min": 0.5
         },
@@ -783,7 +783,7 @@
         },
         "performance": {
           "ticks": 150,
-          "event_count_total": 430,
+          "event_count_total": 431,
           "frames": 150,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -852,11 +852,11 @@
           "confirmed_without_damage": 0
         },
         "poseext": {
-          "pose_requests": "10:player:Move",
+          "pose_requests": "10:player:Move;122:player:Idle",
           "hit_poses": "",
           "hit_pose_total": 0,
           "hit_pose_counts": "",
-          "rates": "10:player:Move:1;10:player:Move:0.5;13:player:Move:0.6;14:player:Move:0.75;15:player:Move:0.85;50:player:Move:0.8;51:player:Move:1.1;52:player:Move:1.4;53:player:Move:1.6;90:player:Move:1.35;91:player:Move:1.15;92:player:Move:1;93:player:Move:0.85;94:player:Move:0.75;95:player:Move:0.65;96:player:Move:0.85;120:player:Move:0.5;122:player:Move:1",
+          "rates": "10:player:Move:1;10:player:Move:0.5;13:player:Move:0.6;14:player:Move:0.75;15:player:Move:0.85;50:player:Move:0.8;51:player:Move:1.1;52:player:Move:1.4;53:player:Move:1.6;90:player:Move:1.35;91:player:Move:1.15;92:player:Move:1;93:player:Move:0.85;94:player:Move:0.75;95:player:Move:0.65;96:player:Move:0.85;120:player:Move:0.5;122:player:Idle:1",
           "rate_max": 1.6,
           "rate_min": 0.5
         },

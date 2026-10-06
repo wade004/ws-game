@@ -111,6 +111,38 @@ namespace Tests.Foundation.InputMap
             Assert.Single(sink.Edges);
         }
 
+        /// <summary>
+        /// 消费方反馈 P2 缺口 6：地图切换让场景清空（entity.destroyed → RemoveActor），游戏随后用同一个 id 把玩家单位重新加回世界。
+        /// 复现：销毁行动者后，本地绑定被置空，重新加回的玩家再按键，边沿被忽略。
+        /// 不变量：本地绑定在行动者被销毁、重建之后仍有效——同一 id 的按键仍进入缓冲，<see cref="InputBufferHost.LocalActorId"/> 不变。
+        /// </summary>
+        [Fact]
+        public void BindLocalInput_SurvivesActorDestroyAndRecreate_EdgesStillReachTheBuffer()
+        {
+            var attack = new ActionDefinition(AttackId, ActionKind.Button, new[] { "key:space" }, "default", null,
+                ActionClass.Attack, null, null, null, InputRepeatPolicy.Refresh, null, null);
+            var (map, bus) = MapWith(attack);
+            var buffer = new InputBufferHost(bus, new InputBufferOptions());
+            buffer.DeclareActions(new[] { attack });
+            buffer.BindLocalInput(map, Actor);
+            var stub = new StubInput();
+
+            stub.Press("space");
+            map.Update(stub);
+            buffer.BeginTick();
+            Assert.Single(buffer.Snapshot(Actor));
+
+            buffer.RemoveActor(Actor); // 场景清空：entity.destroyed
+            Assert.Equal(Actor, buffer.LocalActorId);
+
+            stub.Release("space");
+            map.Update(stub);
+            stub.Press("space");
+            map.Update(stub);
+            buffer.BeginTick();
+            Assert.Single(buffer.Snapshot(Actor));
+        }
+
         [Fact]
         public void BindLocalInput_RoutesEdgesIntoTheActorBuffer_WithTapHoldAndDirectionSnapshot()
         {

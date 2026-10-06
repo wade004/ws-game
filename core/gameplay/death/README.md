@@ -225,3 +225,7 @@ death/
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（跨地图复活，2026-10-06，消费方反馈 P2 缺口 1）
+
+`respawn_point` 此前只能在死亡地图的默认复活点复活，"死在地牢、回城镇复活"没有出口。决定：`DeathPolicyOptions` 新增可选 `RespawnMapId`（`null` = 死亡地图，逐位不变）与窄契约 `ReviveUnitOnMapDelegate`（`bool`，`false` = 现在落不了地，保留待复活记录下一 tick 重试，不丢复活）；`PendingRespawn` 记录目标地图与"是否与死亡同图"，同图仍走 `ReviveUnit`，异图走 `ReviveUnitOnMap`；`ChargeRespawnFee` 与 `UnitRespawnedEvent` 只在落地成功后发。未装配 `ReviveUnitOnMap` 且异图时记一条错误诊断、不复活（同 `ReviveUnit` 未装配的保守退化）。生产装配由 `GameplayAssembly` 自动接线。

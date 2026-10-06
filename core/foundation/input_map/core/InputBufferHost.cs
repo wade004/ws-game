@@ -234,7 +234,7 @@ namespace Core.Foundation.InputMap
             return result;
         }
 
-        /// <summary><see cref="BindLocalInput"/> 绑定的本地行动者；未绑定（或已销毁）为 null。宽限追踪据此在玩家第一次按键之前就开始采样。</summary>
+        /// <summary><see cref="BindLocalInput"/> 绑定的本地行动者；未绑定为 null（行动者实体被销毁不会解除绑定，见 <see cref="RemoveActor"/> 判断记录）。宽限追踪据此在玩家第一次按键之前就开始采样。</summary>
         public Id? LocalActorId => _localActor;
 
         private void RebuildGraceConditionNames()
@@ -758,7 +758,10 @@ namespace Core.Foundation.InputMap
             Clear(actorId);
             _actors.Remove(actorId);
             if (_known.Remove(actorId)) _actorOrder.Remove(actorId);
-            if (_localActor.HasValue && _localActor.Value.Equals(actorId)) _localActor = null;
+            // 判断记录（消费方反馈 P2 缺口 6：地图切换后本地玩家再也不能出招）：本地绑定（BindLocalInput）是"这套输入属于哪个行动者 id"的角色声明，
+            // 不是对某一次实体生命周期的引用——地图切换会让场景清空（ClearAll → entity.destroyed → 本方法），游戏随后用同一个 id 把玩家单位重新加回世界；
+            // 此前这里顺手把本地绑定置空，重新加回的玩家就再也收不到按钮边沿（OnButtonEdge 因未绑定而忽略），攻击/闪避/技能全部静默失效。
+            // 现保留绑定：缓冲对象照旧释放，实体重新创建后同一 id 的边沿直接进入新缓冲。
         }
 
         private void Drop(Id actorId, Record record, BufferDropReason reason, string? reasonCode)

@@ -1326,6 +1326,21 @@ namespace Core.Gameplay.Assembly
             if (Carriers.Units is Core.Carriers.Unit.WorldUnitAccess worldUnitAccessForDeath)
             {
                 resolvedDeathPolicyOptions.ReviveUnit ??= worldUnitAccessForDeath.Revive;
+                // 消费方反馈 P2 缺口 1：respawn_point 在另一张地图复活（DeathPolicyOptions.RespawnMapId）。
+                // 先经 ApplyResolvedTeleport 落地（路由接受才提交 MapId/位置，同传送惯例），再复活；
+                // 路由正忙拒绝时返回 false，由 DeathPolicyHost 下一 tick 重试，不在未落地时复活。
+                resolvedDeathPolicyOptions.ReviveUnitOnMap ??= (unitId, mapId, position, fraction) =>
+                {
+                    ApplyResolvedTeleport(unitId, mapId, position);
+                    var moved = _world.GetEntity(unitId);
+                    if (moved == null || !moved.MapId.Equals(mapId))
+                    {
+                        return false;
+                    }
+
+                    worldUnitAccessForDeath.Revive(unitId, position, fraction);
+                    return true;
+                };
             }
 
             resolvedDeathPolicyOptions.ResolveDefaultSpawn ??= _teleportTargetResolver.Resolve;
@@ -1936,6 +1951,17 @@ namespace Core.Gameplay.Assembly
             // 构造函数但早于任何一次真正的 saveSystem.Load 调用（调用方约定顺序：先
             // RegisterPersistables，再才会有读档发生）。
             saveSystem.SetDerivedStateRebuilder(new DerivedStateRebuilder(Carriers.Rules, player, Carriers.Units, _spatial, Death));
+
+            // 判断记录（消费方反馈 P2 缺口 7：冷启动"继续游戏"读档失败，LoadStatus.PersistableThrew）：玩家相关段（world.current_position 等）的
+            // Load 经 IUnitAccess/各宿主按单位 id 写入，要求玩家实体已经在世界里（WorldUnitAccess.Require）；而按模板写法玩家实体只在场景
+            // post_load 钩子里"缺失则加入"，所以进程刚启动、还没进过任何场景时（标题界面直接点"继续游戏"），读档在第一段就抛异常。
+            // 其余装配根（GameFoundationBootstrap）早已在构造期把玩家加入世界，只有模板与照搬模板的游戏漏了这一步。本方法是"玩家相关段
+            // 进入存档系统"的唯一入口，在这里保证"凡注册了玩家段，玩家实体就在世界里"，各装配根不再各自记得补；已在世界里（装配根
+            // 已自行加入）则什么都不做，行为与此前逐位一致。场景切换（ClearAll）会把玩家摘掉，post_load 钩子照旧负责补回。
+            if (_world.GetEntity(player.EntityId) == null)
+            {
+                _world.AddEntity(player);
+            }
         }
 
         /// <summary>

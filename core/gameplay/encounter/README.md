@@ -166,3 +166,7 @@ encounter/
   遭遇进度跨读档保留，一局遭遇中途读档视为该遭遇重新开始）。
 - 不提供竞技场越界后的具体表现（闪现拉回/伤害惩罚等），只给出
   `EncounterArenaRules.ResetIfLeave` 这一策略位，具体效果留给游戏层。
+
+## 判断记录（遭遇开场等待参战单位入索引，2026-10-06，消费方反馈 P2 缺口 5）
+
+区域触发开遭遇、开场同一拍就被判胜利的根因：`EncounterTickHandler` 与区域触发处理同在 `TriggerEvaluation` 阶段，刚生成的参战单位的 `entity.created` 还在事件队列里，空间索引同步宿主要等它派发才计入，开场求值 `enemies.count_in_range(R) == 0` 看到空索引。决定：`BeginSettle` 记下刚生成的参战单位（初始生成、波次、阶段重置都登记），`EncounterHost` 订阅 `entity.created` 逐个销账，销完之前本次 `Evaluate` 跳过胜负判定，波次与阶段条件照常求值；带两拍安全阀（`SettleGrace`），没有发 `entity.created` 的自定义生成路径不会永远判不了胜负。没有可等的单位时不进入等待，行为逐位不变。定向用例 `core/gameplay/tests/EndToEnd/EncounterStartSettleTests`（红绿对照）；遭遇测试用的生成替身（`TestSupport`）改为与真实世界一致地入队 `entity.created`，既有遭遇用例在 Tick 点派发事件队列。

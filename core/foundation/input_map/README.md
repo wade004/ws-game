@@ -287,3 +287,8 @@ M4-G 留下的四条限制逐条收口，没有一条留作"已知限制"：
 6. **`BufferedActionIntentSink` 的点按/按住变体**：`HoldReleased` 记录用 `hold_skill_slot`，`Tap` 用 `skill_slot`；按住记录不被"武器的攻击技能"覆盖（`WeaponPreferredActionBinding` 对覆盖与按住槽位旁路）。分界只有 `hold_threshold_ms` 一个。
 7. **设计边界（不是遗漏）**：平滑不做上升沿加速度；`custom:<id>` 曲线的输入输出都是 0～1 幅值，方向不变；轴处理不覆盖键盘绑定。
 8. **复现与不变量**：`tests/AxisProcessingTests.cs`（恒等逐位一致、死区重标度、曲线、平滑下降沿与"不吞单 tick 按下"、玩家覆盖往返、整批拒绝）、`tests/InputBufferChargeAndHeldTests.cs`（自动释放 tick = 按下 tick + `MaxTicks`、`charge_ready` 恰好一次、夹上限、`below_min` 取消、无规则源时逐位不变、`Clear` 后状态）。
+
+## 判断记录（本地输入绑定不随实体销毁解除；二维轴多绑定求值，2026-10-06，消费方反馈 P2 缺口 6、4）
+
+1. **本地绑定保留**：`BindLocalInput` 是"这套输入属于哪个行动者 id"的角色声明，不是对一次实体生命周期的引用。地图切换会清场（`entity.destroyed` → `RemoveActor`），游戏随后用同一个 id 把玩家加回世界；此前 `RemoveActor` 顺手把 `_localActor` 置空，重新加回的玩家再也收不到按钮边沿。现保留绑定，缓冲对象照旧释放。用例见 `InputBufferIntegrationTests.BindLocalInput_SurvivesActorDestroyAndRecreate_EdgesStillReachTheBuffer`。
+2. **二维轴多绑定**：`EvaluateAxis2D` 按列出顺序逐条求值，第一条求值非零的 `composite2d`/`pad_stick` 绑定胜出，全零返回零；摇杆绑定先按本动作的死区/曲线/平滑处理再判断非零。只有一条轴型绑定时与此前逐位相同；同一动作两条摇杆绑定时，平滑状态只随被求值到的那条推进。用例 `AxisDeviceMergeTests`。

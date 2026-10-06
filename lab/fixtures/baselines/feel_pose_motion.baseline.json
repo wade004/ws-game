@@ -6,7 +6,7 @@
       "key": {
         "script": "feel_pose_motion",
         "scriptVersion": 1,
-        "dataset": "b9034de5477cf2d2",
+        "dataset": "151f5066ac410daa",
         "preset": "feel.preset.pose_motion",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -58,7 +58,7 @@
         },
         "performance": {
           "ticks": 130,
-          "event_count_total": 329,
+          "event_count_total": 330,
           "frames": 130,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 1,
@@ -155,7 +155,7 @@
       "key": {
         "script": "feel_pose_motion",
         "scriptVersion": 1,
-        "dataset": "331d2490d643878f",
+        "dataset": "48c5dac77956b607",
         "preset": "feel.preset.pose_motion",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -207,7 +207,7 @@
         },
         "performance": {
           "ticks": 130,
-          "event_count_total": 337,
+          "event_count_total": 338,
           "frames": 130,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 1,
@@ -282,11 +282,11 @@
           "confirmed_without_damage": 0
         },
         "poseext": {
-          "pose_requests": "5:player:Cast;10:stake:Hit:heavy;23:stake:Idle;33:player:Idle;60:player:Move",
+          "pose_requests": "5:player:Cast;10:stake:Hit:heavy;23:stake:Idle;33:player:Idle;60:player:Move;105:player:Idle",
           "hit_poses": "10:stake:heavy",
           "hit_pose_total": 1,
           "hit_pose_counts": "stake=1",
-          "rates": "5:player:Cast:1;5:player:Cast:1.8;10:player:Cast:1;10:stake:Hit:1;60:player:Move:0.5;61:player:Move:1;62:player:Move:0.9;63:player:Move:1.2;64:player:Move:1.5;65:player:Move:1.6;100:player:Move:1.2;101:player:Move:0.95;102:player:Move:0.7;103:player:Move:0.75;104:player:Move:0.5;105:player:Move:1",
+          "rates": "5:player:Cast:1;5:player:Cast:1.8;10:player:Cast:1;10:stake:Hit:1;60:player:Move:0.5;61:player:Move:1;62:player:Move:0.9;63:player:Move:1.2;64:player:Move:1.5;65:player:Move:1.6;100:player:Move:1.2;101:player:Move:0.95;102:player:Move:0.7;103:player:Move:0.75;104:player:Move:0.5;105:player:Idle:1",
           "rate_max": 1.8,
           "rate_min": 0.5
         },
@@ -310,7 +310,7 @@
       "key": {
         "script": "feel_pose_motion",
         "scriptVersion": 1,
-        "dataset": "b9034de5477cf2d2",
+        "dataset": "151f5066ac410daa",
         "preset": "feel.preset.pose_motion",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -362,7 +362,7 @@
         },
         "performance": {
           "ticks": 130,
-          "event_count_total": 329,
+          "event_count_total": 330,
           "frames": 130,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -459,7 +459,7 @@
       "key": {
         "script": "feel_pose_motion",
         "scriptVersion": 1,
-        "dataset": "331d2490d643878f",
+        "dataset": "48c5dac77956b607",
         "preset": "feel.preset.pose_motion",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -511,7 +511,7 @@
         },
         "performance": {
           "ticks": 130,
-          "event_count_total": 337,
+          "event_count_total": 338,
           "frames": 130,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -586,11 +586,11 @@
           "confirmed_without_damage": 0
         },
         "poseext": {
-          "pose_requests": "5:player:Cast;10:stake:Hit:heavy;23:stake:Idle;33:player:Idle;60:player:Move",
+          "pose_requests": "5:player:Cast;10:stake:Hit:heavy;23:stake:Idle;33:player:Idle;60:player:Move;105:player:Idle",
           "hit_poses": "10:stake:heavy",
           "hit_pose_total": 1,
           "hit_pose_counts": "stake=1",
-          "rates": "5:player:Cast:1;5:player:Cast:1.8;10:player:Cast:1;10:stake:Hit:1;60:player:Move:0.5;61:player:Move:1;62:player:Move:0.9;63:player:Move:1.2;64:player:Move:1.5;65:player:Move:1.6;100:player:Move:1.2;101:player:Move:0.95;102:player:Move:0.7;103:player:Move:0.75;104:player:Move:0.5;105:player:Move:1",
+          "rates": "5:player:Cast:1;5:player:Cast:1.8;10:player:Cast:1;10:stake:Hit:1;60:player:Move:0.5;61:player:Move:1;62:player:Move:0.9;63:player:Move:1.2;64:player:Move:1.5;65:player:Move:1.6;100:player:Move:1.2;101:player:Move:0.95;102:player:Move:0.7;103:player:Move:0.75;104:player:Move:0.5;105:player:Idle:1",
           "rate_max": 1.8,
           "rate_min": 0.5
         },
@@ -614,7 +614,7 @@
       "key": {
         "script": "feel_pose_motion",
         "scriptVersion": 1,
-        "dataset": "b9034de5477cf2d2",
+        "dataset": "151f5066ac410daa",
         "preset": "feel.preset.pose_motion",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -666,7 +666,7 @@
         },
         "performance": {
           "ticks": 130,
-          "event_count_total": 329,
+          "event_count_total": 330,
           "frames": 130,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -763,7 +763,7 @@
       "key": {
         "script": "feel_pose_motion",
         "scriptVersion": 1,
-        "dataset": "331d2490d643878f",
+        "dataset": "48c5dac77956b607",
         "preset": "feel.preset.pose_motion",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -815,7 +815,7 @@
         },
         "performance": {
           "ticks": 130,
-          "event_count_total": 337,
+          "event_count_total": 338,
           "frames": 130,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -890,11 +890,11 @@
           "confirmed_without_damage": 0
         },
         "poseext": {
-          "pose_requests": "5:player:Cast;10:stake:Hit:heavy;23:stake:Idle;33:player:Idle;60:player:Move",
+          "pose_requests": "5:player:Cast;10:stake:Hit:heavy;23:stake:Idle;33:player:Idle;60:player:Move;105:player:Idle",
           "hit_poses": "10:stake:heavy",
           "hit_pose_total": 1,
           "hit_pose_counts": "stake=1",
-          "rates": "5:player:Cast:1;5:player:Cast:1.8;10:player:Cast:1;10:stake:Hit:1;60:player:Move:0.5;61:player:Move:1;62:player:Move:0.9;63:player:Move:1.2;64:player:Move:1.5;65:player:Move:1.6;100:player:Move:1.2;101:player:Move:0.95;102:player:Move:0.7;103:player:Move:0.75;104:player:Move:0.5;105:player:Move:1",
+          "rates": "5:player:Cast:1;5:player:Cast:1.8;10:player:Cast:1;10:stake:Hit:1;60:player:Move:0.5;61:player:Move:1;62:player:Move:0.9;63:player:Move:1.2;64:player:Move:1.5;65:player:Move:1.6;100:player:Move:1.2;101:player:Move:0.95;102:player:Move:0.7;103:player:Move:0.75;104:player:Move:0.5;105:player:Idle:1",
           "rate_max": 1.8,
           "rate_min": 0.5
         },

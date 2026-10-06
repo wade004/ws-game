@@ -1058,6 +1058,13 @@ namespace Core.Carriers.Unit
                 }
 
                 var velocity = t.Frozen ? t.Prev.Velocity : (t.VelocityOut ?? Vec2.Zero);
+
+                // 方向输入松开且速度已归零（含减速滑行结束）：自主移动模式落回 Idle 并发 unit.state_changed（见 SettleToIdleIfReleased）。
+                if (!t.Frozen && !t.Dead && velocity.X == 0.0 && velocity.Y == 0.0 && t.Desired.X == 0.0 && t.Desired.Y == 0.0)
+                {
+                    SettleToIdleIfReleased(unit);
+                }
+
                 var mode = t.Frozen ? MotionMode.Frozen : baseMode;
                 var source = t.Frozen || t.Dead ? MotionSource.None : t.Source;
                 var baseSpeed = double.IsNaN(t.BaseSpeed) ? t.Prev.BaseSpeed : t.BaseSpeed;

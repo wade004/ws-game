@@ -948,6 +948,14 @@ namespace Adapter.Unity.Presentation
             stateMachine.Track(entityId);
             _animClipResolver!.Refresh(entityId);
 
+            // 整身外形（没有声明纸娃娃层）没有静态底图：整身兜底渲染器要等第一次剪辑播放才有贴图，新出现的站立单位在第一次状态切换
+            // 之前整个不显示（只剩影子）。视图创建这一刻按当前状态与姿态播一次运动态剪辑；有纸娃娃层的外形仍由静态层负责初始显示，
+            // 创建时什么都不播（CombatStanceAnimInvariantTests ④ 的口径不变）。
+            if (info.Sprite != null && info.Sprite.PaperdollLayers.Count == 0)
+            {
+                _animClipResolver.ResetToLocomotionClip(entityId);
+            }
+
             // ADR-0112 B4：自动预热策略（默认 None，不发起任何额外加载）。OnAttach 时每个挂接了方向相关动画
             // 上下文的实体挂接后立即开始预热全部方向；此后装备重放引起的合成层变化由粘性补预热接住。
             if (DirectionPrewarm == DirectionPrewarmPolicy.OnAttach)
