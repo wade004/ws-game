@@ -84,6 +84,9 @@ namespace Adapter.Unity.LabHost
         private readonly Action<Id> _flash;
         private readonly ShowcaseProjection _projection;
         private readonly List<Transform> _uprightProps = new List<Transform>();
+        private readonly List<SpriteRenderer> _propRenderers = new List<SpriteRenderer>();
+        private readonly List<Vector2> _propFeet = new List<Vector2>();
+        private readonly List<KeyValuePair<SpriteRenderer, float>> _wallDecals = new List<KeyValuePair<SpriteRenderer, float>>();
         private readonly Dictionary<Id, double> _damageTaken = new Dictionary<Id, double>();
         private readonly Dictionary<Id, double> _maxHp = new Dictionary<Id, double>();
         private double _staminaIdle;
@@ -115,6 +118,20 @@ namespace Adapter.Unity.LabHost
         public int FxSpawned => _fx.Spawned;
 
         public int FxActive => _fx.ActiveCount;
+
+        /// <summary>在播特效的世界姿态（测试用：广告牌特效应与舞台相机平行，平躺的特效 Billboard 为假）。</summary>
+        public IEnumerable<(Transform Transform, bool Billboard)> ActiveFx() => _fx.ActiveTransforms();
+
+        /// <summary>环绕镜头下直立道具的遮挡次序（测试用，与 <see cref="UprightProps"/> 同序）。</summary>
+        public IReadOnlyList<SpriteRenderer> UprightPropRenderers => _propRenderers;
+
+        /// <summary>直立道具脚下的地面点（测试用，与 <see cref="UprightProps"/> 同序）。</summary>
+        public IReadOnlyList<Vector2> UprightPropFeet => _propFeet;
+
+        /// <summary>
+        /// 某个地面点此刻的直立广告牌遮挡次序（测试用：与道具用同一个算法，固定镜头按世界 Y，环绕镜头按相机视线深度）。
+        /// </summary>
+        public int DepthOrderOf(Vector2 ground) => _projection.DepthOrder(ground, UnitsLayerBase);
 
         /// <summary>是否 2.5D 直立广告牌模式（固定俯角相机；否则是 2D 正交俯视）。</summary>
         public bool Upright => _projection.Upright;
@@ -161,7 +178,8 @@ namespace Adapter.Unity.LabHost
         }
 
         /// <summary>
-        /// 直立道具随相机姿态转（2.5D：模板预设会改俯角，广告牌要跟着转）；2D 没有直立道具，空操作。舞台在相机推进之后每帧调用一次。
+        /// 直立道具随相机姿态转（2.5D：模板预设会改俯角，广告牌要跟着转；3D 鼠标环绕镜头：偏航与俯仰每帧都在变）；2D 没有直立道具，空操作。舞台在相机推进之后每帧调用一次。
+        /// 同时重排遮挡次序（固定镜头按世界 Y，环绕镜头按相机视线深度，见 <see cref="ShowcaseProjection.DepthOrder"/>）并把在播的特效广告牌转向相机。
         /// </summary>
         internal void OrientProps()
         {
@@ -176,12 +194,31 @@ namespace Adapter.Unity.LabHost
                 if (_uprightProps[i] != null)
                 {
                     _uprightProps[i].rotation = rotation;
+                    var order = _projection.DepthOrder(_propFeet[i], UnitsLayerBase);
+                    if (_propRenderers[i].sortingOrder != order)
+                    {
+                        _propRenderers[i].sortingOrder = order;
+                    }
                 }
             }
+
+            foreach (var decal in _wallDecals)
+            {
+                var order = _projection.FlatDecalSortOrder(decal.Value, UnitsLayerBase);
+                if (decal.Key.sortingOrder != order)
+                {
+                    decal.Key.sortingOrder = order;
+                }
+            }
+
+            _fx.OrientBillboards(_projection);
         }
 
         /// <summary>地面砖 + 竞技场方块（墙/立柱）+ 场景道具。只在试玩模式建；全部放在隔离层、挂在舞台根下，随舞台销毁。</summary>
-        internal void BuildScene(LabHostContext ctx)
+        /// <summary>地面砖边长（世界单位）缺省值：固定镜头的取景用不到更大。</summary>
+        internal const float DefaultFloorSize = 60f;
+
+        internal void BuildScene(LabHostContext ctx, float floorSize = DefaultFloorSize)
         {
             var ground = new GameObject("ShowcaseGround") { layer = _layer };
             ground.transform.SetParent(_root, false);
@@ -193,7 +230,7 @@ namespace Adapter.Unity.LabHost
                 var r = ground.AddComponent<SpriteRenderer>();
                 r.sprite = tile;
                 r.drawMode = SpriteDrawMode.Tiled;
-                r.size = new Vector2(60f, 60f);
+                r.size = new Vector2(floorSize, floorSize);
                 r.sortingOrder = -10000;
                 r.color = new Color(0.82f, 0.84f, 0.88f, 1f);
             }
@@ -221,8 +258,10 @@ namespace Adapter.Unity.LabHost
                         wr.sprite = wallTile;
                         wr.drawMode = SpriteDrawMode.Tiled;
                         wr.size = size;
-                        wr.sortingOrder = UnitsLayerBase - (int)Math.Round(center.y - size.y * 0.5f) - 1;
+                        var wallBottom = center.y - size.y * 0.5f;
+                        wr.sortingOrder = _projection.FlatDecalSortOrder(wallBottom, UnitsLayerBase);
                         wr.color = new Color(0.42f, 0.44f, 0.5f, 1f);
+                        _wallDecals.Add(new KeyValuePair<SpriteRenderer, float>(wr, wallBottom));
                     }
                 }
             }
@@ -279,12 +318,14 @@ namespace Adapter.Unity.LabHost
             var r = go.AddComponent<SpriteRenderer>();
             r.sprite = sprite;
             r.color = tint;
-            r.sortingOrder = UnitsLayerBase - (int)Math.Round(feet.y);
+            r.sortingOrder = _projection.DepthOrder(feet, UnitsLayerBase);
             if (_projection.Upright)
             {
                 // 2.5D：道具是脚底枢轴落在地面点上的直立广告牌（朝向随相机，见 ShowcaseProjection）。
                 go.transform.rotation = _projection.CameraRotation;
                 _uprightProps.Add(go.transform);
+                _propRenderers.Add(r);
+                _propFeet.Add(feet);
             }
         }
 
@@ -581,7 +622,7 @@ namespace Adapter.Unity.LabHost
             var scale = ScaleOf(hit.ImpactClass) * (hit.IsKill ? 1.4f : 1.0f);
             var contact = _projection.Lift(new Vector2((float)hit.ContactPoint.X, (float)hit.ContactPoint.Y), 0.45f);
             var order = UnitsLayerBase + 400;
-            if (_fx.Spawn(SparkFx, _projection.TowardCamera(contact, FxCameraPull), _projection.Facing((tick * 47) % 360), scale, Color.white, order))
+            if (_fx.SpawnBillboard(SparkFx, contact, FxCameraPull, (tick * 47) % 360, null, _projection, scale, Color.white, order))
             {
                 Model.SparksSpawned++;
             }
@@ -590,7 +631,7 @@ namespace Adapter.Unity.LabHost
             {
                 var dir = new Vector2((float)hit.WorldDirection.X, (float)hit.WorldDirection.Y);
                 var dustAt = targetPos + dir * 0.15f;
-                if (_fx.Spawn(DustFx, _projection.TowardCamera(new Vector3(dustAt.x, dustAt.y, 0f), FxCameraPull), _projection.Facing(0f), 0.9f, new Color(1f, 1f, 1f, 0.9f), UnitsLayerBase + 300))
+                if (_fx.SpawnBillboard(DustFx, new Vector3(dustAt.x, dustAt.y, 0f), FxCameraPull, 0f, null, _projection, 0.9f, new Color(1f, 1f, 1f, 0.9f), UnitsLayerBase + 300))
                 {
                     Model.DustSpawned++;
                 }
@@ -599,7 +640,7 @@ namespace Adapter.Unity.LabHost
             if (hit.Reaction == HitReaction.Knockdown || hit.IsKill || string.Equals(hit.ImpactClass, "heavy", StringComparison.Ordinal) || string.Equals(hit.ImpactClass, "massive", StringComparison.Ordinal))
             {
                 // 冲击波环躺在地面上（2.5D 下是透视里的椭圆，不立起来）。
-                if (_fx.Spawn(RingFx, new Vector3(targetPos.x, targetPos.y, 0f), ShowcaseProjection.Flat(0f), 0.8f, Color.white, UnitsLayerBase - (int)Math.Round(targetPos.y) - 1))
+                if (_fx.Spawn(RingFx, new Vector3(targetPos.x, targetPos.y, 0f), ShowcaseProjection.Flat(0f), 0.8f, Color.white, _projection.DepthOrder(targetPos, UnitsLayerBase) - 1))
                 {
                     Model.RingsSpawned++;
                 }
@@ -657,7 +698,7 @@ namespace Adapter.Unity.LabHost
             var isPlayer = entity.Equals(_ctx.PlayerId);
             var tint = isPlayer ? Color.white : new Color(1f, 0.55f, 0.4f, 1f);
             var scale = isPlayer ? 1.0f : 1.5f;
-            if (_fx.Spawn(SlashFx, _projection.TowardCamera(pos, FxCameraPull), _projection.Facing(_projection.ScreenAngleDegrees(facing)), scale, tint, UnitsLayerBase + 350))
+            if (_fx.SpawnBillboard(SlashFx, pos, FxCameraPull, 0f, facing, _projection, scale, tint, UnitsLayerBase + 350))
             {
                 Model.SlashesSpawned++;
             }

@@ -90,6 +90,9 @@ namespace Adapter.Unity.LabHost
         private bool _cameraRelative;
         private double _yawRadians;
         private double _pitchDegrees;
+        private OrbitCameraController? _orbit;
+        private double _baseZoom;
+        private double _basePitch;
         private readonly ManualFrameTimeSource _clock = new ManualFrameTimeSource();
         private GpuFrameProbe? _gpu;
         private double _gpuMs;
@@ -116,6 +119,9 @@ namespace Adapter.Unity.LabHost
         public Camera? StageCamera => _camera;
 
         public UnityCamera? StageUnityCamera => _unityCamera;
+
+        /// <summary>鼠标环绕镜头控制器（ADR-0159）；选项 <see cref="EngineLabOptions.OrbitCamera"/> 没开或舞台相机不带俯仰时为 null。</summary>
+        public OrbitCameraController? Orbit => _orbit;
 
         /// <summary>演示场景导演（ADR-0154）；只有选项 <see cref="EngineLabOptions.Showcase"/> 开着且舞台装配成功时才有。</summary>
         public ShowcaseDirector? Showcase => _showcase;
@@ -154,17 +160,101 @@ namespace Adapter.Unity.LabHost
             _framingPreset = preset;
             var framing = CameraFraming.For(_ctx.World.Registry, preset);
             TemplateFraming = framing;
-            _unityCamera.SetZoom(_options.InteractiveZoom * framing.ZoomRatio);
+            _baseZoom = _options.InteractiveZoom * framing.ZoomRatio;
+            _basePitch = framing.Found ? framing.PitchDegrees : _pitchDegrees;
             _followSmoothing = _options.InteractiveFollowSmoothing;
             if (framing.Found && framing.FollowLerp > 1e-9 && framing.FollowLerp < 1.0)
             {
                 _followSmoothing = -(1.0 / 60.0) / Math.Log(1.0 - framing.FollowLerp);
             }
 
+            if (_orbit != null && _orbit.Enabled)
+            {
+                // 环绕镜头开着：模板只换"基准"取景（基准俯角与基准缩放），实际姿态 = 基准 + 用户转出来的偏移（偏航不被模板重置）。
+                ApplyOrbitView();
+                return;
+            }
+
+            _unityCamera.SetZoom(_baseZoom);
             if (_unityCamera.ApplyPitch)
             {
-                var pitch = framing.Found ? framing.PitchDegrees : _pitchDegrees;
-                _unityCamera.Configure(pitch, _options.CameraYawDegrees, _unityCamera.ZoomRangeValue);
+                _unityCamera.Configure(_basePitch, _options.CameraYawDegrees, _unityCamera.ZoomRangeValue);
+            }
+        }
+
+        /// <summary>把环绕镜头的当前值写到相机：偏航、俯角（基准 + 偏移，夹区间）、缩放（基准 × 系数）。</summary>
+        private void ApplyOrbitView()
+        {
+            if (_orbit == null || _unityCamera == null)
+            {
+                return;
+            }
+
+            _unityCamera.SetView(_orbit.Yaw, _orbit.EffectivePitch(_basePitch));
+            _unityCamera.SetZoom(_baseZoom * _orbit.ZoomFactor);
+        }
+
+        /// <summary>
+        /// 推进环绕镜头一个控制器帧（ADR-0159）：当前值逼近目标值，相机姿态与全部广告牌即刻跟上（暂停时也能转镜头）；返回当前偏航（度）。
+        /// 宿主在固定步之前调用，并把偏航变化录成脚本标记（<see cref="ScriptYawMarker"/>），固定步边界上由 <see cref="OnMarker"/> 提交给相机的朝向查询。
+        /// 没有环绕镜头时返回 0 且什么也不做。
+        /// </summary>
+        public double StepOrbit(double seconds)
+        {
+            if (_orbit == null || _unityCamera == null || _broken)
+            {
+                return 0.0;
+            }
+
+            _orbit.Step(seconds);
+            if (_orbit.Enabled)
+            {
+                ApplyOrbitView();
+                ApplyBillboards();
+            }
+
+            return _orbit.Yaw;
+        }
+
+        /// <summary>
+        /// 打开/关闭鼠标环绕。关闭 = 回到固定镜头：姿态逐位复位到缺省（偏航 0、基准俯角、基准缩放），道具的遮挡次序回到固定镜头的算法。
+        /// 舞台没有环绕镜头（见 <see cref="Orbit"/>）时什么也不做。
+        /// </summary>
+        public void SetOrbitEnabled(bool enabled)
+        {
+            if (_orbit == null || _unityCamera == null || _broken || _orbit.Enabled == enabled)
+            {
+                return;
+            }
+
+            _orbit.SetEnabled(enabled);
+            if (enabled)
+            {
+                ApplyOrbitView();
+            }
+            else
+            {
+                _unityCamera.SetView(_options.CameraYawDegrees, _basePitch);
+                _unityCamera.SetZoom(_baseZoom);
+            }
+
+            if (_projection != null)
+            {
+                _projection.FineDepthSort = enabled;
+            }
+
+            ApplyBillboards();
+        }
+
+        /// <summary>脚本标记名：环绕镜头的偏航（度）变了；<c>Value.X</c> 是偏航。逻辑读它（相机相对移动），所以宿主把它录进脚本。</summary>
+        public const string ScriptYawMarker = "camera_yaw";
+
+        public override void OnMarker(ScriptEvent marker)
+        {
+            if (_unityCamera != null && !_broken && string.Equals(marker.Action, ScriptYawMarker, StringComparison.Ordinal))
+            {
+                // 固定步边界上提交：输入映射在同一个固定步里取样的偏航由此确定（见 UnityCamera.SampleYawAtCommit）。
+                _unityCamera.CommitYaw(marker.Value.X);
             }
         }
 
@@ -244,7 +334,8 @@ namespace Adapter.Unity.LabHost
                 var squash = Math.Max(1e-6, Math.Cos(_unityCamera.EffectivePitchDegrees * Math.PI / 180.0));
                 var screen = new Vec2(cameraSpace.x, cameraSpace.y / squash);
                 var screenError = ControlSpace.AngleDegrees(screen, stick);
-                _rec.Controls.Add(new ControlSample(tick, stick, _options.CameraYawDegrees, mapped, axesError, screenError));
+                var sampleYawDegrees = _orbit != null ? _unityCamera.YawRadians * 180.0 / Math.PI : _options.CameraYawDegrees;
+                _rec.Controls.Add(new ControlSample(tick, stick, sampleYawDegrees, mapped, axesError, screenError));
             }
             catch (Exception ex)
             {
@@ -394,6 +485,16 @@ namespace Adapter.Unity.LabHost
                 _cameraGo.AddComponent<AudioListener>();
                 _unityCamera.SetZoom(_options.InteractiveZoom);
                 _followSmoothing = _options.InteractiveFollowSmoothing;
+                _baseZoom = _options.InteractiveZoom;
+                _basePitch = _pitchDegrees;
+                if (_options.OrbitCamera && _unityCamera.ApplyPitch)
+                {
+                    // 鼠标环绕镜头（ADR-0159）：偏航开关常开（偏航 0 时姿态与不开逐位相同），朝向查询改为固定步边界提交（见 OnMarker）。
+                    _orbit = new OrbitCameraController(_options.OrbitOptions);
+                    _unityCamera.ApplyYawRotation = true;
+                    _unityCamera.SampleYawAtCommit = true;
+                    _orbit.SetEnabled(_options.OrbitCameraStartsEnabled);
+                }
             }
 
             // 判断记录（宿主相机先于遮罩摘除，ADR-0154 顺带修复）：引擎宿主（UnityEngineHost）第一次 Ensure 时才创建它自己的相机
@@ -495,8 +596,9 @@ namespace Adapter.Unity.LabHost
                     // 固定俯角相机（格子相机模式 fixed_pitch 且选项按格子取用）= 道具与特效摆成与相机平行的直立广告牌，地面与阴影仍躺在地上；
                     // 模型型格子（3D，ADR-0158）的角色是真实三维模型，"向上"取世界 -Z（physicalUp），头顶/飘字/特效抬高据此换算。
                     _projection = new ShowcaseProjection(_camera, _unityCamera.ApplyPitch, physicalUp: string.Equals(ctx.Cell.Form, "model", StringComparison.Ordinal));
+                    _projection.FineDepthSort = _orbit != null && _orbit.Enabled;
                     _showcase = new ShowcaseDirector(_root.transform, _options.IsolationLayer, _loader, ctx, ShowcaseFlash, _projection);
-                    _showcase.BuildScene(ctx);
+                    _showcase.BuildScene(ctx, _orbit != null ? _orbit.Options.FloorSize : ShowcaseDirector.DefaultFloorSize);
                 }
                 else
                 {

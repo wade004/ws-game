@@ -237,8 +237,57 @@ namespace Adapter.Unity.EngineAdapter
         /// <summary>
         /// <see cref="ICameraOrientation.YawRadians"/>：相机在世界平面上的实际偏航（弧度，逆时针为正）。<see cref="ApplyYawRotation"/> 没打开时相机
         /// 物理上没有转，如实报 0（配置的偏航只是记录，不是相机的真实朝向）。
+        /// 打开 <see cref="SampleYawAtCommit"/> 后改报"已提交偏航"（<see cref="CommitYaw"/>）：画面偏航可以逐帧平滑转，逻辑侧每次更新取样的偏航只在固定步边界变（ADR-0159）。
         /// </summary>
-        public double YawRadians => _applyYawRotation ? _yawDegrees * Math.PI / 180.0 : 0.0;
+        public double YawRadians => _sampleYawAtCommit
+            ? _committedYawDegrees * Math.PI / 180.0
+            : (_applyYawRotation ? _yawDegrees * Math.PI / 180.0 : 0.0);
+
+        private bool _sampleYawAtCommit;
+        private double _committedYawDegrees;
+
+        /// <summary>
+        /// 可选能力（默认关闭 = <see cref="YawRadians"/> 报相机实时偏航，与引入前逐位一致）：打开后 <see cref="YawRadians"/> 报最近一次 <see cref="CommitYaw"/> 的值，
+        /// 与画面上的相机偏航（<see cref="SetView"/>/<see cref="Configure"/>，可以逐帧平滑）脱钩。判断记录（ADR-0135 后果"偏航每次更新取样，相机在同一 tick 内的偏航变化要由
+        /// 相机实现自己保证与模拟步对齐"）：输入映射每次更新都读 <see cref="YawRadians"/>，宿主在固定步边界（脚本事件应用处）提交偏航，同一个固定步内的所有读数一致，
+        /// 一次渲染帧里跑几个固定步也互相一致；提交的偏航由宿主决定怎么来（实验室宿主把它录进脚本，回放逐步复现）。
+        /// 打开时已提交偏航取当前实际偏航，不引起读数跳变。
+        /// </summary>
+        public bool SampleYawAtCommit
+        {
+            get => _sampleYawAtCommit;
+            set
+            {
+                if (_sampleYawAtCommit == value)
+                {
+                    return;
+                }
+
+                if (value)
+                {
+                    _committedYawDegrees = _applyYawRotation ? _yawDegrees : 0.0;
+                }
+
+                _sampleYawAtCommit = value;
+            }
+        }
+
+        /// <summary>已提交偏航（度；<see cref="SampleYawAtCommit"/> 关闭时无意义，测试/诊断用）。</summary>
+        public double CommittedYawDegrees => _committedYawDegrees;
+
+        /// <summary>提交输入映射取样的偏航（度，逆时针为正，不限范围）；只在 <see cref="SampleYawAtCommit"/> 打开时影响 <see cref="YawRadians"/>，不转动画面。</summary>
+        public void CommitYaw(double yawDegrees) => _committedYawDegrees = yawDegrees;
+
+        /// <summary>
+        /// 一次设置画面偏航与俯仰（度）并立刻刷新相机姿态；缩放走 <see cref="SetZoom"/>。与 <see cref="Configure"/> 的区别：不碰缩放区间，也不重新夹缩放，
+        /// 供每帧驱动的环绕镜头使用。偏航只在 <see cref="ApplyYawRotation"/> 打开时作用到相机，俯仰只在 <see cref="ApplyPitch"/> 打开时作用（俯仰夹在 [0, 89]）。
+        /// </summary>
+        public void SetView(double yawDegrees, double pitchDegrees)
+        {
+            _yawDegrees = yawDegrees;
+            _pitchDegrees = pitchDegrees;
+            RefreshOrientation();
+        }
 
         /// <summary>
         /// 焦点处地面的可视半高（世界单位）：正交为 orthographicSize，透视为 <see cref="SetZoom"/> 的缩放值（相机距离按它与视场角算出）。

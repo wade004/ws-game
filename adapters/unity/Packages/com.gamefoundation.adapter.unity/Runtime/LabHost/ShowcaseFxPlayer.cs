@@ -24,6 +24,13 @@ namespace Adapter.Unity.LabHost
             public double Elapsed;
             public bool Loop;
             public double Fade;
+
+            /// <summary>广告牌特效（每帧按当前相机重新定向与摆点，ADR-0159）；平躺的特效（冲击波环）为假。</summary>
+            public bool Billboard;
+            public Vector3 Anchor;
+            public float Pull;
+            public float ScreenDegrees;
+            public double? WorldFacing;
         }
 
         private readonly Transform _root;
@@ -80,9 +87,59 @@ namespace Adapter.Unity.LabHost
             fx.Renderer.color = tint;
             fx.Renderer.sortingOrder = sortingOrder;
             fx.Go.SetActive(true);
+            fx.Billboard = false;
             _active.Add(fx);
             Spawned++;
             return true;
+        }
+
+        /// <summary>
+        /// 播一个广告牌特效（命中火花、尘土、挥砍拖影）：<paramref name="anchor"/> 是未拉近的摆点，<paramref name="pull"/> 是沿视线向相机拉近的距离，
+        /// <paramref name="screenDegrees"/> 是在屏幕平面内转的角度；<paramref name="worldFacing"/> 非空时屏幕角每帧由这个地面朝向（弧度）按当前相机重新算（挥砍拖影沿出手方向画）。
+        /// 之后每帧 <see cref="OrientBillboards"/> 按相机当前姿态重新定向与摆点，所以环绕镜头转动期间特效始终正对相机、不会斜着穿进模型。
+        /// </summary>
+        public bool SpawnBillboard(Id effectId, Vector3 anchor, float pull, float screenDegrees, double? worldFacing, ShowcaseProjection projection, float scale, Color tint, int sortingOrder)
+        {
+            var position = projection.TowardCamera(anchor, pull);
+            var degrees = worldFacing.HasValue ? projection.ScreenAngleDegrees(worldFacing.Value) : screenDegrees;
+            if (!Spawn(effectId, position, projection.Facing(degrees), scale, tint, sortingOrder))
+            {
+                return false;
+            }
+
+            var fx = _active[_active.Count - 1];
+            fx.Billboard = true;
+            fx.Anchor = anchor;
+            fx.Pull = pull;
+            fx.ScreenDegrees = screenDegrees;
+            fx.WorldFacing = worldFacing;
+            return true;
+        }
+
+        /// <summary>把在播的广告牌特效转向相机当前姿态并按它重新摆点（舞台在相机推进之后每帧调用一次；平躺的特效不动）。</summary>
+        public void OrientBillboards(ShowcaseProjection projection)
+        {
+            for (var i = 0; i < _active.Count; i++)
+            {
+                var fx = _active[i];
+                if (!fx.Billboard)
+                {
+                    continue;
+                }
+
+                var degrees = fx.WorldFacing.HasValue ? projection.ScreenAngleDegrees(fx.WorldFacing.Value) : fx.ScreenDegrees;
+                fx.Go.transform.position = projection.TowardCamera(fx.Anchor, fx.Pull);
+                fx.Go.transform.rotation = projection.Facing(degrees);
+            }
+        }
+
+        /// <summary>在播特效的世界姿态（测试用：广告牌特效应与相机平面平行）。</summary>
+        public IEnumerable<(Transform Transform, bool Billboard)> ActiveTransforms()
+        {
+            foreach (var fx in _active)
+            {
+                yield return (fx.Go.transform, fx.Billboard);
+            }
         }
 
         private Fx Create()

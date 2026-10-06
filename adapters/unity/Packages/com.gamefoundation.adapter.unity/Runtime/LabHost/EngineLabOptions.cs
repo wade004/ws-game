@@ -85,6 +85,19 @@ namespace Adapter.Unity.LabHost
         /// </summary>
         public bool Interactive { get; set; }
 
+        /// <summary>
+        /// 鼠标环绕镜头（ADR-0159，只在 <see cref="Interactive"/> 且舞台相机带俯仰——格子相机模式 <c>fixed_pitch</c> 且 <see cref="HonorCellCameraMode"/> 打开——时生效；缺省 false，
+        /// 舞台与此前逐位一致）：舞台装一个 <see cref="OrbitCameraController"/>，相机的偏航/俯仰/缩放由它驱动，相机的朝向查询改为"固定步边界提交"的采样方式
+        /// （<c>UnityCamera.SampleYawAtCommit</c>）。移动动作是否按镜头偏航换算由 <see cref="ControlSpaceOverride"/>（<c>camera_relative</c>）声明，两者独立。
+        /// </summary>
+        public bool OrbitCamera { get; set; }
+
+        /// <summary>环绕镜头的灵敏度与区间；<c>null</c> 取 <see cref="OrbitCameraOptions"/> 缺省。</summary>
+        public OrbitCameraOptions? OrbitOptions { get; set; }
+
+        /// <summary>环绕镜头开局是否打开（缺省 true；关 = 固定镜头，面板可以切换）。</summary>
+        public bool OrbitCameraStartsEnabled { get; set; } = true;
+
         /// <summary>试玩模式的镜头缩放（正交半高 / 透视下的取景半高，世界单位；缺省 2.8：占位精灵里的人只有画幅三分之一高，取景要近才看得清）。</summary>
         public double InteractiveZoom { get; set; } = 2.8;
 
