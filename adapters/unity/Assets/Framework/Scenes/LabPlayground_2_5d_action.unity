@@ -147,7 +147,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 0e3eaec374289bd489ae7cd843ea4c91, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Adapter.Unity.LabHost::Adapter.Unity.LabHost.LabPlayground
+  m_EditorClassIdentifier: FeelLab.Unity::FeelLab.Unity.LabPlayground
   cell: 2_5d_action
   baseDataRoots:
   - data/_framework

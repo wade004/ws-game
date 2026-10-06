@@ -41,17 +41,17 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 
 门禁：`feel_lab_suite` 步骤（`toolchain/_gate_line_heavy.ps1`）跑 `suite` 要求退出码 0；`validate_lab_data` 步骤（`check.ps1`）要求 `data/_lab` 校验 0 error 0 warning，`validate_lab_action_data` 步骤同样要求 `data/_lab_action`（叠加框架根、`data/_lab`、`data/_feel`）0 error 0 warning。跨格子不变量随 `Tests.Lab`（`CrossCellInvariantTests.AllInvariants_HoldForEveryScript`）进门禁；`invariants` 命令末行另输出纯 ASCII 的 `RESULT invariants total=<n> pass=<n> fail=<n>`，有不一致时退出码 1。
 
-### 随发布产物分发（只消费发布产物的游戏怎么跑）
+### 随可选包分发（只消费发布产物的游戏怎么跑）
 
-实验室随发布产物分发（手感设计/06 第 8 节第 2 步：游戏用实验室在自己的数据上校准手感）。三个形态，布局都与仓库同路径，命令行用法与上面一致（把 `dotnet run --project toolchain/feellab --` 换成 `dotnet <FeelLab.dll 路径>`）：
+实验室是**可选的开发期设施**（ADR-0160）：手感设计/06 第 8 节第 2 步要求游戏用实验室在自己的数据上校准手感，但它不进游戏的默认依赖，也不在主发布压缩包与工具链私服包里。分发成两个可选包，命令行用法与上面一致（把 `dotnet run --project toolchain/feellab --` 换成 `dotnet <FeelLab.dll 路径>`）：
 
 | 形态 | 实验室根（工作目录） | 命令行 |
 |---|---|---|
-| 发布 zip / `dist/<版本>/` | `dist/<版本>/` 本身（含 `data/_framework`、`data/_feel`、`data/_lab`、`data/_lab_action`、`data/_equip`、`lab/fixtures`） | `toolchain/feellab/bin/FeelLab.dll`（预编译，另带 `lib/` 与空 `Directory.Build.props`，同 simrunner） |
-| 私服包 `com.gamefoundation.toolchain` | `Tools~/feellab/labroot/`（自包含：上面六棵树各一份） | `Tools~/feellab/bin/FeelLab.dll` |
+| 发布附件 `com.gamefoundation.feel-lab.headless-<版本>.tgz` / 私服包 / `dist/<版本>/packages/com.gamefoundation.feel-lab.headless/` | `Tools~/feellab/labroot/`（自包含：`data/_framework`、`data/_feel`、`data/_lab`、`data/_lab_action`、`data/_equip`、`lab/fixtures` 各一份） | `Tools~/feellab/bin/FeelLab.dll`（预编译，另带 `lib/` 与空 `Directory.Build.props`，同 simrunner） |
+| 私服包 `com.gamefoundation.feel-lab.unity`（引擎宿主，只在编辑器编译） | `LabRoot~/`（同一份实验室根，供没有框架仓库的游戏工程里的宿主定位数据与夹具） | 编辑器菜单与面板 |
 | 自己的数据 | 在上面任一实验室根里加 `--data-root <你的数据根>`（叠加在 `_lab` 之后；`--framework-root` 指向你用的框架数据） | 同上 |
 
-例（zip 解压后）：`cd ws-game-<版本>` 后 `dotnet toolchain/feellab/bin/FeelLab.dll suite`，应与框架基线一致（汇总行 `RESULT total=<n> pass=<n> diff=0 missing=0 ...`，`total` 是格子数，`pass` 应等于 `total`；脚本带期望清单时，它前面另有一行 `RESULT expectations total=<n> pass=<n> fail=0`；各数字以 `FeelLab suite` 当次输出为准，随脚本与格子增删变化，拆分口径见本文「数量口径」）；不一致说明你改了框架数据或标定。只需要 dotnet 运行时，不需要 Unity。消费方演练（`toolchain/consumer_smoke.ps1`）有一步在消费方工作目录里用 dist 里的预编译命令行跑 `suite` 与 `invariants`，门禁里随每次全量验证。
+例（无头包解开后）：`cd <包目录>/Tools~/feellab/labroot` 后 `dotnet ../bin/FeelLab.dll suite`，应与框架基线一致（汇总行 `RESULT total=<n> pass=<n> diff=0 missing=0 ...`，`total` 是格子数，`pass` 应等于 `total`；脚本带期望清单时，它前面另有一行 `RESULT expectations total=<n> pass=<n> fail=0`；各数字以 `FeelLab suite` 当次输出为准，随脚本与格子增删变化，拆分口径见本文「数量口径」）；不一致说明你改了框架数据或标定。只需要 dotnet 运行时，不需要 Unity。消费方演练（`toolchain/consumer_smoke.ps1`）有一步在消费方工作目录里用 dist 里无头包的预编译命令行跑 `suite` 与 `invariants`，门禁里随每次全量验证。
 
 ### 基线更新流程（有意提交，不允许静默通过）
 
@@ -256,9 +256,9 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 
 **这是什么**：三个可以直接按 Play 的场景，背后是实验室引擎宿主的同一套装配（不是另一套运行时）：你按键，输入被录成脚本事件，在真实适配器上渲染；面板上的每个影响逻辑的操作也是事件。整局可存成本地脚本，用无头命令行逐 tick 重放，"手上感觉到的"和"数字说的"是同一份。
 
-**怎么打开**：Unity Hub → Add project from disk → 选 **`D:\wt\playground\adapters\unity`**（本分支合并进主干之前；合并之后是仓库根下的 `adapters\unity`），编辑器版本 6000.3.23f1。第一次导入要约 11 分钟（资产多），之后秒开。打开后在菜单 `GameFoundation → 手感试玩 → 工程场景（占位美术） → 打开试玩场景 2D / 2.5D / 3D`（占位美术，工程与回归用；要看真实美术与界面皮肤请用菜单首项 `打开演示场景 2D（真实美术）`，占位场景面板头部也有这行提示；两个重建入口在 `手感试玩 → 维护` 下），或在 Project 窗口打开 `Assets/Framework/Scenes/LabPlayground_2d_action.unity`（`_2_5d_action`、`_3d_action` 同目录），按 Play。三个场景分别是：二维俯视精灵（`2d_action`）、2.5D 固定俯仰精灵（`2_5d_action`）、三维固定俯仰模型（`3d_action`）。模型是占位白模，精灵是占位假人，不新增美术。
+**怎么打开**：Unity Hub → Add project from disk → 选 **`D:\wt\playground\adapters\unity`**（本分支合并进主干之前；合并之后是仓库根下的 `adapters\unity`），编辑器版本 6000.3.23f1。第一次导入要约 11 分钟（资产多），之后秒开。打开后在菜单 `GameFoundation → 手感试玩 → 工程场景（占位美术） → 打开试玩场景 2D / 2.5D / 3D`（占位美术，工程与回归用；真实美术与界面皮肤的三个演示场景已迁往样板仓库 `ws-game-samples`（ADR-0160），在那个工程里的菜单 `GameFoundation → 手感试玩 → 打开演示场景 …（真实美术）` 打开；重建入口在 `手感试玩 → 维护` 下），或在 Project 窗口打开 `Assets/Framework/Scenes/LabPlayground_2d_action.unity`（`_2_5d_action`、`_3d_action` 同目录），按 Play。三个场景分别是：二维俯视精灵（`2d_action`）、2.5D 固定俯仰精灵（`2_5d_action`）、三维固定俯仰模型（`3d_action`）。模型是占位白模，精灵是占位假人，不新增美术。
 
-**3D 真实美术演示场景的镜头**（菜单 `打开演示场景 3D（真实美术）`，[ADR-0159](../architecture/adr/0159-手感演示场景3D版鼠标环绕镜头与相机相对移动.md)）：缺省是**鼠标环绕**——右键按住拖动转镜头（水平 = 偏航，可转任意圈；垂直 = 俯角，夹在缺省俯角上下一个区间内），滚轮缩放，移动随镜头偏航换算（W 永远朝屏幕上方走）。F1 展开面板、场景页的"镜头"段可切"固定 / 鼠标环绕"并"复位镜头"；切到"固定"= 此前的镜头，姿态逐位复位，鼠标与滚轮被忽略。其它场景（占位美术的三个、2D / 2.5D 演示场景）没有环绕镜头。
+**3D 真实美术演示场景的镜头**（场景现在在样板仓库 `ws-game-samples`，菜单 `打开演示场景 3D（真实美术）`；本节是它的使用说明，[ADR-0159](../architecture/adr/0159-手感演示场景3D版鼠标环绕镜头与相机相对移动.md)）：缺省是**鼠标环绕**——右键按住拖动转镜头（水平 = 偏航，可转任意圈；垂直 = 俯角，夹在缺省俯角上下一个区间内），滚轮缩放，移动随镜头偏航换算（W 永远朝屏幕上方走）。F1 展开面板、场景页的"镜头"段可切"固定 / 鼠标环绕"并"复位镜头"；切到"固定"= 此前的镜头，姿态逐位复位，鼠标与滚轮被忽略。其它场景（占位美术的三个、2D / 2.5D 演示场景）没有环绕镜头。
 
 **按键**（F2 在屏上显示同样的说明）：
 
@@ -346,3 +346,11 @@ dotnet run --project toolchain/feellab -- run --script lab/out/playground/last_s
 - **命中帧对齐的数据状态（M4-W5 起，M4-W6 收尾）**：手感场景的技能走读条剪辑，数据里它的关键帧是 `release`；精灵平面识别 `release` 或 `hit_frame`，模型平面由骨骼剪辑把 `release` 烘成 `hit_frame` 别名事件（04 第 10 节）。`cast` 的 `release` 在 150 毫秒（起手 150 毫秒的技能与逻辑命中标记逐毫秒对齐）；起手 100 毫秒（combo1、combo2、poise_chip、lunge、space_ext 的 jab）与 300 毫秒（elite_swing）的技能经武器风格 `display.weapon_style.lab_*` 的 `cast_anim_override` 指到施放点变体 `cast.quick`（release 100 毫秒）与 `cast.heavy`（release 300 毫秒），见判断记录 55。每个实验室技能的命中都配得上引擎事件，且不早于逻辑命中：精灵平面滞后为 0，模型平面滞后是一帧量化加施放者这次命中的顿帧时长（Animator 事件在下一次动画求值时派发，那时施放者已被冻结），宿主与数据两份测试都按这个口径锁住。指标仍如实量出。
 - 换装场景：`item_facts` 与导入静态报告的**数据可核验部分**已对账（槽位、是否武器、族、外观模式、层、资源集、图标路径，见判断记录 44）；图标像素尺寸与逐层剪辑的帧数要读图片与图集文件，无头宿主不读资产文件，仍只在导入校验静态报告（`equip_pack` 的 `equip_icon_size_invalid`、`equip_layer_clip_missing` 等检查）一侧；它们在真实渲染下的呈现（图标是否画对、逐层剪辑是否播对）属于引擎宿主实验室（M4-H）。
 - 空间语义（判断记录 35、45）：命中高度窗口用命中判定那一刻施法者的脚下高度（锚点在施法者脚下，可由目标链形状的 `height_offset` 整体上下偏置）；横版深度锁缺省只作用在移动输入，受控位移的深度锁由脚本选项 `depthLockControlledMotion` 可选打开（判断记录 48）；（原"靶子没有主动跳跃/移动的脚本事件"已由判断记录 48 解除）；`volume` 格子的 `camera_relative` 控制空间与第三人称镜头不在无头宿主上证明（无头宿主不提供相机朝向，按 `world` 跑；引擎宿主证明它们，判断记录 50）；击飞中的靶子不做空中控制（击飞中的靶子被硬直锁住，不是实验室缺口；靶子的主动跳跃与空中移动见判断记录 48）。空间扩展（判断记录 45）：三维射程缺省只作用于目标选择式结算（技能管线步骤 7 的"目标已解析"之后），动作式格子上的射程门由脚本选项 `spatialRangeHitWindow` 可选打开（判断记录 48）；地形数据支持矩形、凸多边形与高度场三种形状（判断记录 49），更复杂的地形由引擎侧物理射线实现（`UnityTerrainHeight2D`）覆盖；寻路、路径校验、台阶阻挡点与落地规则的细节见 `core/carriers/unit/README.md` 的"判断记录（地形与导航二期）"；空中姿势装置默认用合成键表，可选改读真实姿势集行（判断记录 48），都只回答"请求哪个键、链上命中哪个、回落几级"，不播放真实剪辑（真实剪辑的请求与回落由引擎 PlayMode 冒烟覆盖）。
+
+### 判断记录（框架三层拆分，ADR-0160）
+
+- **适配层包不再含实验室**：引擎实验室宿主、F1 面板、占位试玩场景构建器与三个插件 DLL（`Adapters.Stub`、`Core.Sim`、`Lab.Kernel`）迁入 Unity 包 `com.gamefoundation.feel-lab.unity`（程序集 `FeelLab.Unity` 与 `FeelLab.Unity.Editor`）；运行期程序集带编辑器编译约束，插件 `.dll.meta` 只启用 Editor 平台，门禁包边界判定逐一断言，所以游戏独立版里没有它的任何字节。
+- **演示场景迁往样板仓库**：三个真实美术演示场景（2D、2.5D、3D）、导演、HUD、模型包装配器与其测试、真实美术与数据（`assets/_showcase`、`data/_showcase*`）都不再在本仓库。它们按版本号消费框架，建立在两个公开扩展点上，而不是友元程序集：`EngineStageExtension`（舞台一级：外形登记、场景搭建、投影、显示绑定、逻辑事件、出手、每帧、广告牌、朝向、释放，`StageSceneContext` 带场景需要的一切）与 `LabPlaygroundExtension`（试玩宿主一级：额外数据根、舞台扩展、环绕镜头开关、面板缺省可见性与提示、角落提示、会话起止）。两者由 `ExtensionPointsPlayModeTests` 钉住：调用次序、上下文、替换缺省行为与释放。
+- **扩展点形状的取舍**：扩展点只暴露"观测 + 替换缺省表现"，不暴露逻辑改写（与判断记录 46 一致：扩展只能在内核已有的相同时序上观测，不得改逻辑），所以演示场景与原占位试玩场景的逻辑指纹仍逐字节一致。引擎适配层的 `UnityAudio.Tick`、`UnityCamera.Tick`、`UnityResourceLoader.Tick` 由 `internal` 改公开，是实验室宿主（跨程序集）推进它们的入口。
+- **并发修复**：`LabRunner.DatasetFor` 的数据集缓存在并行跑多格子时有字典并发写竞争，已加锁；行为不变。
+- **没有样板的试玩**：不装任何扩展时，试玩宿主就是占位试玩场景：面板缺省展开、无面板提示、舞台建缺省地面。

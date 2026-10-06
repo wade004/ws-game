@@ -122,7 +122,26 @@ function Get-PackageManifestProblems {
         if ($missingSimRunner.Count -gt 0) {
             $problems += ("$PackageName：npm pack --dry-run 文件清单缺失预编译 simrunner 或隔离用 Directory.Build.props（T-N6-7）：" + ($missingSimRunner -join ", "))
         }
-        # 手感实验室随发布产物分发（M2-D）：预编译命令行 + 隔离用 Directory.Build.props + 自包含实验室根
+        # ADR-0160：手感实验室不再随 toolchain 包分发（改由 com.gamefoundation.feel-lab.headless 承载），这里反向断言。
+        $leakedFeelLab = @($normalizedPaths | Where-Object { $_ -match '(^|/)feellab(/|$)' })
+        if ($leakedFeelLab.Count -gt 0) {
+            $problems += ("$PackageName：npm pack --dry-run 文件清单含手感实验室命令行（ADR-0160 起应只在 com.gamefoundation.feel-lab.headless 里）：" + (($leakedFeelLab | Select-Object -First 3) -join ", "))
+        }
+    }
+
+    if ($PackageName -eq "com.gamefoundation.framework-data") {
+        # 手感落地 S1（收 S0 遗留 (b)）：发版产物必须带 data/_feel（含缺省标定行），否则消费方的框架根拿不到手感档案。
+        $missingFeel = @(Get-MissingSuffixes -Suffixes @(
+            "Data~/data/_feel/feel/feel.calibration.json",
+            "Data~/data/_feel/feel/feel.preset.json",
+            "Data~/data/_feel_templates/feel/feel.preset.json"))
+        if ($missingFeel.Count -gt 0) {
+            $problems += ("$PackageName：npm pack --dry-run 文件清单缺失 data/_feel 手感框架数据（S1 发版打包断言）：" + ($missingFeel -join ", "))
+        }
+    }
+
+    if ($PackageName -eq "com.gamefoundation.feel-lab.headless") {
+        # 手感实验室命令行（M2-D，ADR-0160 起独立成包）：预编译命令行 + 隔离用 Directory.Build.props + 自包含实验室根
         # （框架数据、手感数据、实验室数据集、实验室动作数据、标准脚本与基线夹具各至少一个代表文件）。
         $missingFeelLab = @(Get-MissingSuffixes -Suffixes @(
             "Tools~/feellab/bin/FeelLab.dll",
@@ -139,14 +158,15 @@ function Get-PackageManifestProblems {
         }
     }
 
-    if ($PackageName -eq "com.gamefoundation.framework-data") {
-        # 手感落地 S1（收 S0 遗留 (b)）：发版产物必须带 data/_feel（含缺省标定行），否则消费方的框架根拿不到手感档案。
-        $missingFeel = @(Get-MissingSuffixes -Suffixes @(
-            "Data~/data/_feel/feel/feel.calibration.json",
-            "Data~/data/_feel/feel/feel.preset.json",
-            "Data~/data/_feel_templates/feel/feel.preset.json"))
-        if ($missingFeel.Count -gt 0) {
-            $problems += ("$PackageName：npm pack --dry-run 文件清单缺失 data/_feel 手感框架数据（S1 发版打包断言）：" + ($missingFeel -join ", "))
+    if ($PackageName -eq "com.gamefoundation.feel-lab.unity") {
+        # 手感实验室 Unity 包（ADR-0160）：自包含实验室根（LabRoot~，引擎宿主在没有框架仓库的环境里靠它找数据与夹具）。
+        $missingLabUnity = @(Get-MissingSuffixes -Suffixes @(
+            "LabRoot~/data/_lab/lab/lab.scenario.json",
+            "LabRoot~/data/_equip/item/item.template.json",
+            "LabRoot~/lab/fixtures/scripts/feel_kill.script.json",
+            "LabRoot~/lab/fixtures/baselines/feel_kill.baseline.json"))
+        if ($missingLabUnity.Count -gt 0) {
+            $problems += ("$PackageName：npm pack --dry-run 文件清单缺失自包含实验室根 LabRoot~（ADR-0160）：" + ($missingLabUnity -join ", "))
         }
     }
 

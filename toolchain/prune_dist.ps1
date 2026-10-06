@@ -231,7 +231,7 @@ if (Test-Path -LiteralPath $baselineFile) {
 }
 
 # --- 分类 -------------------------------------------------------------------
-$reDir = '^(\d+\.\d+\.\d+)(-dryrun)?$'
+$reDir = '^(\d+\.\d+\.\d+)(-dryrun|-rc\.\d+)?$'
 $reZip = '^ws-game-(\d+\.\d+\.\d+)(-dryrun)?(-samples)?\.zip$'
 $reLock = '^ws-game-(\d+\.\d+\.\d+)(-dryrun)?\.lock$'
 $reNotes = '^release-notes-(\d+\.\d+\.\d+)(-dryrun)?\.txt$'

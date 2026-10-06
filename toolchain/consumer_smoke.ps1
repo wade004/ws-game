@@ -106,6 +106,8 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "_unity_smoke_wait_scope_guard.ps1")
 # 包管理器子进程中途消失（"IPC stream failed to read"）的失败现场抓取，见该文件头判断记录。
 . (Join-Path $PSScriptRoot "_upm_evidence.ps1")
+# ADR-0160 包边界：独立版产物不得含实验室/演示内容（第 9 步构建后断言）。
+. (Join-Path $PSScriptRoot "_gate_package_boundary.ps1")
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $VersionFilePath = Join-Path $RepoRoot "VERSION"
@@ -483,8 +485,12 @@ EditorBuildSettings:
     $workbenchManifestPath = Join-Path $RepoRoot "adapters\unity\Packages\manifest.json"
     $workbenchManifest = (Get-Content -Path $workbenchManifestPath -Raw -Encoding UTF8) | ConvertFrom-Json
 
+    # ADR-0160：消费方开发期装上可选的手感实验室 Unity 包（取自 dist 的 packages\ 目录，版本与依赖已写好），
+    # 这样第 9 步"独立版里没有任何实验室内容"的断言才有意义：包在工程里、编辑器里能用，构建产物里一个字节也没有。
+    $feelLabUnityDistPath = (Join-Path $DistRoot "packages\com.gamefoundation.feel-lab.unity") -replace '\\', '/'
     $dependencies = [ordered]@{
         "com.gamefoundation.adapter.unity" = "file:$adapterDistPath"
+        "com.gamefoundation.feel-lab.unity" = "file:$feelLabUnityDistPath"
         "com.sample.game-consumer" = "file:$consumerPackagePath"
     }
     # com.gamefoundation.game-template：工作台自己的 file: 相对路径引用，消费方用改名后的
@@ -573,14 +579,16 @@ Invoke-Step "同步内容数据集 + TextMeshPro 运行期资源到消费方工�
 #     data/_framework、data/_feel、data/_lab、data/_lab_action、data/_equip、lab/fixtures——脚本里的 extraDataRoots 与默认夹具目录
 #     都按工作目录相对解析），框架数据与手感数据取自上一步已经同步进消费方工程的那两份（消费方自己的副本，
 #     不回头读仓库），实验室数据集、占位装备集与夹具取自 dist 快照，然后用 dist 里的预编译命令行
-#     `dist\<版本>\toolchain\feellab\bin\FeelLab.dll` 跑 `suite`（全部标准脚本 x 六个格子对基线）与 `invariants`
+#     `dist\<版本>\packages\com.gamefoundation.feel-lab.headless\Tools~\feellab\bin\FeelLab.dll`（ADR-0160 起命令行随可选包
+#     feel-lab.headless 分发，实验室数据集/夹具取自该包自带的 labroot）跑 `suite`（全部标准脚本 x 六个格子对基线）与 `invariants`
 #     （跨格子不变量）：二者都必须退出码 0 且 RESULT 行无差异。命令行不需要 Unity，只需要 dotnet 运行时；
 #     实验室根放在 ConsumerProject 之外（WorkDir\feellab_root），不会被 Unity 当 Assets 导入。
 #     判断记录：跑完整 suite 而不是子集——全量约几秒（数据与脚本都很小），子集反而要多维护一份过滤约定；
 #     不跑 `--update-baseline`、不写 lab/out 以外的任何东西（suite 只读基线）。
 # -----------------------------------------------------------------------------
 Invoke-Step "手感实验室（dist 内 feellab 预编译命令行）在消费方工作目录跑 suite + invariants" {
-    $feelLabDll = Join-Path $DistRoot "toolchain\feellab\bin\FeelLab.dll"
+    $feelLabPkgDir = Join-Path $DistRoot "packages\com.gamefoundation.feel-lab.headless\Tools~\feellab"
+    $feelLabDll = Join-Path $feelLabPkgDir "bin\FeelLab.dll"
     if (-not (Test-Path $feelLabDll)) {
         return [PSCustomObject]@{ Ok = $false; Detail = "分发包里没有预编译的手感实验室命令行：$feelLabDll" }
     }
@@ -589,12 +597,14 @@ Invoke-Step "手感实验室（dist 内 feellab 预编译命令行）在消费�
     $copied = 0
     $copied += Copy-TreeMirror -SourceDir (Join-Path $streamingRoot "data\_framework") -DestDir (Join-Path $labRoot "data\_framework")
     $copied += Copy-TreeMirror -SourceDir (Join-Path $streamingRoot "data\_feel") -DestDir (Join-Path $labRoot "data\_feel")
+    # 可选包自带的自包含实验室根（先定下来，下面的模板根与实验室数据都取自它）。
+    $packagedLabRoot = Join-Path $feelLabPkgDir "labroot"
     # 默认手感模板根（ADR-0142）：标准脚本 feel_tpl_* 把它声明为额外数据根，取自 dist 快照（不经 StreamingAssets）。
-    $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_feel_templates") -DestDir (Join-Path $labRoot "data\_feel_templates")
-    $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_lab") -DestDir (Join-Path $labRoot "data\_lab")
-    $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_lab_action") -DestDir (Join-Path $labRoot "data\_lab_action")
-    $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_equip") -DestDir (Join-Path $labRoot "data\_equip")
-    $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "lab\fixtures") -DestDir (Join-Path $labRoot "lab\fixtures")
+    $copied += Copy-TreeMirror -SourceDir (Join-Path $packagedLabRoot "data\_feel_templates") -DestDir (Join-Path $labRoot "data\_feel_templates")
+    # 实验室数据集、动作数据、占位装备集、标准脚本与基线夹具：取自可选包自带的自包含实验室根（dist 主树里不再有这些）。
+    foreach ($labPart in @("data\_lab", "data\_lab_action", "data\_equip", "lab\fixtures")) {
+        $copied += Copy-TreeMirror -SourceDir (Join-Path $packagedLabRoot $labPart) -DestDir (Join-Path $labRoot $labPart)
+    }
     foreach ($needed in @("data\_framework", "data\_feel", "data\_feel_templates", "data\_lab", "data\_lab_action", "data\_equip", "lab\fixtures\scripts", "lab\fixtures\baselines")) {
         if (-not (Test-Path (Join-Path $labRoot $needed))) {
             return [PSCustomObject]@{ Ok = $false; Detail = "实验室根缺少 $needed（分发包或消费方数据目录不完整）" }
@@ -733,6 +743,7 @@ Invoke-Step "模板 PlayMode 测试（-testFilter Game.Template.Tests）" {
 # 9) 构建独立版。
 # -----------------------------------------------------------------------------
 $exePath = Join-Path $UnityLogDir "ConsumerShell.exe"
+$playerDataDir = [System.IO.Path]::Combine($UnityLogDir, ([System.IO.Path]::GetFileNameWithoutExtension($exePath) + "_Data"))
 $buildOk = Invoke-Step "构建独立版" {
     Wait-NoResidualUnityProcess
     $log = Join-Path $UnityLogDir "04_build.log"
@@ -764,9 +775,16 @@ $buildOk = Invoke-Step "构建独立版" {
         return [PSCustomObject]@{ Ok = $false; Detail = "独立版构建超过 600s 未完成，见 $log$upmNote" }
     }
     $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_04_build"
+    $built = ($proc.ExitCode -eq 0) -and (Test-Path $exePath)
+    # ADR-0160：消费方工程装了手感实验室 Unity 包，独立版里却不得有它的任何程序集/数据/资源（包自己的"只在编辑器编译"约束兑现）。
+    $boundaryProblems = @()
+    if ($built) {
+        $boundaryProblems = @(Get-PlayerBoundaryProblems -BuildDir $playerDataDir)
+        foreach ($bp in $boundaryProblems) { Write-Host $bp -ForegroundColor Red }
+    }
     [PSCustomObject]@{
-        Ok = ($proc.ExitCode -eq 0) -and (Test-Path $exePath)
-        Detail = "Unity 构建退出码 $($proc.ExitCode)，DevelopmentBuild=$($DevelopmentBuild.IsPresent)，产物存在=$(Test-Path $exePath)，见 $log$upmNote"
+        Ok = $built -and ($boundaryProblems.Count -eq 0)
+        Detail = "Unity 构建退出码 $($proc.ExitCode)，DevelopmentBuild=$($DevelopmentBuild.IsPresent)，产物存在=$(Test-Path $exePath)，独立版边界问题=$($boundaryProblems.Count)（已装 feel-lab.unity，独立版须不含实验室/演示内容），见 $log$upmNote"
     }
 }
 

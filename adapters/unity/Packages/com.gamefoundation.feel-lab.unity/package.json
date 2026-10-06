@@ -1,0 +1,13 @@
+{
+  "name": "com.gamefoundation.feel-lab.unity",
+  "version": "0.0.0",
+  "displayName": "Game Foundation Feel Lab (Unity, Editor-only)",
+  "description": "手感实验室的 Unity 宿主与面板（可选的开发期设施，ADR-0160）：引擎侧实验室宿主、调参面板、占位演示场（Playground）场景构建器。只在编辑器里编译（程序集带 UNITY_EDITOR 约束、插件 DLL 只启用 Editor 平台），游戏的独立版构建里没有它。版本号与对适配层包的同版本依赖由 build.ps1 打包时写入（源码里恒为 0.0.0，不进发布写回清单）。本框架仓库不出现任何具体游戏代号。",
+  "unity": "6000.3",
+  "keywords": [
+    "gamefoundation",
+    "feel",
+    "lab",
+    "editor"
+  ]
+}

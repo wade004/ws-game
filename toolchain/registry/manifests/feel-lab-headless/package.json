@@ -1,0 +1,13 @@
+{
+  "name": "com.gamefoundation.feel-lab.headless",
+  "version": "0.2.0",
+  "displayName": "Game Foundation Feel Lab (Headless)",
+  "description": "手感实验室的无头命令行与自包含实验室根（可选的开发期设施，ADR-0160）：预编译 FeelLab.dll + Lab.Kernel.dll、标准脚本与基线夹具、实验室数据集；内容位于包内 Tools~/feellab/（Unity 不导入该目录）。运行时包（adapter.unity / framework-data / toolchain / adapter.headless）不含它；游戏想在自己的数据上校准手感时才按需 npm install。本框架仓库不出现任何具体游戏代号。",
+  "unity": "6000.3",
+  "keywords": [
+    "gamefoundation",
+    "feel",
+    "lab",
+    "headless"
+  ]
+}

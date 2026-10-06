@@ -202,14 +202,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         # 判断记录：见文件头"附件策略"与"zip 缺失一律明确失败"两段。用 gh release view --json assets
-        # 查该 tag 对应 Release 的既有附件列表，与完整附件集合（九件，见下面 $requiredNames）逐一比对，
+        # 查该 tag 对应 Release 的既有附件列表，与完整附件集合（十一件，见下面 $requiredNames）逐一比对，
         # 处置结论（Skip / Repair / Blocked）由 Get-WsGameReleaseAssetsPlan 给出。zip 已存在时先下载校验
         # 其 MANIFEST.txt 的 git_commit，lock 已存在时校验其 git_commit，与当前 checkout 的提交不一致
         # 直接阻断（与是否还缺其它附件无关）；缺失的文件路径放进下面上传步骤的 files 列表，已存在的
         # 附件不会被覆盖。
-        # 判断记录（四包，F3）：ADR-0018 决策 3 新增第四个私服包 com.gamefoundation.adapter.headless
-        # （见 toolchain/registry/registry.json、check.ps1"包清单一致性"步骤 $packageNames 四项）；
+        # 判断记录（六包，F3 + ADR-0160）：ADR-0018 决策 3 新增第四个私服包 com.gamefoundation.adapter.headless，
+        # ADR-0160 再新增两个可选的开发期包 com.gamefoundation.feel-lab.unity / feel-lab.headless
+        # （见 toolchain/registry/registry.json、门禁"包清单一致性"步骤的包名清单）；
         # "Repair missing assets from existing zip" 步骤按 tgz 文件名通配处理，新增包后自动覆盖。
+        # 两个实验室包只以 .tgz 附件发布，不进主 zip（主 zip 不含任何实验室内容，ADR-0160）。
         # 判断记录（消费方反馈 E2/E4 根治，2026-09-10，见
         # docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E2/E4）：get_framework.ps1、_hash.ps1（固定文件名，
         # 不带版本号，上一步已无条件拷到 dist/，纯源文件，任何 commit 下都是确定性的）与
@@ -231,6 +233,8 @@ jobs:
             "com.gamefoundation.framework-data-$version.tgz",
             "com.gamefoundation.toolchain-$version.tgz",
             "com.gamefoundation.adapter.headless-$version.tgz",
+            "com.gamefoundation.feel-lab.unity-$version.tgz",
+            "com.gamefoundation.feel-lab.headless-$version.tgz",
             "get_framework.ps1",
             "_hash.ps1"
           )
@@ -242,6 +246,8 @@ jobs:
             "com.gamefoundation.framework-data-$version.tgz" = "dist/$version/packages/com.gamefoundation.framework-data-$version.tgz"
             "com.gamefoundation.toolchain-$version.tgz" = "dist/$version/packages/com.gamefoundation.toolchain-$version.tgz"
             "com.gamefoundation.adapter.headless-$version.tgz" = "dist/$version/packages/com.gamefoundation.adapter.headless-$version.tgz"
+            "com.gamefoundation.feel-lab.unity-$version.tgz" = "dist/$version/packages/com.gamefoundation.feel-lab.unity-$version.tgz"
+            "com.gamefoundation.feel-lab.headless-$version.tgz" = "dist/$version/packages/com.gamefoundation.feel-lab.headless-$version.tgz"
             "get_framework.ps1" = "dist/get_framework.ps1"
             "_hash.ps1" = "dist/_hash.ps1"
           }
@@ -454,6 +460,10 @@ jobs:
               Write-Host "Regenerated $m from the DLLs inside the existing zip (same bytes, recomputed hash; headless_dlls/validator_dlls included, TOOL-118-LOCK)."
             } elseif ($m -like "*.tgz") {
               $tgzName = Split-Path $m -Leaf
+              if ($tgzName -like "com.gamefoundation.feel-lab.*") {
+                Write-Host "BLOCKED: $tgzName is a feel-lab package and is not part of the main zip (ADR-0160), so it cannot be repaired from the zip. Upload it from the release machine: gh release upload $tag dist/$version/packages/$tgzName"
+                exit 1
+              }
               $entryPath = "$zipTopLevelName\packages\$tgzName"
               $entry = Get-WsGameZipEntry -ZipReader $zr -EntryPath $entryPath
               if (-not $entry) {

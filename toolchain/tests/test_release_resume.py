@@ -35,7 +35,7 @@ BUILD_PS1 = REPO_ROOT / "build.ps1"
 
 V = "1.2.1"
 STAGE_IDS = (
-    ["gate", "commit", "packaging", "selfCheck", "tag"]
+    ["gate", "commit", "candidate", "packaging", "selfCheck", "tag"]
     + [f"registry:{n}" for n in PACKAGE_NAMES]
     + ["push", "githubRelease"]
 )
@@ -49,7 +49,7 @@ VERSION_FILES = [
 
 
 def stage_ids_for(names: list[str]) -> list[str]:
-    return ["gate", "commit", "packaging", "selfCheck", "tag"] + [f"registry:{n}" for n in names] + ["push", "githubRelease"]
+    return ["gate", "commit", "candidate", "packaging", "selfCheck", "tag"] + [f"registry:{n}" for n in names] + ["push", "githubRelease"]
 
 
 def ps_lit(value: object) -> str:
@@ -101,7 +101,7 @@ $out = [ordered]@{{
 [System.IO.File]::WriteAllText($ResultPath, (ConvertTo-Json -InputObject $out -Depth 6), (New-Object System.Text.UTF8Encoding($false)))
 """
     r = run_ps_json(tmp_path, body)
-    assert r["ids"] == ["gate", "commit", "packaging", "selfCheck", "tag", "registry:a.pkg", "registry:b.pkg", "push", "githubRelease"]
+    assert r["ids"] == ["gate", "commit", "candidate", "packaging", "selfCheck", "tag", "registry:a.pkg", "registry:b.pkg", "push", "githubRelease"]
     assert (r["version"], r["parent"], r["release"]) == ("1.2.1", "abc123", "def456")
     assert r["createdAtType"] == "String"
     iso = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$")
@@ -137,10 +137,10 @@ def test_resume_plan_first_unfinished_and_required_stages(tmp_path: Path) -> Non
     """续跑计划：必需阶段 = gate/commit/packaging/selfCheck/tag 恒必需，registry:* 仅 -PublishRegistry，
     push/githubRelease 仅 -Publish；打包与自检成组（selfCheck 未完成则 packaging 也要重跑）；自相矛盾的状态被识别。"""
     names = ["p1", "p2"]
-    base = ["gate", "commit", "packaging", "selfCheck"]
+    base = ["gate", "commit", "candidate", "packaging", "selfCheck"]
     cases = {
         "after_commit_only": _plan_case(["gate", "commit"], registry=False, publish=False),
-        "packaging_done_selfcheck_not": _plan_case(["gate", "commit", "packaging"], registry=False, publish=False),
+        "packaging_done_selfcheck_not": _plan_case(["gate", "commit", "candidate", "packaging"], registry=False, publish=False),
         "through_selfcheck": _plan_case(base, registry=False, publish=False),
         "through_tag_default_flags": _plan_case(base + ["tag"], registry=False, publish=False),
         "through_tag_registry_flag": _plan_case(base + ["tag"], registry=True, publish=False),
@@ -168,12 +168,12 @@ foreach ($prop in $cases.PSObject.Properties) {{
 [System.IO.File]::WriteAllText($ResultPath, (ConvertTo-Json -InputObject $result -Depth 6), (New-Object System.Text.UTF8Encoding($false)))
 """
     r = run_ps_json(tmp_path, body)
-    assert r["after_commit_only"]["first"] == "packaging" and r["after_commit_only"]["needPackaging"] is True
+    assert r["after_commit_only"]["first"] == "candidate" and r["after_commit_only"]["needPackaging"] is True
     assert r["packaging_done_selfcheck_not"]["first"] == "packaging", "自检未完成时打包也要重跑（成组）"
     assert r["packaging_done_selfcheck_not"]["needPackaging"] is True
     assert r["through_selfcheck"]["first"] == "tag" and r["through_selfcheck"]["needPackaging"] is False
     assert r["through_tag_default_flags"]["first"] is None
-    assert r["through_tag_default_flags"]["required"] == ["gate", "commit", "packaging", "selfCheck", "tag"]
+    assert r["through_tag_default_flags"]["required"] == ["gate", "commit", "candidate", "packaging", "selfCheck", "tag"]
     assert r["through_tag_registry_flag"]["first"] == "registry:p1"
     assert r["registry_partial"]["first"] == "registry:p2"
     assert r["registry_done_publish_flag"]["first"] == "push"
@@ -277,7 +277,7 @@ def _write_state(repo: Path, **overrides) -> Path:
         "schema": 1, "version": "1.0.1", "previousVersion": "1.0.0",
         "parentCommit": info["parent"], "releaseCommit": info["release"],
         "gateConclusion": "gate ok", "createdAt": "2026-10-04T00:00:00+00:00", "updatedAt": "2026-10-04T00:00:00+00:00",
-        "stages": {sid: {"done": sid in ("gate", "commit"), "at": None, "detail": None} for sid in ["gate", "commit", "packaging", "selfCheck", "tag", "push", "githubRelease"]},
+        "stages": {sid: {"done": sid in ("gate", "commit"), "at": None, "detail": None} for sid in ["gate", "commit", "candidate", "packaging", "selfCheck", "tag", "push", "githubRelease"]},
     }
     state.update(overrides)
     path = repo / "dist" / "release-1.0.1.state.json"
@@ -564,8 +564,17 @@ def test_normal_release_stage_order_and_state_updated_at_every_stage(released) -
     状态文件每个阶段都写了完成标记且时间戳按阶段顺序不递减，发布提交只含版本文件，工作树最后干净，状态文件没被瘦身删掉。"""
     skel, snap = released
     labels = snap["calls"]
+    rc = f"{V}-rc.1"
     expected = (
-        ["check.ps1", "dotnet build", "dotnet test"]
+        ["check.ps1"]
+        # 候选阶段（ADR-0160）：查私服已有 rc 序号 -> 构建并打候选包 -> 发 rc 到私服 -> 样板升级 -> 样板门禁
+        + [f"npm view {n}" for n in PACKAGE_NAMES]
+        + ["dotnet build"]
+        + [f"npm pack {n}" for n in PACKAGE_NAMES]
+        + [f"npm publish {n}" for n in PACKAGE_NAMES]
+        + [f"samples-upgrade {rc}", "samples-check.ps1"]
+        # 正式打包与发布
+        + ["dotnet build", "dotnet test"]
         + [f"npm pack {n}" for n in PACKAGE_NAMES]
         + [f"npm publish {n}" for n in PACKAGE_NAMES]
         + ["gh release create"]
@@ -719,7 +728,8 @@ def test_resume_registry_partial_publish_only_the_missing_packages(rel: Skeleton
     assert [l for l in labels if l.startswith("npm publish")] == [f"npm publish {p}" for p in PACKAGE_NAMES[2:]]
     assert not any(l.startswith("npm pack") or l == "dotnet build" or l == "check.ps1" for l in labels)
     assert rel.git("rev-parse", f"refs/tags/{rel.tag}") == tag_obj
-    assert set(json.loads(rel.npm_store_path.read_text(encoding="utf-8"))) == {f"{p}@{V}" for p in PACKAGE_NAMES}
+    final_keys = {k for k in json.loads(rel.npm_store_path.read_text(encoding="utf-8")) if "-rc." not in k}
+    assert final_keys == {f"{p}@{V}" for p in PACKAGE_NAMES}
     assert all(rel.stage_done(f"registry:{p}") for p in PACKAGE_NAMES)
     assert not rel.stage_done("push"), "没传 -Publish 时推送/GitHub 阶段不是必需阶段，不应被执行或标记"
 
@@ -836,7 +846,7 @@ def test_resume_github_release_uploads_only_missing_assets_without_clobber(rel: 
     assert _gh_assets(rel) == kept
 
 
-def test_resume_github_release_absent_is_created_with_all_five_assets(rel: Skeleton) -> None:
+def test_resume_github_release_absent_is_created_with_all_seven_assets(rel: Skeleton) -> None:
     store = json.loads(rel.gh_store_path.read_text(encoding="utf-8"))
     kept = dict(store[rel.tag])
     del store[rel.tag]
@@ -844,7 +854,7 @@ def test_resume_github_release_absent_is_created_with_all_five_assets(rel: Skele
     _undo(rel, "githubRelease")
     proc = _resume(rel, "-Publish")
     assert proc.returncode == 0, proc.stdout_text
-    assert _gh_assets(rel) == kept and len(kept) == 5
+    assert _gh_assets(rel) == kept and len(kept) == 7
 
 
 def test_resume_github_release_size_mismatch_refused_never_clobbered(rel: Skeleton) -> None:
@@ -880,7 +890,7 @@ def test_packaging_failure_then_resume_skips_gate_and_does_not_recommit(tmp_path
     - 失败后：状态文件保留（门禁/提交已完成，打包未完成）、没有标签、失败提示推荐 -Resume 命令；
     - -Resume：不再调用 check.ps1、不重新提交（HEAD 与提交数不变）、不再跑 dotnet test，重新打包 -> 自检 -> 打标签。"""
     skel = build_skeleton(tmp_path)
-    first = skel.run_build("-Release", V, "-SkipManual", env_extra={"NPM_STUB_FAIL_PACK": "1"})
+    first = skel.run_build("-Release", V, "-SkipManual", env_extra={"NPM_STUB_FAIL_PACK_VERSION": V})
     assert first.returncode != 0
     state = skel.read_state()
     assert state["stages"]["gate"]["done"] and state["stages"]["commit"]["done"]
@@ -891,6 +901,7 @@ def test_packaging_failure_then_resume_skips_gate_and_does_not_recommit(tmp_path
     assert f"build.ps1 -Release {V} -Resume" in first.stdout_text
     labels1 = skel.call_labels()
     assert labels1.count("check.ps1") == 1 and "dotnet test" in labels1
+    assert skel.stage_done("candidate"), "候选阶段在打包之前已通过并记录，续跑不重做"
     commits_before = skel.git("rev-list", "--count", "HEAD")
 
     n = len(skel.calls())
@@ -900,11 +911,12 @@ def test_packaging_failure_then_resume_skips_gate_and_does_not_recommit(tmp_path
     assert "check.ps1" not in labels2, "续跑不得重跑全量门禁"
     assert "dotnet test" not in labels2, "续跑的打包阶段跳过 dotnet test（门禁已对同一棵代码树跑过）"
     assert labels2.count("dotnet build") == 1
+    assert not any(l.startswith("samples-") for l in labels2), "候选已通过，续跑不重跑样板门禁"
     assert [l for l in labels2 if l.startswith("npm pack")] == [f"npm pack {p}" for p in PACKAGE_NAMES]
     assert skel.head() == release_commit and skel.git("rev-list", "--count", "HEAD") == commits_before
     assert skel.git("rev-parse", f"refs/tags/{skel.tag}^{{commit}}") == release_commit
     state2 = skel.read_state()
-    for sid in ("gate", "commit", "packaging", "selfCheck", "tag"):
+    for sid in ("gate", "commit", "candidate", "packaging", "selfCheck", "tag"):
         assert state2["stages"][sid]["done"], sid
     assert state2["releaseCommit"] == release_commit
     assert f"powershell -File build.ps1 -Release {V} -Resume" not in second.stdout_text, "成功完成后不应再打印失败恢复提示"
@@ -914,7 +926,7 @@ def test_packaging_failure_then_resume_skips_gate_and_does_not_recommit(tmp_path
 def test_failure_hint_printed_on_exit_path_too(tmp_path: Path) -> None:
     """失败提示在 throw 路径（上一个用例）与 `exit` 路径（这里：dotnet build 非零退出码）都要打印。"""
     skel = build_skeleton(tmp_path)
-    proc = skel.run_build("-Release", V, "-SkipManual", env_extra={"DOTNET_STUB_EXIT": "3"})
+    proc = skel.run_build("-Release", V, "-SkipManual", env_extra={"DOTNET_STUB_EXIT": "3", "DOTNET_STUB_EXIT_FROM_BUILD": "2"})
     assert proc.returncode == 3
     assert f"build.ps1 -Release {V} -Resume" in proc.stdout_text
     assert skel.stage_done("commit") and not skel.stage_done("packaging")
@@ -922,9 +934,10 @@ def test_failure_hint_printed_on_exit_path_too(tmp_path: Path) -> None:
 
 def test_resume_hint_keeps_the_same_publish_switches(tmp_path: Path) -> None:
     skel = build_skeleton(tmp_path)
-    proc = skel.run_build("-Release", V, "-SkipManual", "-PublishRegistry", "-Publish", env_extra={"DOTNET_STUB_EXIT": "3"})
+    proc = skel.run_build("-Release", V, "-SkipManual", "-PublishRegistry", "-Publish",
+                          env_extra={"DOTNET_STUB_EXIT": "3", "DOTNET_STUB_EXIT_FROM_BUILD": "2"})
     assert proc.returncode == 3
-    assert f"build.ps1 -Release {V} -Resume -PublishRegistry -Publish -SkipManual" in proc.stdout_text
+    assert f"build.ps1 -Release {V} -Resume -PublishRegistry -Publish -SkipManual -SamplesRepo {skel.samples}" in proc.stdout_text
 
 
 def test_gate_failure_is_not_resumable_and_gives_no_resume_hint(tmp_path: Path) -> None:
@@ -1010,3 +1023,63 @@ def test_toolchain_readme_records_the_resume_decisions() -> None:
     readme = (REPO_ROOT / "toolchain" / "README.md").read_text(encoding="utf-8")
     assert "-Resume" in readme and "release-<ver>.state.json" in readme
     assert "不在续跑范围" in readme
+
+
+# --- 发布候选阶段（ADR-0160）端到端 ----------------------------------------------
+
+
+def test_red_samples_gate_stops_before_tag_and_resume_publishes_a_fresh_rc(tmp_path: Path) -> None:
+    """样板门禁红 -> 在打标签前终止：没有标签、没有打包产物、没有正式版发布，发布提交与状态文件保留，失败提示推荐 -Resume；
+    样板修好后 -Resume：不重跑框架门禁、不重新提交，发布新的 rc.2（不覆盖 rc.1），样板门禁绿后继续打包/打标签/发布。"""
+    skel = build_skeleton(tmp_path)
+    first = skel.run_build("-Release", V, "-SkipManual", "-PublishRegistry", env_extra={"SAMPLES_STUB_EXIT": "1"})
+    assert first.returncode != 0, first.stdout_text
+    assert skel.git("tag", "-l") == "", "候选红了不得打标签"
+    state = skel.read_state()
+    assert state["stages"]["gate"]["done"] and state["stages"]["commit"]["done"]
+    assert not state["stages"]["candidate"]["done"] and not state["stages"]["packaging"]["done"] and not state["stages"]["tag"]["done"]
+    labels1 = skel.call_labels()
+    assert "samples-check.ps1" in labels1
+    assert not (skel.root / "dist" / V).exists(), "候选红了不得走到正式打包"
+    store1 = set(json.loads(skel.npm_store_path.read_text(encoding="utf-8")))
+    assert store1 == {f"{p}@{V}-rc.1" for p in PACKAGE_NAMES}, "私服里只有候选，没有正式版"
+    assert f"build.ps1 -Release {V} -Resume" in first.stdout_text
+    release_commit = skel.head()
+    commits_before = skel.git("rev-list", "--count", "HEAD")
+
+    n = len(skel.calls())
+    second = skel.run_build("-Release", V, "-Resume", "-SkipManual", "-PublishRegistry")
+    assert second.returncode == 0, f"{second.stdout_text}\n{second.stderr_text}"
+    labels2 = skel.call_labels(skel.calls_since(n))
+    assert "check.ps1" not in labels2 and skel.head() == release_commit and skel.git("rev-list", "--count", "HEAD") == commits_before
+    assert f"samples-upgrade {V}-rc.2" in labels2 and "samples-check.ps1" in labels2
+    keys = set(json.loads(skel.npm_store_path.read_text(encoding="utf-8")))
+    assert {f"{p}@{V}-rc.1" for p in PACKAGE_NAMES} <= keys and {f"{p}@{V}-rc.2" for p in PACKAGE_NAMES} <= keys
+    assert {f"{p}@{V}" for p in PACKAGE_NAMES} <= keys
+    assert skel.git("rev-parse", f"refs/tags/{skel.tag}^{{commit}}") == release_commit
+    assert skel.stage_done("candidate") and "rc.2" in skel.read_state()["stages"]["candidate"]["detail"]
+
+
+def test_release_refuses_without_a_samples_repo_and_opt_out_is_recorded(tmp_path: Path) -> None:
+    skel = build_skeleton(tmp_path)
+    missing = tmp_path / "no_samples_here"
+    refused = skel.run_build("-Release", V, "-SkipManual", "-SamplesRepo", str(missing))
+    assert refused.returncode != 0
+    assert not skel.stage_done("candidate") and skel.git("tag", "-l") == ""
+    assert not any(l.startswith("npm publish") for l in skel.call_labels()), "拒绝时不得向私服发任何东西"
+
+    n = len(skel.calls())
+    opted = skel.run_build("-Release", V, "-Resume", "-SkipManual", "-SkipSamplesCandidate")
+    assert opted.returncode == 0, f"{opted.stdout_text}\n{opted.stderr_text}"
+    detail = skel.read_state()["stages"]["candidate"]["detail"]
+    assert "OPT-OUT" in detail
+    assert not any(l.startswith("samples-") for l in skel.call_labels(skel.calls_since(n)))
+    assert skel.git("rev-parse", f"refs/tags/{skel.tag}^{{commit}}") == skel.head()
+
+
+def test_samples_flags_require_release(tmp_path: Path) -> None:
+    skel = build_skeleton(tmp_path)
+    for flag in (["-SkipSamplesCandidate"], ["-SamplesRepo", str(tmp_path)]):
+        proc = skel.run_build("-Dist", "1.2.1-dryrun", *flag)
+        assert proc.returncode == 1
+        assert "-SamplesRepo/-SkipSamplesCandidate" in proc.stdout_text

@@ -47,15 +47,17 @@ FEELLAB_CSPROJ = (REPO_ROOT / "toolchain" / "feellab" / "FeelLab.csproj").read_t
 CONSUMER_SMOKE = (REPO_ROOT / "toolchain" / "consumer_smoke.ps1").read_text(encoding="utf-8")
 
 
-def test_dist_copies_the_lab_dataset_action_dataset_and_fixtures_at_repo_relative_paths() -> None:
-    # 与仓库同路径：dist 根本身就是一个实验室根（脚本里的 extraDataRoots、默认夹具目录都按工作目录相对解析）。
-    for source, dest in (("data\\_lab", "data\\_lab"), ("data\\_lab_action", "data\\_lab_action"),
-                          ("data\\_equip", "data\\_equip"), ("lab\\fixtures", "lab\\fixtures")):
-        pattern = r'Copy-DistDir\s+-SourceRelative\s+"' + re.escape(source) + r'"\s+-DestName\s+"' + re.escape(dest) + '"'
-        assert re.search(pattern, BUILD), source
-    for line in ('"data/_lab: $dataLabFileCount files"', '"data/_lab_action: $dataLabActionFileCount files"',
-                 '"data/_equip: $dataEquipFileCount files"', '"lab/fixtures: $labFixturesFileCount files"'):
-        assert line in BUILD, line
+def test_dist_main_tree_no_longer_copies_lab_data_it_only_goes_into_the_two_lab_packages() -> None:
+    # ADR-0160：实验室数据集/动作数据/占位装备集/夹具不再进 dist 主树（主 zip 不含任何实验室内容），
+    # 只经 Copy-LabRootInto 进两个可选包（feel-lab.headless 的 Tools~/feellab/labroot/、feel-lab.unity 的 LabRoot~/）。
+    for source in ("data\\_lab", "data\\_lab_action", "data\\_equip", "lab\\fixtures"):
+        pattern = r'Copy-DistDir\s+-SourceRelative\s+"' + re.escape(source) + '"'
+        assert not re.search(pattern, BUILD), source
+    body = BUILD.split("function Copy-LabRootInto")[1].split("\n    }\n")[0]
+    for part in ("data\\_framework", "data\\_feel", "data\\_feel_templates", "data\\_lab", "data\\_lab_action", "data\\_equip", "lab\\fixtures"):
+        assert f'"{part}"' in body, part
+    assert 'Copy-LabRootInto -TargetDir (Join-Path $pkgLabHeadlessFeelLabDir "labroot")' in BUILD
+    assert 'Copy-LabRootInto -TargetDir (Join-Path $pkgLabUnityDir "LabRoot~")' in BUILD
 
 
 def test_lab_data_is_not_mirrored_into_streaming_assets_or_the_framework_data_package() -> None:
@@ -64,19 +66,19 @@ def test_lab_data_is_not_mirrored_into_streaming_assets_or_the_framework_data_pa
     assert not re.search(r'\$pkgDataDataTilde "data\\_lab', BUILD)
 
 
-def test_feellab_prebuilt_output_and_lib_are_packaged_like_simrunner() -> None:
-    assert 'Join-Path $DistRoot "toolchain\\feellab\\bin"' in BUILD
-    assert 'Join-Path $DistRoot "toolchain\\feellab\\lib"' in BUILD
-    assert 'Join-Path $DistRoot "toolchain\\feellab\\Directory.Build.props"' in BUILD
+def test_feellab_prebuilt_output_and_lib_are_packaged_into_the_lab_headless_package() -> None:
+    # ADR-0160：预编译命令行不再放进 dist\\toolchain\\feellab\\（不随 toolchain 包），而是直接组装进 feel-lab.headless 包目录。
+    assert 'Join-Path $pkgLabHeadlessDir "Tools~\\feellab"' in BUILD
+    assert 'Join-Path $pkgLabHeadlessFeelLabDir "bin"' in BUILD
+    assert 'Join-Path $pkgLabHeadlessFeelLabDir "lib"' in BUILD
+    assert 'Join-Path $pkgLabHeadlessFeelLabDir "Directory.Build.props"' in BUILD
     assert '"[feellab]"' in BUILD
-    # 打包顺序：必须排在"打四个 npm 包"（toolchain 包内容取自 dist\\<ver>\\toolchain\\）之前。
-    assert BUILD.index('toolchain\\feellab\\bin"') < BUILD.index('$pkgToolDir = Join-Path $PackagesRoot "com.gamefoundation.toolchain"')
+    # toolchain 包的 Tools~ 拷贝必须排除 feellab（门禁 pkg_manifest 另有反向断言）。
+    assert re.search(r'Copy-DistDir\s+-SourceRelative\s+"toolchain".*feellab', BUILD)
 
 
-def test_toolchain_package_carries_a_self_contained_lab_root() -> None:
-    assert 'Join-Path $pkgToolDir "Tools~\\feellab\\labroot"' in BUILD
-    for part in ("data\\_framework", "data\\_feel", "data\\_feel_templates", "data\\_lab", "data\\_lab_action", "data\\_equip", "lab\\fixtures"):
-        assert f'"{part}"' in BUILD.split("$pkgFeelLabRoot = ")[1].split("Write-Host")[0], part
+def test_lab_headless_package_carries_a_self_contained_lab_root() -> None:
+    assert 'Copy-LabRootInto -TargetDir (Join-Path $pkgLabHeadlessFeelLabDir "labroot")' in BUILD
 
 
 def test_feellab_csproj_lib_fallback_lists_exactly_the_dlls_build_ps1_ships() -> None:
@@ -93,7 +95,7 @@ def test_feellab_csproj_lib_fallback_lists_exactly_the_dlls_build_ps1_ships() ->
 
 
 def test_consumer_smoke_runs_the_dist_feellab_suite() -> None:
-    assert "feellab\\bin\\FeelLab.dll" in CONSUMER_SMOKE
+    assert "feel-lab.headless" in CONSUMER_SMOKE and "bin\\FeelLab.dll" in CONSUMER_SMOKE
     assert re.search(r"Invoke-Step\s+\"[^\"]*feellab", CONSUMER_SMOKE)
 
 

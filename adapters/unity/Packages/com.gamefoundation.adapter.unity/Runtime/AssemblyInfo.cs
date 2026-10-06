@@ -6,8 +6,9 @@ using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Adapter.Unity.Tests.Editor")]
 [assembly: InternalsVisibleTo("Adapter.Unity.Tests.Runtime")]
-// 实验室引擎宿主（可选组件，见 Runtime/LabHost）按模拟时间驱动资源加载器、音频、镜头与模型，仍需要它们的内部 Tick 入口
-// （按设计只应由 UnityEngineHost 驱动）；帧动画播放器与特效序列播放器已改走公开的 Step() 加可注入时间源（M4-W4），不再依赖内部入口。
-[assembly: InternalsVisibleTo("Adapter.Unity.LabHost")]
-// 参考皮肤包 PlayMode 用例（Tests/Runtime/LabHost/ReferenceSkinPlayModeTests）要换资源内容根并手动驱动自己的加载器，需要 RootDirOverrideForTests 与 Tick。
-[assembly: InternalsVisibleTo("Adapter.Unity.Tests.LabHost")]
+// 判断记录（ADR-0160，运行时包不认识任何开发期可选包）：这里不再点名实验室程序集。实验室引擎宿主按模拟时间驱动资源加载器、音频与镜头所需的
+// Tick 入口已改成公开成员（UnityResourceLoader.Tick、UnityAudio.Tick、UnityCamera.Tick），宿主走公开接口，不靠内部可见性；
+// 门禁断言运行时包的 InternalsVisibleTo 不得点名实验室或演示程序集。
+// 工作台工程里的真实美术回归（Assets/RealAssetTests，参考皮肤包的 PlayMode 用例，随框架仓库但不进任何发布包）要换资源内容根，
+// 需要测试接缝 UnityResourceLoader.RootDirOverrideForTests；它是测试程序集，不是实验室程序集。
+[assembly: InternalsVisibleTo("Framework.RealAssetTests")]

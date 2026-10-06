@@ -318,8 +318,15 @@ if ($FromRegistry) {
     # dependencies——只在下面 ws-game.lock 的 source.optional_packages 里登记为"本次引用的框架
     # 版本额外提供、按需自取"的可选包，见 toolchain/registry/manifests/adapter-headless/README.md
     # 判断记录"为什么本包不写入 Packages/manifest.json"。
+    #
+    # ADR-0160（2026-10-06）新增两个可选的开发期包：com.gamefoundation.feel-lab.unity（引擎实验室宿主与面板，
+    # 仅编辑器编译）与 com.gamefoundation.feel-lab.headless（无头实验室命令行与实验室根）。它们同样不是游戏
+    # 运行时依赖，只登记为可选包；游戏想用实验室时自己把 feel-lab.unity 加进 Packages/manifest.json，
+    # 或 npm install feel-lab.headless。
     $OptionalPackageNames = @(
-        "com.gamefoundation.adapter.headless"
+        "com.gamefoundation.adapter.headless",
+        "com.gamefoundation.feel-lab.unity",
+        "com.gamefoundation.feel-lab.headless"
     )
     $RegistryScope = "com.gamefoundation"
 
@@ -427,7 +434,9 @@ if ($FromRegistry) {
     # （不是 Unity 依赖，见 $OptionalPackageNames 判断记录）。
     Write-Host ""
     Write-Host ("  可选包（不写入 manifest.json 的 dependencies，编辑器/无头宿主按需 npm install）：" + ($OptionalPackageNames -join ", ")) -ForegroundColor Cyan
-    Write-Host ("    npm install " + $OptionalPackageNames[0] + "@" + $Version + " --registry " + $RegistryUrl)
+    foreach ($optionalName in $OptionalPackageNames) {
+        Write-Host ("    npm install " + $optionalName + "@" + $Version + " --registry " + $RegistryUrl)
+    }
 
     Write-Host ""
     Write-Host "get_framework.ps1 -FromRegistry 完成：version=$Version，registry=$RegistryUrl" -ForegroundColor Green

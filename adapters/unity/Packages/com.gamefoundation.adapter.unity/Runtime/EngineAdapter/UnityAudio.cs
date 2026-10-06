@@ -264,10 +264,10 @@ namespace Adapter.Unity.EngineAdapter
 
         internal AudioSource InactiveMusicSource => _musicUsingA ? _musicSourceB : _musicSourceA;
 
-        /// <summary>由 UnityEngineHost.Update 每帧调用：推进音乐淡入淡出、把总线音量实时应用到正在
+        /// <summary>由 UnityEngineHost.Update 每帧调用（公开：不经 UnityEngineHost 生命周期、自己按模拟时间推进的宿主，如手感实验室舞台，也调它，ADR-0160）：推进音乐淡入淡出、把总线音量实时应用到正在
         /// 播放的音乐（SFX 总线音量在 SetBusVolume 里直接应用到在播池位，见该方法判断记录），并回收自然播放结束的 SFX 池位
         /// （R10 根治，见 <see cref="ReclaimFinishedSfxSlots"/>）。</summary>
-        internal void Tick(double deltaSeconds)
+        public void Tick(double deltaSeconds)
         {
             ReclaimFinishedSfxSlots();
 

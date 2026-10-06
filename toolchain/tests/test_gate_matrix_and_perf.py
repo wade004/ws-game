@@ -399,7 +399,8 @@ def test_check_script_passes_results_list_directly_not_wrapped_in_array_subexpre
 def test_gate_line_scripts_parse_cleanly_on_the_selected_host(tmp_path: Path) -> None:
     scripts = [CHECK_SCRIPT, REPO_ROOT / "build.ps1", HEAVY_LINE, UNITY_LINE, STEP_RUNNER, FLOORS_PS,
                TOOLCHAIN_DIR / "_gate_unity_verdicts.ps1", TOOLCHAIN_DIR / "_release_regression_guard.ps1",
-               TOOLCHAIN_DIR / "_gate_timing.ps1"]
+               TOOLCHAIN_DIR / "_gate_timing.ps1", TOOLCHAIN_DIR / "_gate_package_boundary.ps1",
+               TOOLCHAIN_DIR / "_release_candidate.ps1"]
     body = f"""
 $out = [ordered]@{{}}
 foreach ($p in @({", ".join(ps_quote(s) for s in scripts)})) {{

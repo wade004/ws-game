@@ -45,6 +45,7 @@
   },
   "testables": [
     "com.gamefoundation.adapter.unity",
+    "com.gamefoundation.feel-lab.unity",
     "com.gamefoundation.game-template"
   ]
 }

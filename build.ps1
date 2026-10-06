@@ -89,6 +89,12 @@
          使打包阶段 `git rev-parse HEAD` 就是这次发布提交本身、工作树干净，`dist/ws-game-<ver>.lock`
          与 `MANIFEST.txt` 的 `git_commit` 字段因此指向一个真实存在的发布提交而不是带 `-dirty`
          后缀的占位值（时序判断记录见脚本内该步骤注释）。
+      6b. 非 `-DryRun` 时：发布候选（ADR-0160，阶段 `candidate`）。先把 `X.Y.Z-rc.N`（N = 私服里已有最大 rc 序号 + 1）
+         的各个包发到本地私服（`npm publish --tag rc`，不打标签、不推送、不建 GitHub Release），再让样板仓库
+         （`-SamplesRepo`）升级到这个候选版本并跑它自己的全量门禁。样板门禁绿才继续打包/打标签/发布；红就在打标签前
+         终止（发布提交与门禁通过记录保留，修好后 `-Resume` 续跑，会发布新的 rc.N+1，不覆盖旧候选）。没有样板仓库默认拒绝，
+         显式 `-SkipSamplesCandidate` 才放行且留痕。候选包由本脚本自己以 `-Dist X.Y.Z-rc.N` 形式构建，内容与正式发布包一致，
+         只有 package.json 的 version 不同。
       7. 打包 `dist/<ver>/`（复用 `-Dist` 打包逻辑）、`dist/ws-game-<ver>.zip`（`Compress-Archive`，
          zip 内顶层目录为 `ws-game-<ver>/`）与 `dist/ws-game-<ver>.lock`（版本号、git_commit、
          六个核心 DLL 的 sha256，供游戏仓库复制为自己的 `ws-game.lock`）；非 `-DryRun` 时打包完成
@@ -171,6 +177,16 @@
       - 决定：续跑不支持 `-AllowOverwriteDist`。理由：续跑自己有"标签不存在才允许覆盖未发布产物"的规则，
         那个开关会绕过"已发布不可变"，与续跑的严格语义冲突。
 
+.PARAMETER SamplesRepo
+    仅与 `-Release` 同传有效（ADR-0160）。样板仓库（`ws-game-samples`）的本地路径，候选阶段（`-Release` 第 6b 步）用它
+    验证"这个版本发出去以后样板还绿"。省略时依次取环境变量 `WS_GAME_SAMPLES`、主工作树同级目录 `ws-game-samples`。
+    样板仓库必须有自己的 `check.ps1` 与 `tools/upgrade_framework.ps1`。
+
+.PARAMETER SkipSamplesCandidate
+    仅与 `-Release` 同传有效（ADR-0160）。显式放弃候选验证：没有样板仓库（或确定不需要验）时才用。默认没有样板仓库就
+    拒绝发布；传本开关放行，但放行本身被记录（控制台醒目警告 + 发布状态文件的 candidate 阶段说明里写 `OPT-OUT`）。
+    候选验证的流程见下面 `-Release` 的第 6b 步与 `toolchain/_release_candidate.ps1` 文件头。
+
 .PARAMETER Zip
     独立于 `-Release` 使用：与 `-Dist`/`-Dist auto` 同传时，额外打一份 `dist/ws-game-<ver>.zip`
     与 `dist/ws-game-<ver>.lock`（与 `-Release` 第 7 步同一份打包逻辑），但不做 `-Release`
@@ -232,7 +248,9 @@ param(
     [switch]$AllowOverwriteDist,
     [switch]$SkipManual,
     [switch]$Resume,
-    [switch]$FullRegate
+    [switch]$FullRegate,
+    [string]$SamplesRepo = "",
+    [switch]$SkipSamplesCandidate
 )
 
 $ErrorActionPreference = "Stop"
@@ -274,6 +292,12 @@ $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 # 与续跑的"发布提交只含版本文件"校验共用同一份，第 6 步的 git add 也直接用它，三处不会漂移）。
 . (Join-Path $RepoRoot "toolchain\_precommit_tiering_guard.ps1")
 . (Join-Path $RepoRoot "toolchain\_release_resume.ps1")
+# 判断记录（发布候选，2026-10-06，ADR-0160）：打标签之前先发 X-rc.N 到本地私服并让样板仓库跑完它自己的门禁；
+# 实现与判断记录见 toolchain/_release_candidate.ps1 文件头，测试见 toolchain/tests/test_release_candidate.py。
+. (Join-Path $RepoRoot "toolchain\_release_candidate.ps1")
+# 判断记录（包边界，2026-10-06，ADR-0160）：打包时就地核对发布树与主 zip 里没有手感实验室/演示场景内容，
+# 纯函数与规则见 toolchain/_gate_package_boundary.ps1 文件头，测试见 toolchain/tests/test_package_boundary.py。
+. (Join-Path $RepoRoot "toolchain\_gate_package_boundary.ps1")
 
 # 版本标签（ADR-0127，AGENTS.md §1b）：由 toolchain/version_label.py 按当前分支自动推导，经环境变量
 # WsGameVersionLabel 传给本脚本启动的 dotnet 构建（Directory.Build.props 据此写程序集信息版本）。
@@ -322,6 +346,9 @@ $DistDirVersion = ""
 # dryrun 验证、不是真实发布"标记的版本号，天然不会与任何真实版本号的发布产物混淆或互相覆盖，
 # 也不需要额外的目录名后缀区分（$DistDirVersion 与 $ResolvedDistVersion 相同）。
 $DistVersionDryRunPattern = '^\d+\.\d+\.\d+-dryrun$'
+# 发布候选（ADR-0160）：`-Dist X.Y.Z-rc.N` 同样是合法 semver 预发布标识，只由 -Release 的候选阶段（子进程）使用；
+# 与 -dryrun 同样不会与任何已发布版本的标签/产物冲突（git tag -l v<带后缀> 查不到），默认跳过手册。
+$DistVersionCandidatePattern = '^\d+\.\d+\.\d+-rc\.\d+$'
 if ($DistRequested) {
     if ($Dist -eq "auto") {
         $ResolvedDistVersion = Get-FrameworkVersionFromFile
@@ -329,9 +356,12 @@ if ($DistRequested) {
     } elseif ($Dist -match $DistVersionDryRunPattern) {
         $ResolvedDistVersion = $Dist
         Write-Host "-Dist $Dist：'-dryrun' 后缀形式（合法 semver 预发布标识），打包内容与目录名均使用这个完整字符串" -ForegroundColor Cyan
+    } elseif ($Dist -match $DistVersionCandidatePattern) {
+        $ResolvedDistVersion = $Dist
+        Write-Host "-Dist $Dist：'-rc.N' 候选形式（发布候选，ADR-0160），打包内容与目录名均使用这个完整字符串" -ForegroundColor Cyan
     } else {
         if ($Dist -notmatch $VersionFormatPattern) {
-            Write-Host "-Dist 版本号格式非法：'$Dist'（需形如 X.Y.Z，或 X.Y.Z-dryrun，或传 'auto' 从 VERSION 文件读取）" -ForegroundColor Red
+            Write-Host "-Dist 版本号格式非法：'$Dist'（需形如 X.Y.Z、X.Y.Z-dryrun 或 X.Y.Z-rc.N，或传 'auto' 从 VERSION 文件读取）" -ForegroundColor Red
             exit 1
         }
         $ResolvedDistVersion = $Dist
@@ -379,6 +409,10 @@ if ($Resume -and $AllowOverwriteDist) {
     Write-Host "-Resume 与 -AllowOverwriteDist 不能同传（续跑自己只在标签尚未创建时才重打未发布的产物；该开关会绕过'已发布不可变'守卫）" -ForegroundColor Red
     exit 1
 }
+if (($SamplesRepo -ne "" -or $SkipSamplesCandidate) -and (-not $ReleaseRequested)) {
+    Write-Host "-SamplesRepo/-SkipSamplesCandidate 仅在同传 -Release <版本号> 时有效（发布候选验证）" -ForegroundColor Red
+    exit 1
+}
 if ($Zip -and (-not $DistRequested) -and (-not $ReleaseRequested)) {
     Write-Host "-Zip 需要同传 -Dist/-Dist auto（或 -Release，其本身已隐含 -Zip 的效果）——没有 dist/<ver>/ 目录可打包" -ForegroundColor Red
     exit 1
@@ -418,6 +452,8 @@ function Get-ReleaseResumeCommandText {
     if ($RegistryUrl -ne "") { $cmd += " -RegistryUrl $RegistryUrl" }
     if ($Publish) { $cmd += " -Publish" }
     if ($SkipManual) { $cmd += " -SkipManual" }
+    if ($SamplesRepo -ne "") { $cmd += " -SamplesRepo $SamplesRepo" }
+    if ($SkipSamplesCandidate) { $cmd += " -SkipSamplesCandidate" }
     return $cmd
 }
 
@@ -481,7 +517,10 @@ function Invoke-ReleaseFinalStages {
     $hashPsAttachPath = $artifactPaths.HashPsPath
     # 消费方反馈 E4 根治新增附件：dist/ws-game-<ver>-samples.zip（打包节 5.65 已生成）。
     $pushCmd = "git push origin $currentBranchForPush refs/tags/$tagName"
-    $releaseCmd = "gh release create $tagName `"$zipPath`" `"$lockPath`" `"$samplesZipPath`" `"$getFrameworkAttachPath`" `"$hashPsAttachPath`" --title `"$tagName`" --notes-file `"$releaseNotesPath`""
+    # ADR-0160：两个手感实验室包的 .tgz 不在主 zip 里（CI 缺附件修复只能从 zip 抽取），由本机一并作为附件创建。
+    $labTgzAttach = ""
+    foreach ($labTgz in @($artifactPaths.LabTgzPaths)) { $labTgzAttach += " `"$labTgz`"" }
+    $releaseCmd = "gh release create $tagName `"$zipPath`" `"$lockPath`" `"$samplesZipPath`"$labTgzAttach `"$getFrameworkAttachPath`" `"$hashPsAttachPath`" --title `"$tagName`" --notes-file `"$releaseNotesPath`""
 
     Write-Host ""
     $resumeNote = ""
@@ -506,7 +545,7 @@ function Invoke-ReleaseFinalStages {
             -StatePath $ReleaseStatePath -Resume:$Resume
 
         Invoke-ReleaseGitHubStage -RepoRoot $RepoRoot -Version $Release `
-            -AssetPaths @($zipPath, $lockPath, $samplesZipPath, $getFrameworkAttachPath, $hashPsAttachPath) `
+            -AssetPaths (@($zipPath, $lockPath, $samplesZipPath) + @($artifactPaths.LabTgzPaths) + @($getFrameworkAttachPath, $hashPsAttachPath)) `
             -NotesPath $releaseNotesPath -StatePath $ReleaseStatePath -Resume:$Resume
         Write-Host "  -Publish 完成：已推送并创建 GitHub Release $tagName"
     }
@@ -528,6 +567,12 @@ function Invoke-ReleaseFinalStages {
         Write-Warning "dist 瘦身出错（不影响本次发布）：$($_.Exception.Message)"
     }
     $script:ReleaseFlowCompleted = $true
+}
+
+# 候选阶段（ADR-0160）：正常 -Release 在发布提交之后调用；-Resume 在算出起跑阶段之后调用（阶段函数自己检测"已完成"并跳过）。
+function Invoke-ReleaseCandidateStep {
+    $null = Invoke-ReleaseCandidateStage -RepoRoot $RepoRoot -Version $Release -StatePath $ReleaseStatePath `
+        -SamplesRepo $SamplesRepo -RegistryUrl $RegistryUrl -SkipSamplesCandidate:$SkipSamplesCandidate -Resume:$Resume
 }
 
 # 续跑状态（-Resume 时由下面前置校验填充；正常 -Release 在第 5 步通过后创建状态文件）。
@@ -842,7 +887,15 @@ if ($ReleaseRequested) {
         # 失败恢复提示在脚本末尾的 finally 里统一打印（见 Write-ReleaseResumeHintIfNeeded）；这里先"上膛"，之后任一阶段
         # 失败（含 exit 1）都会打印 `-Resume` 续跑命令。
         $ReleaseResumeHintArmed = $true
-        Write-Host "  提示：若接下来的打包/自检/打标签/发布步骤失败，发布提交 $ReleaseCommitHash 与门禁通过记录已保留；请先修复失败原因，再用 '$(Get-ReleaseResumeCommandText)' 续跑（不重跑全量门禁）。" -ForegroundColor Yellow
+        Write-Host "  提示：若接下来的候选/打包/自检/打标签/发布步骤失败，发布提交 $ReleaseCommitHash 与门禁通过记录已保留；请先修复失败原因，再用 '$(Get-ReleaseResumeCommandText)' 续跑（不重跑全量门禁）。" -ForegroundColor Yellow
+
+        # 第 6b 步（ADR-0160）：发布候选 + 样板仓库验证，红则在打标签前终止（上面已"上膛"，失败会打印续跑提示）。
+        try {
+            Invoke-ReleaseCandidateStep
+        } catch {
+            Write-ReleaseResumeHintIfNeeded
+            throw
+        }
     }
 
     # 续跑：不进入第 4～6 步；由状态文件还原本脚本后面各节用到的变量，并决定从哪个阶段起跑。
@@ -883,6 +936,13 @@ if ($ReleaseRequested) {
             exit 0
         }
         Write-Host "  将从阶段 '$($resumePlan.FirstUnfinished)' 起续跑（不重跑第 1～6 步，不改写历史）。" -ForegroundColor Cyan
+        # 候选阶段（ADR-0160）：未完成就先做（样板修好后重新验证）；已完成则函数内跳过。
+        try {
+            Invoke-ReleaseCandidateStep
+        } catch {
+            Write-ReleaseResumeHintIfNeeded
+            throw
+        }
         if ($resumePlan.NeedPackaging) {
             # 打包与自检视为一组：重新打包前先把 packaging 标回未完成，崩在打包中途也不会留下"已完成"的假记录。
             Set-ReleaseStage -StatePath $ReleaseStatePath -Stage "packaging" -Done $false
@@ -1108,15 +1168,16 @@ if (-not $ContentOnlyMode) {
 }
 
 # ---------------------------------------------------------------------------
-# 3b. 同步引擎实验室宿主的可选 DLL 到 Runtime/Plugins/Lab/（哈希不同才拷贝）
-#     判断记录（实验室引擎宿主，手感设计/06 第 4 节）：引擎宿主复用实验室内核（Lab.Kernel）的脚本、格子、度量与指纹定义，
-#     所以内核及其两个直接依赖（Core.Sim、Adapters.Stub）要给 Unity 端的可选程序集 Adapter.Unity.LabHost 引用。
-#     它们另放 Plugins/Lab/、不进 Plugins/Core/：Plugins/Core/ 的"恰好六个"核对是核心 DLL 的发布契约，
-#     实验室宿主是可选组件，不改变那个数量；不用引擎宿主的游戏不引用 Adapter.Unity.LabHost，这三个 DLL 对它无影响。
+# 3b. 同步引擎实验室宿主的 DLL 到手感实验室 Unity 包的 Runtime/Plugins/（哈希不同才拷贝）
+#     判断记录（实验室引擎宿主，手感设计/06 第 4 节；ADR-0160 起落在可选包里）：引擎宿主复用实验室内核（Lab.Kernel）的脚本、格子、度量与指纹定义，
+#     所以内核及其两个直接依赖（Core.Sim、Adapters.Stub）要给 Unity 端的实验室程序集 FeelLab.Unity 引用。
+#     ADR-0160 之前它们放在适配层包的 Plugins/Lab/；拆分后适配层包是纯运行时包，不得含任何实验室文件，
+#     这三个 DLL 随实验室宿主一起搬进 com.gamefoundation.feel-lab.unity（Runtime/Plugins/，.dll 被 .gitignore 覆盖，
+#     .dll.meta 入库并固定为"只启用 Editor 平台"，门禁断言）。
 # ---------------------------------------------------------------------------
 if (-not $ContentOnlyMode) {
-    Write-Step "同步实验室宿主可选 DLL 到 Runtime/Plugins/Lab/（哈希不同才拷贝）"
-    $PluginsLabDir = Join-Path $RepoRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Lab"
+    Write-Step "同步实验室宿主 DLL 到 feel-lab.unity 包的 Runtime/Plugins/（哈希不同才拷贝）"
+    $PluginsLabDir = Join-Path $RepoRoot "adapters\unity\Packages\com.gamefoundation.feel-lab.unity\Runtime\Plugins"
     if (-not (Test-Path $PluginsLabDir)) {
         New-Item -ItemType Directory -Force -Path $PluginsLabDir | Out-Null
     }
@@ -1301,7 +1362,6 @@ if (Test-Path $templateDataGameDir) {
 $placeholderMirrorResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "assets\_placeholder")) -DestDir (Join-Path $StreamingAssetsRoot "assets\_placeholder")
 Write-Host ("  assets/_placeholder -> StreamingAssets/GameFoundation/assets/_placeholder（整体镜像）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $placeholderMirrorResult.Total, $placeholderMirrorResult.Copied, $placeholderMirrorResult.Skipped, $placeholderMirrorResult.Removed)
 
-# 演示场景美术（assets/_showcase，ADR-0154）同样按这张映射并入同一棵目标目录树（只同步进工作台，不进 dist）。
 # sprites/audio/vfx 三处同时同步 assets/_placeholder/<x>（占位素材）与 assets/_sample/<x>
 # （toolchain/import_sample_assets.py 导入的样例资产）到同一棵目标目录树，见上方 4 节头注释。
 # 判断记录（P07 根治，2026-09-07，审计 audit-7e63d66-20260907/
@@ -1319,25 +1379,13 @@ $resourceLayoutMap = (Get-Content -Path $resourceLayoutMapPath -Raw -Encoding UT
 foreach ($mapping in $resourceLayoutMap.mappings) {
     $sourceSubdir = $mapping.source
     $targetSubdir = $mapping.target
-    $mappingSourceDirs = @((Join-Path $RepoRoot ("assets\_placeholder\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_sample\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_showcase\" + $sourceSubdir)))
-    # 参考界面皮肤包（assets/_reference_fantasy/ui/skin/reference_fantasy，ADR-0152、ADR-0154）：演示场景的 HUD 引用 skin.reference_fantasy，
-    # 皮肤包只按 StreamingAssets/GameFoundation/ui/skin/<名>/ 读取；此前构建同步不放它，普通检出里演示场景 HUD 悄悄退回占位皮肤、
-    # 只有测试临时拷贝时才看得到真皮肤。现在只同步 ui 这一棵（皮肤包本身）进工作台（不进 dist、不进发布打包，ADR-0152 决策 1 的"不进发布"口径不变）；
-    # 参考包的 icons、sprites 不并入（同名物品会覆盖占位美术，皮肤用例自己在临时根里叠放它们）。
-    if ($sourceSubdir -eq "ui") {
-        $mappingSourceDirs += (Join-Path $RepoRoot "assets\_reference_fantasy\ui")
-    }
+    # 判断记录（ADR-0160）：assets/_showcase（真实美术演示场景的美术）已迁往样板仓库，这里不再同步它，也不再把参考界面皮肤包
+    # （assets/_reference_fantasy，ADR-0152）并进工作台的内容根——它只服务演示场景的游戏内界面（样板仓库自带一份）；
+    # 框架自己的皮肤回归用例（adapters/unity/Assets/RealAssetTests）在临时根里叠放它，不依赖构建同步。
+    $mappingSourceDirs = @((Join-Path $RepoRoot ("assets\_placeholder\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_sample\" + $sourceSubdir)))
     $mappingSyncResult = Sync-ContentTree -SourceDirs $mappingSourceDirs -DestDir (Join-Path $StreamingAssetsRoot $targetSubdir)
     Write-Host ("  assets/_placeholder/{0} + assets/_sample/{0} -> StreamingAssets/GameFoundation/{1}（加载器路径规则，见 toolchain/resource_layout_map.json）：共 {2} 个文件，拷贝 {3}，跳过 {4}，删除 {5}" -f $sourceSubdir, $targetSubdir, $mappingSyncResult.Total, $mappingSyncResult.Copied, $mappingSyncResult.Skipped, $mappingSyncResult.Removed)
 }
-
-# 3D 演示场景的模型包（assets/_showcase/models：FBX + 贴图 + 着色器 + 规格 JSON，ADR-0158）：同步进 Unity 工程的忽略目录
-# Assets/Showcase3dArt/Source，由包内编辑器工具 ModelPackBuilder 在编辑器加载时装配成预制体/控制器/剪辑（产物同样不入库）。
-# 这棵树是 Unity 导入根，所以保留 .meta（PreserveExtensions），避免每次同步都让导入 guid 变化。
-$showcase3dSourceDir = Join-Path $RepoRoot "assets\_showcase\models"
-$showcase3dDestDir = Join-Path $RepoRoot "adapters\unity\Assets\Showcase3dArt\Source"
-$showcase3dSyncResult = Sync-ContentTree -SourceDirs @($showcase3dSourceDir) -DestDir $showcase3dDestDir -PreserveExtensions @('.meta')
-Write-Host ("  assets/_showcase/models -> Assets/Showcase3dArt/Source（模型包导入根，.meta 保留）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $showcase3dSyncResult.Total, $showcase3dSyncResult.Copied, $showcase3dSyncResult.Skipped, $showcase3dSyncResult.Removed)
 
 $totalContentFiles = (Get-ChildItem -Path $StreamingAssetsRoot -Recurse -File -ErrorAction SilentlyContinue).Count
 Write-Host ("StreamingAssets/GameFoundation/ 下文件总数（含以上五棵树的并集，sprites/audio/vfx 与 assets/_placeholder 下同名文件各自独立计数）：{0}" -f $totalContentFiles)
@@ -1514,7 +1562,9 @@ if ($DistRequested) {
     # 随游戏侧分发，见该目录 README.md）、"node_modules"（registry 子目录下 npm ci 安装产物，
     # 双重保险）、"bin"/"obj"（toolchain/validator/ 的 .NET 构建产物，不预编译随包分发，见
     # com.gamefoundation.toolchain 包 README.md"依赖安装"一节）。
-    $toolchainFileCount = Copy-DistDir -SourceRelative "toolchain" -DestName "toolchain" -ExcludeDirNames @(".venv", "__pycache__", "registry", "node_modules", "bin", "obj")
+    # ADR-0160：手感实验室命令行（toolchain/feellab）不再随 toolchain 包分发，另成可选包 com.gamefoundation.feel-lab.headless，
+    # 因此这里额外排除 "feellab"（排除按路径段精确匹配，toolchain 下只有这一个同名目录）。
+    $toolchainFileCount = Copy-DistDir -SourceRelative "toolchain" -DestName "toolchain" -ExcludeDirNames @(".venv", "__pycache__", "registry", "node_modules", "bin", "obj", "feellab")
     $assetsFileCount = Copy-DistDir -SourceRelative "assets\_placeholder" -DestName "assets\_placeholder"
     # 数据目录框架/游戏分层任务新增：分发包只带框架级数据表（data/_framework），不带
     # data/_sample（那是本仓库自测用的示例数据，不代表任何真实游戏内容，见 data/README.md）。
@@ -1530,19 +1580,12 @@ if ($DistRequested) {
     # 反馈档案、相机档案、占位特效），与 data/_feel 并列、可选：游戏要用模板就把它作为额外框架根装载；不装则与它无关。
     # 它不同步进 StreamingAssets（引导程序按显式常量装载 data/_feel），只进 dist、framework-data 包 Data~/ 与实验室根。
     $dataFeelTemplatesFileCount = Copy-DistDir -SourceRelative "data\_feel_templates" -DestName "data\_feel_templates"
-    # 手感实验室随发布产物分发（原"data/_lab 不分发"作废，06 第 8 节第 2 步：游戏用实验室在自己的数据上校准手感）：
-    # 实验室数据集 data/_lab、data/_lab_action、占位装备集 data/_equip 与标准脚本/基线夹具 lab/fixtures 按"与仓库同路径"整树拷进 dist 根，
-    # 于是 dist/<ver>/ 本身就是一个完整的"实验室根"（含 data/_framework、data/_feel）：在该目录下直接
-    # `dotnet toolchain/feellab/bin/FeelLab.dll suite` 即可，与仓库根里跑 `dotnet run --project toolchain/feellab -- suite`
-    # 的相对路径约定一致（脚本里的 extraDataRoots、默认夹具目录都是相对工作目录解析的）。
-    # 这四棵树不进 framework-data 包（那是运行期框架数据，实验室数据是验收设施用的）；com.gamefoundation.toolchain 包
-    # 另按自包含的 Tools~/feellab/labroot/ 布局组装，见下方 5.15 节。
-    $dataLabFileCount = Copy-DistDir -SourceRelative "data\_lab" -DestName "data\_lab"
-    $dataLabActionFileCount = Copy-DistDir -SourceRelative "data\_lab_action" -DestName "data\_lab_action"
-    # data/_equip（框架级占位装备集，toolchain/gen_std_equip_set.py 生成）：标准脚本 equip_cycle 把它声明为额外数据根，
-    # 实验室跑 suite 必须能读到；同样只作为实验室根的一部分分发，不进 framework-data 包、不同步进 StreamingAssets。
-    $dataEquipFileCount = Copy-DistDir -SourceRelative "data\_equip" -DestName "data\_equip"
-    $labFixturesFileCount = Copy-DistDir -SourceRelative "lab\fixtures" -DestName "lab\fixtures"
+    # 手感实验室是可选的开发期设施（ADR-0160，2026-10-06）：实验室数据集 data/_lab、data/_lab_action、占位装备集 data/_equip 与标准脚本/基线夹具
+    # lab/fixtures 不再按"与仓库同路径"拷进 dist 根（原先 dist 根本身就是一个完整实验室根，那等于每个游戏的主 zip 都带着实验室），
+    # 改为只进两个可选包：com.gamefoundation.feel-lab.headless 的 Tools~/feellab/labroot/ 与 com.gamefoundation.feel-lab.unity 的 LabRoot~/，
+    # 见下方 5.15 节。dist 根与主 zip 里不含任何实验室数据（门禁 pkg_manifest 与本脚本打包末尾的边界自检都断言）。
+    # Unity 侧实验室宿主的源码包 adapters/unity/Packages/com.gamefoundation.feel-lab.unity 直接拷进 dist/<ver>/packages/（含已同步的插件 DLL）。
+    $feelLabUnityFileCount = Copy-DistDir -SourceRelative "adapters\unity\Packages\com.gamefoundation.feel-lab.unity" -DestName "packages\com.gamefoundation.feel-lab.unity"
 
     # 消费方演练任务新增（toolchain/consumer_smoke.ps1 实跑暴露的 dist 缺口，见该脚本判断记录）：
     # TextMeshPro 是 games/_template 主菜单 UI（TemplateShellUi 经 UnityUISurface.DrawText）的运行期
@@ -1570,7 +1613,7 @@ if ($DistRequested) {
     #      构建过（-SyncOnly 则要求产物已存在），不重复 dotnet build。
     # -------------------------------------------------------------------
     $manualFileCount = 0
-    $SkipManualEffective = ($SkipManual -or (($Dist -match $DistVersionDryRunPattern) -and (-not $ReleaseRequested)))
+    $SkipManualEffective = ($SkipManual -or ((($Dist -match $DistVersionDryRunPattern) -or ($Dist -match $DistVersionCandidatePattern)) -and (-not $ReleaseRequested)))
     if ($SkipManualEffective) {
         Write-Host "  已跳过 API 参考手册（-SkipManual，或直接传 -Dist X.Y.Z-dryrun 的打包验证形式；dist 内不含 manual/）" -ForegroundColor Yellow
     } else {
@@ -1920,11 +1963,15 @@ if ($DistRequested) {
     #      b) `lib/` 与空 `Directory.Build.props`：FeelLab.csproj 在"源码树不存在"时改引用 lib/ 下 9 个预编译 DLL
     #         （Lab.Kernel + Core.Sim + Adapters.Stub + 六个核心 DLL，见该 csproj 判断记录），同 simrunner 的
     #         治理方式；空 Directory.Build.props 挡住消费方仓库根同名文件被隐式继承。
-    #      本节必须排在下方 5.15"打四个 npm 包"之前（toolchain 包内容取自这里已补齐的 dist\<ver>\toolchain\）。
+    #      ADR-0160：产物不再进 dist\<ver>\toolchain\feellab\（toolchain 包与主 zip 都不含实验室），改为直接写进可选包
+    #      com.gamefoundation.feel-lab.headless 的 Tools~\feellab\（dist\<ver>\packages\ 下，本节创建，5.15 补 package.json/README/实验室根）。
+    #      本节必须排在下方 5.15"打六个 npm 包"之前。
     #      lock 文件不扩 feellab 字段：同 SimRunner，lock 只记核心/无头/validator 三类 DLL 的 sha256；FeelLab/Lab.Kernel 的
     #      sha256 记进 MANIFEST.txt 的 [feellab] 段（见 5.5 节之后的清单生成）。
     # -------------------------------------------------------------------
-    Write-Step "补齐 dist\$DistDirVersion\toolchain\feellab\{bin,lib}\ + 空 Directory.Build.props（手感实验室命令行入口随构建产物分发）"
+    Write-Step "补齐 dist\$DistDirVersion\packages\com.gamefoundation.feel-lab.headless\Tools~\feellab\{bin,lib}\ + 空 Directory.Build.props（手感实验室命令行，可选包）"
+    $pkgLabHeadlessDir = Join-Path $DistRoot "packages\com.gamefoundation.feel-lab.headless"
+    $pkgLabHeadlessFeelLabDir = Join-Path $pkgLabHeadlessDir "Tools~\feellab"
     $srcFeelLabBinParent = Join-Path $RepoRoot "toolchain\feellab\bin\$Configuration"
     if (-not (Test-Path $srcFeelLabBinParent)) {
         Write-Host "打分发包失败：找不到 $srcFeelLabBinParent（-SyncOnly 要求 FeelLab 项目已完整构建过一次，请先不带 -SyncOnly 跑一次完整构建）" -ForegroundColor Red
@@ -1946,7 +1993,7 @@ if ($DistRequested) {
         Write-Host "打分发包失败：找不到 $srcLabKernelDllPath（Lab.Kernel 构建产物缺失，无法为 toolchain/feellab/lib 补齐实验室内核）" -ForegroundColor Red
         exit 1
     }
-    $distFeelLabBinDir = Join-Path $DistRoot "toolchain\feellab\bin"
+    $distFeelLabBinDir = Join-Path $pkgLabHeadlessFeelLabDir "bin"
     New-Item -ItemType Directory -Force -Path $distFeelLabBinDir | Out-Null
     Get-ChildItem -Path $srcFeelLabTfmDir -File | ForEach-Object {
         Copy-Item -Path $_.FullName -Destination (Join-Path $distFeelLabBinDir $_.Name) -Force
@@ -1956,7 +2003,7 @@ if ($DistRequested) {
         "Lab.Kernel.dll" = (Get-Sha256FileHash -Path (Join-Path $distFeelLabBinDir "Lab.Kernel.dll"))
     }
 
-    $distFeelLabLibDir = Join-Path $DistRoot "toolchain\feellab\lib"
+    $distFeelLabLibDir = Join-Path $pkgLabHeadlessFeelLabDir "lib"
     New-Item -ItemType Directory -Force -Path $distFeelLabLibDir | Out-Null
     foreach ($asm in $CoreAssemblies) {
         $srcDllForFeelLabLib = Join-Path $distAdapterPluginsCoreDir ($asm.Name + ".dll")
@@ -1970,9 +2017,9 @@ if ($DistRequested) {
     Copy-Item -Path $srcStubDllForValidatorLib -Destination (Join-Path $distFeelLabLibDir "Adapters.Stub.dll") -Force
     Copy-Item -Path $srcLabKernelDllPath -Destination (Join-Path $distFeelLabLibDir "Lab.Kernel.dll") -Force
 
-    $distFeelLabDbpPath = Join-Path $DistRoot "toolchain\feellab\Directory.Build.props"
+    $distFeelLabDbpPath = Join-Path $pkgLabHeadlessFeelLabDir "Directory.Build.props"
     [System.IO.File]::WriteAllText($distFeelLabDbpPath, $dbpContent, (New-Object System.Text.UTF8Encoding($false)))
-    Write-Host ("  已补齐 {0} 个 bin 文件 + 9 个 lib DLL -> dist\{1}\toolchain\feellab\（FeelLab.dll sha256={2}）+ 空 Directory.Build.props" -f (Get-ChildItem -Path $distFeelLabBinDir -File).Count, $DistDirVersion, $feelLabAssemblyShaMap["FeelLab.dll"])
+    Write-Host ("  已补齐 {0} 个 bin 文件 + 9 个 lib DLL -> dist\{1}\packages\com.gamefoundation.feel-lab.headless\Tools~\feellab\（FeelLab.dll sha256={2}）+ 空 Directory.Build.props" -f (Get-ChildItem -Path $distFeelLabBinDir -File).Count, $DistDirVersion, $feelLabAssemblyShaMap["FeelLab.dll"])
 
     # -------------------------------------------------------------------
     # 5.1 版本可追溯任务新增：把解析出的版本号写回 dist 内两个 package.json
@@ -2006,6 +2053,23 @@ if ($DistRequested) {
 
     Set-DistPackageJsonVersion -JsonPath (Join-Path $DistRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json") -Version $ResolvedDistVersion
     Set-DistPackageJsonVersion -JsonPath (Join-Path $DistRoot "games\_template\package.json") -Version $ResolvedDistVersion
+    # ADR-0160：feel-lab.unity 的源码 package.json 不带版本耦合（version 恒 0.0.0、无依赖），不进发布写回清单；
+    # 打包时在这里一次性写入本次版本号，并补上对同版本 com.gamefoundation.adapter.unity 的依赖（消费方经注册表解析时需要）。
+    $distFeelLabUnityJsonPath = Join-Path $DistRoot "packages\com.gamefoundation.feel-lab.unity\package.json"
+    $feelLabUnityObj = (Get-Content -Path $distFeelLabUnityJsonPath -Raw -Encoding UTF8) | ConvertFrom-Json
+    $feelLabUnityObj.version = $ResolvedDistVersion
+    $feelLabUnityDeps = [ordered]@{}
+    if ($feelLabUnityObj.PSObject.Properties.Name -contains "dependencies") {
+        foreach ($depProp in $feelLabUnityObj.dependencies.PSObject.Properties) { $feelLabUnityDeps[$depProp.Name] = $depProp.Value }
+    }
+    $feelLabUnityDeps["com.gamefoundation.adapter.unity"] = $ResolvedDistVersion
+    if ($feelLabUnityObj.PSObject.Properties.Name -contains "dependencies") {
+        $feelLabUnityObj.dependencies = [PSCustomObject]$feelLabUnityDeps
+    } else {
+        $feelLabUnityObj | Add-Member -NotePropertyName "dependencies" -NotePropertyValue ([PSCustomObject]$feelLabUnityDeps)
+    }
+    [System.IO.File]::WriteAllText($distFeelLabUnityJsonPath, ($feelLabUnityObj | ConvertTo-Json -Depth 10), (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "  已回写版本号 $ResolvedDistVersion 与对 com.gamefoundation.adapter.unity 的同版本依赖 -> $distFeelLabUnityJsonPath"
 
     # -------------------------------------------------------------------
     # 5.15 私服交付通道新增：组装四个可发布包（ADR-0018 决策 3 新增第四个包
@@ -2015,7 +2079,7 @@ if ($DistRequested) {
     #      "发布"这个有副作用的动作，`npm pack` 只在本地生成 tar 包，不联网、不改变任何远端状态；
     #      真正有副作用的 `npm publish` 由下面 -Release 第 7 步之后的 -PublishRegistry 单独控制。
     # -------------------------------------------------------------------
-    Write-Step "打四个 npm 包（私服交付通道）：dist\$DistDirVersion\packages\"
+    Write-Step "打六个 npm 包（私服交付通道）：dist\$DistDirVersion\packages\"
 
     $PackagesRoot = Join-Path $DistRoot "packages"
     New-Item -ItemType Directory -Force -Path $PackagesRoot | Out-Null
@@ -2064,20 +2128,9 @@ if ($DistRequested) {
     Copy-Item -Path (Join-Path $toolchainManifestDir "README.md") -Destination (Join-Path $pkgToolDir "README.md") -Force
     Set-PackageJsonVersionInline -JsonPath (Join-Path $pkgToolDir "package.json") -Version $ResolvedDistVersion
     Copy-Item -Path (Join-Path $DistRoot "toolchain") -Destination (Join-Path $pkgToolDir "Tools~") -Recurse -Force
-    # 手感实验室（M2-D）：toolchain 包是实验室的家（命令行与预编译产物本来就在上面整份拷进的 Tools~/feellab/ 里）。
-    # 实验室跑 suite 需要一个"实验室根"：工作目录下同时有 data/_framework、data/_feel、data/_lab、data/_lab_action、
-    # data/_equip 与 lab/fixtures（脚本里的 extraDataRoots、默认夹具目录都按工作目录相对解析）。framework-data 包只带
-    # data/_framework 与 data/_feel，且消费方未必装了它，所以这里把六棵树一并放进 Tools~/feellab/labroot/，
-    # 让本包自包含：`cd Tools~/feellab/labroot; dotnet ../bin/FeelLab.dll suite`。框架数据在两个包里各有一份
-    # （共约 85 KB），换来"不要求同时装两个包"；内容来自同一份 dist 树，版本必然一致。
-    $pkgFeelLabRoot = Join-Path $pkgToolDir "Tools~\feellab\labroot"
-    New-Item -ItemType Directory -Force -Path $pkgFeelLabRoot | Out-Null
-    foreach ($labRootPart in @("data\_framework", "data\_feel", "data\_feel_templates", "data\_lab", "data\_lab_action", "data\_equip", "lab\fixtures")) {
-        $labRootPartDst = Join-Path $pkgFeelLabRoot $labRootPart
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $labRootPartDst) | Out-Null
-        Copy-Item -Path (Join-Path $DistRoot $labRootPart) -Destination $labRootPartDst -Recurse -Force
-    }
-    Write-Host "  已组装 $pkgToolDir（含 Tools~/feellab/labroot/ 自包含实验室根）"
+    # ADR-0160：手感实验室不再放在 toolchain 包里（此前 Tools~/feellab/ 与自包含实验室根随本包分发）；见下面的可选包
+    # com.gamefoundation.feel-lab.headless。
+    Write-Host "  已组装 $pkgToolDir"
 
     # 包 4：com.gamefoundation.adapter.headless（ADR-0018 决策 3 新增，无头适配层交付；T-N6-7
     # 扩容纳入 Core.Sim.dll，ADR-0035 决策 1/5）——package.json/README.md 同上取自
@@ -2097,7 +2150,38 @@ if ($DistRequested) {
     Copy-Item -Path (Join-Path $DistRoot "adapters\headless\Core.Sim.dll") -Destination (Join-Path $pkgHeadlessLibTilde "Core.Sim.dll") -Force
     Write-Host "  已组装 $pkgHeadlessDir"
 
-    foreach ($pkgDirForPack in @($pkgAdapterDir, $pkgDataDir, $pkgToolDir, $pkgHeadlessDir)) {
+    # 实验室根（两个可选包共用的内容来源）：从仓库源树直接取（dist 根里不再有实验室数据，ADR-0160）。工作目录约定与实验室一致：
+    # 同时有 data/_framework、data/_feel、data/_feel_templates、data/_lab、data/_lab_action、data/_equip 与 lab/fixtures。
+    # 框架数据在 framework-data 包里另有一份（共约 85 KB），换来"不要求同时装两个包"；内容来自同一个提交，版本必然一致。
+    function Copy-LabRootInto {
+        param([string]$TargetDir)
+        New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
+        foreach ($labRootPart in @("data\_framework", "data\_feel", "data\_feel_templates", "data\_lab", "data\_lab_action", "data\_equip", "lab\fixtures")) {
+            $labRootPartDst = Join-Path $TargetDir $labRootPart
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $labRootPartDst) | Out-Null
+            Copy-Item -Path (Join-Path $RepoRoot $labRootPart) -Destination $labRootPartDst -Recurse -Force
+        }
+    }
+
+    # 包 5：com.gamefoundation.feel-lab.headless（ADR-0160）——可选的开发期设施：预编译实验室命令行 + 自包含实验室根。
+    # Tools~/feellab/{bin,lib,Directory.Build.props} 已由上面 5.0585 节写入；package.json/README.md 取自
+    # toolchain/registry/manifests/feel-lab-headless/。
+    $pkgLabHeadlessDir = Join-Path $PackagesRoot "com.gamefoundation.feel-lab.headless"  # 与上面 5.0585 节同一目录，这里按其余包的写法再声明一次
+    $feelLabHeadlessManifestDir = Join-Path $RepoRoot "toolchain\registry\manifests\feel-lab-headless"
+    Copy-Item -Path (Join-Path $feelLabHeadlessManifestDir "package.json") -Destination (Join-Path $pkgLabHeadlessDir "package.json") -Force
+    Copy-Item -Path (Join-Path $feelLabHeadlessManifestDir "README.md") -Destination (Join-Path $pkgLabHeadlessDir "README.md") -Force
+    Set-PackageJsonVersionInline -JsonPath (Join-Path $pkgLabHeadlessDir "package.json") -Version $ResolvedDistVersion
+    Copy-LabRootInto -TargetDir (Join-Path $pkgLabHeadlessFeelLabDir "labroot")
+    Write-Host "  已组装 $pkgLabHeadlessDir（含 Tools~/feellab/labroot/ 自包含实验室根）"
+
+    # 包 6：com.gamefoundation.feel-lab.unity（ADR-0160）——引擎实验室宿主与面板，只在编辑器编译（asmdef 约束 + 插件元数据，门禁断言）。
+    # 源码包已在上面 Copy-DistDir 拷进 dist/<ver>/packages/，版本号与对适配层包的依赖在 5.1 节写入；这里补
+    # LabRoot~/（实验室根：宿主按 PackageInfo 解析本包路径后找到它，见 EngineLabHost 的实验室根定位判断记录）。
+    $pkgLabUnityDir = Join-Path $PackagesRoot "com.gamefoundation.feel-lab.unity"
+    Copy-LabRootInto -TargetDir (Join-Path $pkgLabUnityDir "LabRoot~")
+    Write-Host "  已组装 $pkgLabUnityDir（含 LabRoot~/ 实验室根）"
+
+    foreach ($pkgDirForPack in @($pkgAdapterDir, $pkgDataDir, $pkgToolDir, $pkgHeadlessDir, $pkgLabUnityDir, $pkgLabHeadlessDir)) {
         & npm pack $pkgDirForPack --pack-destination $PackagesRoot --silent | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "npm pack 失败：$pkgDirForPack（退出码 $LASTEXITCODE，本机是否已安装 node/npm？）"
@@ -2105,6 +2189,18 @@ if ($DistRequested) {
     }
     $tgzFiles = @(Get-ChildItem -Path $PackagesRoot -Filter "*.tgz" -File)
     Write-Host ("  已生成 {0} 个 .tgz：{1}" -f $tgzFiles.Count, (($tgzFiles | ForEach-Object { $_.Name }) -join ", "))
+
+    # 包边界自检（ADR-0160）：发布树里实验室内容只许在两个实验室包里，演示场景内容任何位置都不许出现。
+    # 同一份判定在门禁 pkg_manifest 步骤里对 npm pack 清单再核一遍；这里在产物落盘时就地拦，不等到门禁。
+    $distRootPrefixLength = $DistRoot.TrimEnd('\').Length
+    $distTreeRelativePaths = @(Get-ChildItem -LiteralPath $DistRoot -Recurse -File | ForEach-Object { $_.FullName.Substring($distRootPrefixLength).TrimStart('\') })
+    $distTreeProblems = @(Get-ReleaseTreeBoundaryProblems -RelativePaths $distTreeRelativePaths)
+    if ($distTreeProblems.Count -gt 0) {
+        Write-Host "打分发包失败：发布树边界自检未通过（ADR-0160）：" -ForegroundColor Red
+        foreach ($distTreeProblem in $distTreeProblems) { Write-Host "  $distTreeProblem" -ForegroundColor Red }
+        exit 1
+    }
+    Write-Host ("  包边界自检通过：dist\{0} 共 {1} 个文件，实验室内容只在 packages\com.gamefoundation.feel-lab.* 里，没有演示场景内容" -f $DistDirVersion, $distTreeRelativePaths.Count)
 
     # -------------------------------------------------------------------
     # 5.2 版本可追溯任务新增：git_commit（工作树不干净时加 -dirty 后缀）
@@ -2209,10 +2305,7 @@ if ($DistRequested) {
         "data/_framework: $dataFrameworkFileCount files",
         "data/_feel: $dataFeelFileCount files",
         "data/_feel_templates: $dataFeelTemplatesFileCount files",
-        "data/_lab: $dataLabFileCount files",
-        "data/_lab_action: $dataLabActionFileCount files",
-        "data/_equip: $dataEquipFileCount files",
-        "lab/fixtures: $labFixturesFileCount files",
+        "packages/com.gamefoundation.feel-lab.unity (source, before LabRoot~): $feelLabUnityFileCount files",
         "assets/textmesh_pro_essentials: $tmpEssentialsFileCount files",
         $(if ($SkipManualEffective) { "manual: (skipped)" } else { "manual: $manualFileCount files" }),
         "",
@@ -2275,6 +2368,19 @@ if ($DistRequested) {
             # $zipStagingDir，这样 Compress-Archive 传入 $zipStagingDir 时，zip 内顶层目录名
             # 就是 $zipStagingDir 的 basename（即 "ws-game-<ver>"），而不是 "<ver>"。
             Copy-Item -Path (Join-Path $DistRoot "*") -Destination $zipStagingDir -Recurse -Force
+            # ADR-0160：两个手感实验室包（目录与 .tgz）不进主 zip，只作为单独的 .tgz 附件发布（见 Invoke-ReleaseFinalStages）。
+            foreach ($labPackageName in $script:FeelLabPackageNames) {
+                Remove-Item -LiteralPath (Join-Path $zipStagingDir ("packages\" + $labPackageName)) -Recurse -Force -ErrorAction SilentlyContinue
+                Get-ChildItem -LiteralPath (Join-Path $zipStagingDir "packages") -Filter ($labPackageName + "-*.tgz") -File -ErrorAction SilentlyContinue | Remove-Item -Force
+            }
+            $zipStagingPrefixLength = $zipStagingDir.TrimEnd('\').Length
+            $zipStagingRelativePaths = @(Get-ChildItem -LiteralPath $zipStagingDir -Recurse -File | ForEach-Object { $_.FullName.Substring($zipStagingPrefixLength).TrimStart('\') })
+            $zipTreeProblems = @(Get-ReleaseTreeBoundaryProblems -RelativePaths $zipStagingRelativePaths -AllowLabPackages $false)
+            if ($zipTreeProblems.Count -gt 0) {
+                Write-Host "打 zip 失败：主 zip 边界自检未通过（ADR-0160）：" -ForegroundColor Red
+                foreach ($zipTreeProblem in $zipTreeProblems) { Write-Host "  $zipTreeProblem" -ForegroundColor Red }
+                exit 1
+            }
             if (Test-Path $zipPath) {
                 Remove-Item -Path $zipPath -Force
             }

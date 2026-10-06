@@ -297,3 +297,18 @@ def test_tag_message_leftover_deleted_only_when_tag_exists(tmp_path: Path) -> No
     for ver in untagged:
         assert (dist / f"tag-message-{ver}.txt").exists(), f"标签 v{ver} 不存在，残留应保留"
     assert "未识别，已保留" in applied.stdout and "tag-message-9.9.9.txt" in applied.stdout
+
+
+def test_candidate_rc_directories_are_disposable_like_dryrun_but_formal_versions_stay(tmp_path: Path) -> None:
+    """发布候选（ADR-0160）留下的 dist/<ver>-rc.N 是随私服可重建的临时产物：发版后的瘦身一律删，正式版本目录不受影响。"""
+    repo, dist, _meta = _build_fake_repo(tmp_path, "2.0.0", ["2.0.0"], [], [])
+    (dist / "2.0.0-rc.1" / "packages").mkdir(parents=True)
+    (dist / "2.0.0-rc.1" / "packages" / "x.tgz").write_bytes(b"rc")
+    (dist / "2.0.0-rc.12").mkdir()
+    (dist / "2.0.0-rcx").mkdir()
+    before_formal = (dist / "2.0.0" / "MANIFEST.txt").read_text(encoding="utf-8")
+    result = _run_prune(repo, "-Apply")
+    assert result.returncode == 0, result.stdout
+    assert not (dist / "2.0.0-rc.1").exists() and not (dist / "2.0.0-rc.12").exists()
+    assert (dist / "2.0.0-rcx").exists(), "认不出形态的目录不动"
+    assert (dist / "2.0.0" / "MANIFEST.txt").read_text(encoding="utf-8") == before_formal
