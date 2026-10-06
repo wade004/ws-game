@@ -460,12 +460,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 变更（破坏性，ADR-0160，发布时版本号升到 2.0.0）
+
+- **框架三层拆分：适配层包只剩运行时，手感实验室成为两个可选包，演示场景迁往样板仓库（[ADR-0160](architecture/adr/0160-框架三层拆分运行时包手感实验室可选包与样板仓库.md)）**：
+  ①`com.gamefoundation.adapter.unity` 不再含任何实验室内容——引擎实验室宿主、F1 面板、占位试玩场景构建器（及全部测试、三个实验室插件 DLL）迁入新包 `com.gamefoundation.feel-lab.unity`（程序集改名 `FeelLab.Unity`、`FeelLab.Unity.Editor`；运行期程序集带 `UNITY_EDITOR` 编译约束，插件 `.dll.meta` 只启用 Editor 平台，游戏独立版里没有它的任何字节）；
+  ②实验室命令行、标准脚本与基线夹具、`data/_lab*`、`data/_equip` 从 `com.gamefoundation.toolchain` 包与主发布 zip 移出，成为新包 `com.gamefoundation.feel-lab.headless`（`Tools~/feellab/{bin,lib,labroot}`；单独 `.tgz` 附件与私服包）；注册表包清单由四个变六个，发布附件由九件变十一件；
+  ③三个手感演示场景（2D、2.5D、3D）及其真实美术、数据、导演、HUD、模型包装配器、测试迁往本地样板仓库 `ws-game-samples`，只按版本号消费框架；框架内部的真实素材回归（参考皮肤包与其 PlayMode 测试）改放 `adapters/unity/Assets/RealAssetTests/`，不进任何发布包；
+  ④版本号主版本升到 2.0.0；用过适配层包里实验室宿主或工具链包里实验室命令行的游戏需要改装两个可选包，步骤见 [docs/升级指南/1.100.0到2.0.0-三层拆分.md](docs/升级指南/1.100.0到2.0.0-三层拆分.md)。
+- **新增公开扩展点（`com.gamefoundation.feel-lab.unity`）**：`LabPlaygroundExtension`（`LabPlayground.Extension`：额外数据根、舞台扩展工厂、环绕镜头开关、面板缺省可见性与提示、角落提示、会话起止）、`EngineStageExtension`/`StageSceneContext`/`IStageProjection`（`EngineLabOptions.StageExtension`：外形登记替换、场景搭建、投影、显示绑定、逻辑事件、出手、每帧、广告牌后置、朝向换算、释放）；取代内置的 `Showcase` 开关（`EngineLabOptions.Showcase` 删除）；`UnityAudio.Tick(double)`、`UnityCamera.Tick(double)`、`UnityResourceLoader.Tick()` 由 `internal` 改公开（原先靠对宿主程序集的 `InternalsVisibleTo`，适配层包不再开任何友元给实验室或样板）。`ExtensionPointsPlayModeTests` 钉住调用次序、上下文与替换缺省行为。
+- **发布新增候选阶段（工具链，打标签之前）**：`build.ps1 -Release X` 先把 `X-rc.N` 发到本地私服（标签 `rc`，不占 `latest`，不打标签、不推送），样板仓库升级到候选版本并跑自己的全量门禁，绿才继续、红就在打标签前停下；样板仓库缺失拒绝发布，显式 `-SkipSamplesCandidate` 才放行并记 `OPT-OUT`；`-Resume` 重进该阶段发 `rc.N+1`。样板位置 `-SamplesRepo` > 环境变量 `WS_GAME_SAMPLES` > 同级 `ws-game-samples`。
+- **门禁新增"包边界"判定（`toolchain/_gate_package_boundary.ps1`）**：运行时包里不得有实验室或演示内容、程序集定义与 `InternalsVisibleTo` 不得指向实验室或演示程序集；实验室 Unity 包的运行期程序集必须只在编辑器编译、插件 DLL 元数据只启用 Editor 平台；任何发布包、zip、独立版产物不得含演示内容、主 zip 与运行时包不得含实验室内容；消费方演练对装了实验室 Unity 包的独立版产物做同样断言。每条规则有反例测试。
+
 ### 新增
 
 - **3D 演示场景鼠标环绕镜头与相机相对移动（[ADR-0159](architecture/adr/0159-手感演示场景3D版鼠标环绕镜头与相机相对移动.md)，纯加法，框架契约无变化）**：①`LabShowcase_3d_action` 缺省"鼠标环绕"：右键按住拖动转镜头（水平偏航不限圈数，垂直俯角夹在缺省上下一个区间内），滚轮缩放（区间内）；新增 `OrbitCameraController`（纯数值，指数平滑，只依赖帧间隔）与 `LabPlayground` 的 `OrbitCameraAllowed`/`OrbitCameraStartsEnabled`/`OrbitOptions`/`SetOrbitCamera`/`ResetCamera`/`OrbitInput`。②移动随镜头偏航换算：舞台上的真实相机 `UnityCamera` 实现 `ICameraOrientation`（新增可选 `SampleYawAtCommit`/`CommitYaw`/`SetView`，缺省关，旧行为逐位不变），偏航变化录成脚本标记 `camera_yaw` 并在固定步边界提交；移动动作经宿主选项 `EngineLabOptions.ControlSpaceOverride = camera_relative` 声明（新增选项 `OrbitCamera`/`OrbitOptions`/`OrbitCameraStartsEnabled`），`3d_action` 格子数据与框架缺省不变。③F1 面板场景页新增"镜头"段（固定 / 鼠标环绕、复位镜头），角落热键提示追加"右键拖动转镜头　滚轮缩放"；固定模式姿态与此前逐位一致，逻辑指纹与原 3D 试玩场景逐字节一致。④旋转下的画面：广告牌特效每帧重新定向，遮挡次序按相机深度排，血条与飘字在相机背后时隐藏，地面砖在环绕可用时铺大。已知限制见 ADR-0159：俯角与缩放不录入脚本；脚本只带偏航标记，偏航不为 0 的环绕会话在无头宿主重放不能逐位复现逻辑。
 
 ### 修复
 
+- **实验室并行跑多个格子时数据集缓存的并发写竞争**：`LabRunner.DatasetFor` 的字典缓存在并行格子下可能被同时写入，改为加锁（行为不变，仅消除偶发异常）。
 - **用户开着 Unity Hub 时门禁在消费方演练一步必挂（仅工具链，不改产物）**：`consumer_smoke.ps1` 的 `Wait-NoResidualUnityProcess` 起 Unity 批处理前等残留 `Unity.exe` 退出，此前对"命令行里没有 `-projectPath`"的进程按"无法判断归属"保守等待；Unity Hub 常驻的后台进程 `unity.exe serve` 正是这种进程（不是 Editor、永不退出），60 秒后必判演练失败。`Get-UnitySmokeProcessWaitDecision`（`toolchain/_unity_smoke_wait_scope_guard.ps1`）改为：没有 `-projectPath`/`-createProject` 的进程判 `NoWait`（与"别的工程"同样打一行留痕提示），只有拿不到命令行（空）才保留 `Unknown`；本仓库根/演练工作目录下的工程仍然等。`-createProject` 现在与 `-projectPath` 一并解析。`check.ps1` 的 `Test-NoResidualUnityProcess` 只匹配"命令行含本工程路径"的进程，Hub `serve` 不含工程路径，不受影响，未改。`test_unity_smoke_wait_scope_guard.py` 补回归与不变量用例。
 
 ## [1.100.0] - 2026-10-05

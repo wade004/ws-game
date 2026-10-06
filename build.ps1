@@ -1362,7 +1362,6 @@ if (Test-Path $templateDataGameDir) {
 $placeholderMirrorResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "assets\_placeholder")) -DestDir (Join-Path $StreamingAssetsRoot "assets\_placeholder")
 Write-Host ("  assets/_placeholder -> StreamingAssets/GameFoundation/assets/_placeholder（整体镜像）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $placeholderMirrorResult.Total, $placeholderMirrorResult.Copied, $placeholderMirrorResult.Skipped, $placeholderMirrorResult.Removed)
 
-# 演示场景美术（assets/_showcase，ADR-0154）同样按这张映射并入同一棵目标目录树（只同步进工作台，不进 dist）。
 # sprites/audio/vfx 三处同时同步 assets/_placeholder/<x>（占位素材）与 assets/_sample/<x>
 # （toolchain/import_sample_assets.py 导入的样例资产）到同一棵目标目录树，见上方 4 节头注释。
 # 判断记录（P07 根治，2026-09-07，审计 audit-7e63d66-20260907/
@@ -1380,25 +1379,13 @@ $resourceLayoutMap = (Get-Content -Path $resourceLayoutMapPath -Raw -Encoding UT
 foreach ($mapping in $resourceLayoutMap.mappings) {
     $sourceSubdir = $mapping.source
     $targetSubdir = $mapping.target
-    $mappingSourceDirs = @((Join-Path $RepoRoot ("assets\_placeholder\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_sample\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_showcase\" + $sourceSubdir)))
-    # 参考界面皮肤包（assets/_reference_fantasy/ui/skin/reference_fantasy，ADR-0152、ADR-0154）：演示场景的 HUD 引用 skin.reference_fantasy，
-    # 皮肤包只按 StreamingAssets/GameFoundation/ui/skin/<名>/ 读取；此前构建同步不放它，普通检出里演示场景 HUD 悄悄退回占位皮肤、
-    # 只有测试临时拷贝时才看得到真皮肤。现在只同步 ui 这一棵（皮肤包本身）进工作台（不进 dist、不进发布打包，ADR-0152 决策 1 的"不进发布"口径不变）；
-    # 参考包的 icons、sprites 不并入（同名物品会覆盖占位美术，皮肤用例自己在临时根里叠放它们）。
-    if ($sourceSubdir -eq "ui") {
-        $mappingSourceDirs += (Join-Path $RepoRoot "assets\_reference_fantasy\ui")
-    }
+    # 判断记录（ADR-0160）：assets/_showcase（真实美术演示场景的美术）已迁往样板仓库，这里不再同步它，也不再把参考界面皮肤包
+    # （assets/_reference_fantasy，ADR-0152）并进工作台的内容根——它只服务演示场景的游戏内界面（样板仓库自带一份）；
+    # 框架自己的皮肤回归用例（adapters/unity/Assets/RealAssetTests）在临时根里叠放它，不依赖构建同步。
+    $mappingSourceDirs = @((Join-Path $RepoRoot ("assets\_placeholder\" + $sourceSubdir)), (Join-Path $RepoRoot ("assets\_sample\" + $sourceSubdir)))
     $mappingSyncResult = Sync-ContentTree -SourceDirs $mappingSourceDirs -DestDir (Join-Path $StreamingAssetsRoot $targetSubdir)
     Write-Host ("  assets/_placeholder/{0} + assets/_sample/{0} -> StreamingAssets/GameFoundation/{1}（加载器路径规则，见 toolchain/resource_layout_map.json）：共 {2} 个文件，拷贝 {3}，跳过 {4}，删除 {5}" -f $sourceSubdir, $targetSubdir, $mappingSyncResult.Total, $mappingSyncResult.Copied, $mappingSyncResult.Skipped, $mappingSyncResult.Removed)
 }
-
-# 3D 演示场景的模型包（assets/_showcase/models：FBX + 贴图 + 着色器 + 规格 JSON，ADR-0158）：同步进 Unity 工程的忽略目录
-# Assets/Showcase3dArt/Source，由包内编辑器工具 ModelPackBuilder 在编辑器加载时装配成预制体/控制器/剪辑（产物同样不入库）。
-# 这棵树是 Unity 导入根，所以保留 .meta（PreserveExtensions），避免每次同步都让导入 guid 变化。
-$showcase3dSourceDir = Join-Path $RepoRoot "assets\_showcase\models"
-$showcase3dDestDir = Join-Path $RepoRoot "adapters\unity\Assets\Showcase3dArt\Source"
-$showcase3dSyncResult = Sync-ContentTree -SourceDirs @($showcase3dSourceDir) -DestDir $showcase3dDestDir -PreserveExtensions @('.meta')
-Write-Host ("  assets/_showcase/models -> Assets/Showcase3dArt/Source（模型包导入根，.meta 保留）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $showcase3dSyncResult.Total, $showcase3dSyncResult.Copied, $showcase3dSyncResult.Skipped, $showcase3dSyncResult.Removed)
 
 $totalContentFiles = (Get-ChildItem -Path $StreamingAssetsRoot -Recurse -File -ErrorAction SilentlyContinue).Count
 Write-Host ("StreamingAssets/GameFoundation/ 下文件总数（含以上五棵树的并集，sprites/audio/vfx 与 assets/_placeholder 下同名文件各自独立计数）：{0}" -f $totalContentFiles)

@@ -977,11 +977,11 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
-        /// <summary>由 UnityEngineHost.Update 每帧调用：把后台线程读完（Image/Effect 另已在后台解码成
+        /// <summary>由 UnityEngineHost.Update 每帧调用（公开：不经 UnityEngineHost 生命周期、自己按模拟时间推进的宿主，如手感实验室舞台，也调它，ADR-0160）：把后台线程读完（Image/Effect 另已在后台解码成
         /// 像素）的资源在主线程完成引擎侧收尾并触发调用方回调。ADR-0109：字体/模型/动画剪辑三个
         /// 主线程专用队列一次排空；完成队列受 <see cref="MainThreadBudgetMilliseconds"/> 约束，
         /// 每次 Tick 至少推进一个工作单元，未做完的资源留待下个 Tick 续作。</summary>
-        internal void Tick()
+        public void Tick()
         {
             while (_pendingFontLoads.Count > 0)
             {

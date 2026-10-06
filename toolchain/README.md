@@ -305,16 +305,18 @@ dotnet <SimRunner.dll> fight --framework-root <dir> --data-root <dir> [--data-ro
 - 退出码：`0` 跑完（不论胜负——"玩家输了"不是命令失败）；`2` 参数错误或数据装载阻断（缺必填参数、未知生物/职业、`--max-log-entries` 缺 `--fight-log` 等），不写日志文件；`4` Ctrl+C 取消。与 `run` 子命令的 0/1/3 基线语义互不相干。
 - 判断记录：①独立子命令而不是给 `run` 加参数——一场自选对手的战斗没有基线可比，塞进 `run` 会搅乱它的参数组合与退出码语义；②`--quality` 必填（标准玩家装备品质没有天然缺省），其余四个参数有自然缺省；③同参数（含种子）两次运行的标准输出与日志文件逐字节相同。测试：`toolchain/tests/test_simrunner_cli.py`（`test_fight_*`：日志里玩家/生物来源的 damage 条目之和等于摘要里的聚合伤害、两次运行逐字节一致且开不开采集聚合不变、截断、参数错误与未知生物退出 2）。
 
-## `toolchain/feellab`（手感实验室无头宿主命令行，手感落地 M2-D 起随发布产物分发）
+## `toolchain/feellab`（手感实验室无头宿主命令行；ADR-0160 起随可选包 `com.gamefoundation.feel-lab.headless` 分发）
 
 `toolchain/feellab/FeelLab.csproj`（`net8.0` 控制台项目，已加入 `Core.sln`）：命令（`run`/`suite`/`export-test`/`list`/
 `invariants`）、参数与基线更新流程见 `lab/README.md`。分发方式与 `simrunner` 同一治理：源码树存在时 `ProjectReference`
 内核 `lab/Lab.Kernel.csproj`，独立发行包里改引用 `lib/` 下 9 个预编译 DLL；`build.ps1 -Dist`/`-Release` 把预编译产物
-（`bin/`+`lib/`+空 `Directory.Build.props`）补进 `dist/<ver>/toolchain/feellab/` 与 `com.gamefoundation.toolchain` 包
-`Tools~/feellab/`，实验室数据集 `data/_lab`、`data/_lab_action`、占位装备集 `data/_equip` 与夹具 `lab/fixtures` 按仓库同路径
-进 dist 根（dist 根即实验室根），私服包另在 `Tools~/feellab/labroot/` 放自包含的实验室根；MANIFEST 增 `[feellab]` 段。
-`toolchain/consumer_smoke.ps1` 有一步在消费方工作目录里用 dist 里的预编译命令行跑 `suite` 与 `invariants`（验证"只消费发布产物
-的游戏能自己跑实验室"）；`check.ps1` 的 pkg_manifest 步骤要求 toolchain 包清单里有预编译命令行与实验室根的代表文件。
+（`bin/`+`lib/`+空 `Directory.Build.props`）补进 `dist/<ver>/packages/com.gamefoundation.feel-lab.headless/Tools~/feellab/`，
+实验室数据集 `data/_lab`、`data/_lab_action`、占位装备集 `data/_equip` 与夹具 `lab/fixtures` 放进同一个包的
+`Tools~/feellab/labroot/`（自包含的实验室根）。**不再**进主 zip 与 `com.gamefoundation.toolchain` 包（ADR-0160：实验室是可选的
+开发期设施；门禁的包边界判定断言主 zip、工具链包与发布树里没有实验室内容，只有 `packages/<实验室包名>/` 里允许）。
+`toolchain/consumer_smoke.ps1` 有一步在消费方工作目录里用 dist 里无头包的预编译命令行跑 `suite` 与 `invariants`（验证"只消费发布产物
+的游戏能自己跑实验室"），并有一步断言游戏独立版构建产物里没有手感实验室与演示场景的任何程序集或资产；
+`check.ps1` 的 pkg_manifest 步骤要求无头包清单里有预编译命令行与实验室根的代表文件。
 
 ## 生成事件常量（gen_event_constants.py）
 

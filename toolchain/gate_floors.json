@@ -30,9 +30,9 @@
       "measured_at": "2026-10-06"
     },
     "unity_playmode": {
-      "min_passed": 610,
+      "min_passed": 570,
       "max_skipped": 0,
-      "measured_passed": 682,
+      "measured_passed": 641,
       "measured_skipped": 0,
       "measured_at": "2026-10-06"
     }

@@ -458,11 +458,11 @@ namespace Adapter.Unity.EngineAdapter
             LastImpulse = (direction, magnitude, decayMs);
         }
 
-        /// <summary>由 UnityEngineHost.Update 每帧调用：推进跟随平滑与震屏偏移，
+        /// <summary>由 UnityEngineHost.Update 每帧调用（公开：不经 UnityEngineHost 生命周期、自己按模拟时间推进的宿主，如手感实验室舞台，也调它，ADR-0160）：推进跟随平滑与震屏偏移，
         /// 并把最终结果写入相机 Transform。震屏用 Perlin 噪声按 frequency 采样生成偏移
         /// （见 <see cref="Shake"/> 判断记录）——纯表现层抖动，不回流进逻辑层，不违反
         /// "确定性铁律"（见任务书硬性规则 8）。</summary>
-        internal void Tick(double deltaSeconds)
+        public void Tick(double deltaSeconds)
         {
             if (_following)
             {

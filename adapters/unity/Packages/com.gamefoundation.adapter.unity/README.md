@@ -355,26 +355,9 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 2. **包内两个引导的开发期数据热重载**：新增 `Adapter.Unity.Bootstrap.BootstrapDataHotReload`（`MonoBehaviour`，`UNITY_EDITOR || DEVELOPMENT_BUILD` 之外是空壳）；`GameFoundationBootstrap` 与 `FrameworkResidentHost` 各新增公开开关 `EnableDataHotReload`（缺省 `false` = 不挂组件，行为与此前逐位一致；同 `FeelOptions` 的惯例：在 `Awake`/`Ensure` 之前赋值或在 Inspector 勾选）与只读属性 `HotReload`（开启且数据加载成功后挂载的组件）。组件监视各数据根（框架根、开手感时的 `data/_feel`、示例数据根、`GameFoundationBootstrap` 的叠加根）下的 `*.json`，变更去抖 300 ms 后 `DataRegistry.Reload(表名)`，成功后补发 `data.load_completed`（失败补发 `data.validation_failed`，并按引导已解析的校验报告落盘路径落一份报告），核心装配里的手感热加载订阅据此换入新档案。**判断记录**：只用轮询（每 250 ms 比对每个 `*.json` 的写入时刻 + 长度），不建 `FileSystemWatcher`——游戏模板的 `DataHotReload` 为"事件 + 轮询兜底"两路，是因为 `FileSystemWatcher` 事件会延迟数百毫秒甚至静默丢失；包内组件没有"事件先到省一次扫描"的需求，单用轮询即可覆盖变更/新增/删除/改名，并且天然都在主线程、不需要锁。取舍：缺省关闭，开发期显式打开，避免常驻脚手架在发布构建里多一个每帧回调。
 3. **复现/不变量（引擎 PlayMode，经 `-runTests` 门禁，`HitFrameSyncEndToEndTests`）**：`FeelEngine_Hit_ParticleFreezeLayer_PausesOwnedParticlesByProfileTicks_BystanderUnaffected`（反馈包 `freeze_layers.particles` 为真：攻击方/被击方名下 anchor 持续特效暂停的 tick 数 = 对应顿帧档案换算值、旁观单位 0、暂停期间序列帧累计播放时间不增长而旁观单位持续增长、暂停为连续一段且结束后全部恢复、实例没有因暂停消失）、`FeelEngine_Hit_ParticleLayerNotDeclared_RigFreezesButParticlesKeepRunning`（缺省不声明时 rig 冻、粒子不暂停）、`FeelEngine_DataHotReload_FeelPresetEdit_UnitReadsNewValue_AndLoadCompletedPublished`（开热重载后运行中改叠加根里的 `feel.preset` 基础档 `buffer_ms`，单位读到的缓冲毫秒等于"旧值 + 增量"、`data.load_completed` 至少发出一次）、`FeelEngine_DataHotReload_NotEnabled_NoComponent_EditIsNotPickedUp`（缺省不挂组件、改文件不生效）。测试数据仍在每条用例里写临时目录经 `_extraDatasetRoot` 叠加；新增的 `BootstrapDataHotReload.cs` 是 Unity 导入范围内的新文件，`.meta` 由 Unity 导入生成。
 
-### 手感落地 M4-H：实验室引擎宿主（2026-10-03）
+### 手感实验室引擎宿主（已迁出，ADR-0160）
 
-可选组件，独立程序集，不进玩家构建；设计与度量口径见 `lab/README.md` 判断记录 46 与 `architecture/手感设计/06_手感实验室与验收.md` 第 4 节。
-
-1. **程序集与目录**：`Runtime/LabHost/`（`Adapter.Unity.LabHost`，`autoReferenced` 为假，引用 `Adapter.Unity` 与预编译的 `Lab.Kernel`/`Core.Sim`/`Adapters.Stub` 等；这些库由 `build.ps1` 第 3b 步同步到被忽略的 `Runtime/Plugins/Lab/`）、`Editor/LabHost/`（编辑器窗口，`GameFoundation/手感实验室`，需 Play Mode）、`Tests/Runtime/LabHost/`（PlayMode）、`Tests/Editor/LabHost/`（EditMode）。
-2. **舞台 `EngineLabStage`**：是 `LabHostExtension`，把内核宿主的视图工厂换成真实 `UnityViewFactory`（命中帧同步 `AnimKeyframeDriven`），反馈流水线分流给真实 `VfxPlayer`/`SfxPlayer`/`UnityCamera`/`UnityRenderer2D/3D`/`UnityAudio`；舞台根物体放专用层并隔离其它相机；组件自己的 `Update` 全部关掉，由舞台按模拟时间推进帧动画（`UnityFrameAnimPlayer.Advance`）、特效序列（`UnityRenderer2D.AdvanceSequencePlayers`）、动画器与相机，快放慢放批处理下结果可复现。
-3. **适配器侧新增（只增不改，缺省行为不变）**：`UnityFrameAnimPlayer.AdvancedSeconds`（公开，累计推进量）、`UnityCamera.ApplyYawRotation`（公开可选开关，缺省关）、`Runtime/AssemblyInfo.cs` 对宿主程序集的 `InternalsVisibleTo`（宿主驱动资源加载器、音频、镜头、模型的内部 `Tick`）；M4-H 当时的内部推进入口已由 M4-W4 换成公开的可注入时间源，见下节。
-4. **引擎侧失败不改变逻辑**：舞台里的任何异常记入 `EngineRecording.Errors`（度量 `engine_errors`），引擎视图创建失败时该实体退回内核的假视图。
-5. **复现/不变量（PlayMode，`-testCategory module:lab`）**：`EngineLabHostCrossHostTests`（全部手感场景脚本逐字节比较引擎宿主与无头宿主的逻辑组指纹；格子由环境变量 `GF_LAB_CELLS` 选，缺省 `2d_action`，`*` 为全部；`GF_LAB_MAX_RUNS` 限制组合数）、`EngineLabHostMechanismTests`（命中帧对齐、镜头冲量曲线、顿帧冻结与旁观/对照、帧耗时分布、三个平面组合、`camera_relative` 三向检验、输入噪声记录回放、引擎失败、渲染隔离、冷热加载一致、期望清单在引擎宿主上判定、换装图标与逐层剪辑核对及其反例）。EditMode：`LabPanelModelTests`（覆盖存储的写入、校验、持久化、A/B 与源数据不变）。
-6. **手感相关边界（设计决定）**：手感相关的限制在 M4 全部解除或转为判断记录（见 `lab/README.md` 判断记录 54、60 与「范围与现状（设计决定）」）；真机手测是游戏团队的验收清单，帧耗时已补 GPU 度量，相机相对输入已由框架原生实现，命中对齐已由姿势集数据对齐（手感设计/04 第 10 节第 10 条）。
-
-### 手感实验室人手试玩宿主（2026-10-04，ADR-0141）
-
-在实验室引擎宿主上加"真人实时玩"，口径与指南见 `lab/README.md` 判断记录 64 与「人手试玩指南」。
-
-1. **文件**（`Runtime/LabHost/`，同一程序集 `Adapter.Unity.LabHost`，新增对 `Unity.InputSystem` 的引用，用来读手柄）：`LabPlayground`（控制器 `MonoBehaviour` + 屏上叠层，IMGUI，只从视图模型绘制）、`LabLiveModel`（面板视图模型与滚动指标，不依赖引擎）、`LabLiveInput`（从真实输入适配器轮询键盘/摇杆、手柄按钮读 Input System，产出与脚本同种的事件）、`LabEffectFilter`（呈现通道开关与计数）；`Editor/LabHost/LabPlaygroundSceneBuilder`（生成三个薄场景，菜单 `GameFoundation/手感试玩`，命令行 `-executeMethod Adapter.Unity.LabHost.Editor.LabPlaygroundSceneBuilder.BuildAll`）。
-2. **舞台试玩模式**：`EngineLabOptions.Interactive`（缺省关；开启后舞台相机真正渲染并带音频监听、背景与地面网格、相机跟随玩家、震屏与闪白真实生效、呈现通道闸、视图创建后立即播待机）、`InteractiveZoom`（缺省 2.8）、`InteractiveFollowSmoothing`、`Effects`；`EngineLabHost` 新增接受基础数据根与额外根解析器的构造。缺省选项下脚本回放的行为逐位不变。
-3. **适配器侧新增（只增不改）**：`UnityViewFactory.PlayLocomotionClip(entityId)`（视图创建后默认只显示静态占位图，直到状态机第一次切换才播剪辑；试玩舞台创建视图后调用它，生产装配入口不调用）。
-4. **复现/不变量（PlayMode，`-testCategory module:lab`）**：`LabPlaygroundTests`——移动距离、命中（伤害量有变化）、顿帧时长取自激活预设行、A/B 切换后下一次命中的顿帧按另一预设行折算且切换事件盖在生效 tick、关顿帧是录进脚本的覆盖、呈现开关不改逻辑、磁盘读回的录制脚本无头重放逻辑组指纹逐字节一致、三个场景载入后注入移动与攻击。
-5. **实验室面板（ADR-0150，`LabPlayground.Panels.cs` 与 `LabLiveModel.Tab`）**：调参、帧数据时间轴、轨迹叠层、评分四页加原有场景页，F12 循环；全部从内核视图模型绘制（`TuningPanel`/`TimelineModel`/`TrajectoryModel`/`RatingModel`），界面操作先入队、下一帧控制器开头统一执行，文本框占着键盘时试玩热键与输入轮询暂停；`EngineLabStage` 在试玩模式下按基础预设取模板相机配置（`CameraFraming`：缩放相对值、跟随平滑折成时间常数，非模板预设恢复缺省，`TemplateFraming`/`FollowSmoothingSeconds` 可读）。冒烟：`LabPlaygroundPanelsTests`（分页循环、字段行全覆盖、改攻击方顿帧字段后命中顿帧 tick 等于数据折算且无头重放逐字节一致、A/B 覆盖组、时间轴、模板取景、保存预设/写回/评分的本地产物；设 `GF_LAB_SCREENSHOT_DIR` 另有一条截图用例，门禁不设）。
+引擎侧实验室宿主、F1 面板与占位试玩场景构建器**不再在本包里**：它们迁入可选的开发期包 `com.gamefoundation.feel-lab.unity`（只在编辑器编译，游戏独立版不带；见该包 README）。本包只剩运行时：适配器实现与组合根。实验室宿主跨程序集需要驱动的三个推进入口（`UnityAudio.Tick(double)`、`UnityCamera.Tick(double)`、`UnityResourceLoader.Tick()`）现在是公开方法，不再靠对宿主程序集的 `InternalsVisibleTo`；门禁的包边界判定（`toolchain/_gate_package_boundary.ps1`）断言本包里没有实验室或演示文件、程序集定义与友元声明不指向实验室程序集。
 
 ### NF2：表现层/适配层边界清扫（2026-10-03）
 
@@ -780,7 +763,7 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 - **契约清单视图**：`UiSkinManifest` 解析 `toolchain/asset_import/skin_manifest.json`（唯一权威）并按槽位/品质展开成文件清单；`UiSkinGallery` 把每个元素各画一遍（九宫格元素按几种尺寸各画一份）。运行期不需要读清单；完整性用例用它逐元素核对"换皮肤后没有默认皮肤残留"，并让类型化取用与清单路径逐元素一致。
 - **装备面板与预览**：`EquipmentPanel`（槽位网格：槽位框 + 图标 + 品质框 + 悬停/按下/选中/禁用状态精灵，点击已装备槽位卸下；`PaperdollPreview`：身体层 + 各装备层逐层叠放，方向可切换）绑生产类 `EquipmentViewModel`，布局取 `ui_layout_definition` 的 `equipment` 行（缺省内置布局）；背包面板的带 `UiVisuals` 重载每行多一个物品格。`UiVisuals` 把皮肤包、数据注册表与适配器资源加载器串起来（图标按 `display.map.icon_id`，纸娃娃层按 `layer.<集>__<方向>__<层>`）。`UiPanelHost` 新增 `Equipment` 面板（键 `U`）。
 - **实验室换装场景**（`Runtime/LabHost/`）：`EquipWardrobeScene`（装备面板 + 预览区 + 方向 × 姿势键轮播 + 逐件穿戴）、`EquipWardrobeRunner`（跑数据生成的衣橱脚本并核对资源，写本地报告与拼图）、`WardrobeCarouselModel`（轮播遍历的纯逻辑）。
-- **用例**：`Tests/Runtime/LabHost/EquipUiSkinPlayModeTests.cs`（`module:ui` + `module:lab`：皮肤替换完整性、真实面板、九宫格多尺寸、状态变体、回落、缺省不变）与 `EquipWardrobeLabHostTests.cs`（`module:lab`：轮播一圈每格一次、引擎宿主衣橱核对、场景逐件穿戴）。替换皮肤由 `SkinTestKit` 按清单确定性程序生成（每个元素一个由路径散列算出的唯一颜色，读回像素即可确认精灵来自哪个文件）。
+- **用例**：`Assets/RealAssetTests/EquipUiSkinPlayModeTests.cs`（框架内部的真实素材回归，ADR-0160 后不在包里也不进发布包；`module:ui` + `module:lab`：皮肤替换完整性、真实面板、九宫格多尺寸、状态变体、回落、缺省不变）与 `EquipWardrobeLabHostTests.cs`（`module:lab`：轮播一圈每格一次、引擎宿主衣橱核对、场景逐件穿戴）。替换皮肤由 `SkinTestKit` 按清单确定性程序生成（每个元素一个由路径散列算出的唯一颜色，读回像素即可确认精灵来自哪个文件）。
 
 ### Shell 流程（`Runtime/Shell/`）
 

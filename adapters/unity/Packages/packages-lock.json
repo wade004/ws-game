@@ -17,6 +17,12 @@
       "source": "local",
       "dependencies": {}
     },
+    "com.gamefoundation.feel-lab.unity": {
+      "version": "file:com.gamefoundation.feel-lab.unity",
+      "depth": 0,
+      "source": "embedded",
+      "dependencies": {}
+    },
     "com.gamefoundation.game-template": {
       "version": "file:../../../games/_template",
       "depth": 0,

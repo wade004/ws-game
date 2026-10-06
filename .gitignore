@@ -37,8 +37,6 @@ adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/
 # 只忽略 dll/pdb：.dll.meta 入库，固定为"只启用 Editor 平台"（Any 关闭），保证这些插件不会进玩家构建。
 adapters/unity/Packages/com.gamefoundation.feel-lab.unity/Runtime/Plugins/*.dll
 adapters/unity/Packages/com.gamefoundation.feel-lab.unity/Runtime/Plugins/*.pdb
-# 过渡：适配层包里旧的 Plugins/Lab/（实验室 DLL 旧位置）；其目录级 Lab.meta 随实验室宿主迁出（阶段 B）一并改名/移除，那时删掉本行。
-adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Lab/
 # U2-1：build.ps1 -SyncContent 生成的内容同步产物（data/_sample、assets/_placeholder 的镜像拷贝），
 # 源头在仓库 data/、assets/ 下，本目录纯粹是构建期拷贝，不提交（含 Unity 为该目录及其父目录自动
 # 生成的 .meta，父目录 Assets/StreamingAssets/ 本身除了这个子目录不再有任何其它内容）。
@@ -82,6 +80,3 @@ timing/_pending/
 # 手感实验室（lab/）命令行默认输出目录：指纹文件、完整记录等生成物只留本地；入库的只有 lab/fixtures/ 下的
 # 标准脚本与基线（AGENTS.md §4 生成物不入库）。
 lab/out/
-# 3D demo scene model pack (ADR-0158): build.ps1 syncs assets/_showcase/models into this import root and ModelPackBuilder generates prefabs/clips here; build-time output, not committed.
-adapters/unity/Assets/Showcase3dArt/
-adapters/unity/Assets/Showcase3dArt.meta

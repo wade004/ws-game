@@ -32,7 +32,7 @@ data/_sample/           框架自测/校验器自测用的示例数据表，不�
 assets/_placeholder/    灰盒竖切用的通用占位资产包（精灵、特效、音效、音乐、地图分层图、字体等源素材），随版本快照一并交付
 assets/_sample/         由 toolchain/import_sample_assets.py 驱动资产导入工具真实产出并提交入库的样例资产（消费 assets/_placeholder 源素材生成），供 data/_sample 的 display/vfx/sfx/world 四张表引用；改了 assets/_placeholder 源素材或需修复 data/_sample 引用时重跑该脚本幂等重新生成，见 toolchain/README.md"data/_sample 的资产来源"一节
 toolchain/              校验、构建、资产导入等跨游戏 Python 工具链（validate_data.py、import_assets.py 等）；get_framework.ps1 是游戏侧按版本号引用本框架的工具（zip 通道），见"版本与发布"一节
-  registry/              私服（Verdaccio 注册表）交付通道：本机/局域网内起一个私有包仓库，发布四个可发布包（游戏侧按版本号依赖其中三个，第四个包按需自取），与 zip 通道并存，见 toolchain/registry/README.md
+  registry/              私服（Verdaccio 注册表）交付通道：本机/局域网内起一个私有包仓库，发布六个可发布包（游戏侧按版本号依赖其中三个，其余按需自取：无头适配层包与两个可选的手感实验室包），与 zip 通道并存，见 toolchain/registry/README.md
   sync_package_content.ps1  私服通道配套：把游戏工程解析到的 com.gamefoundation.framework-data 包内容同步到该工程的 StreamingAssets/TextMesh Pro
 docs/                  非规范的工程往来与记录（规范只放 architecture/）
   升级指南/              面向游戏侧的跨版本升级指南，见"版本与发布"一节
@@ -74,10 +74,10 @@ python toolchain/validate_data.py
 | `powershell -File build.ps1 -SkipTests` | 同上，跳过 `dotnet test` |
 | `powershell -File build.ps1 -SyncOnly` | 跳过 `dotnet build/test`，只做 DLL 同步 + 内容同步（要求此前至少完整 build 过一次） |
 | `powershell -File build.ps1 -SyncContent` | 只做内容同步（跳过 `dotnet build/test` 与 DLL 同步）；只改了 `data/_sample`/`assets/_placeholder`/`assets/_sample`、没改任何 C# 代码时的快速路径 |
-| `powershell -File build.ps1 -Dist <version>` | 额外把适配层包、`games/_template`、`toolchain`（不含 `.venv`/`__pycache__`/`registry`/`node_modules`/`bin`/`obj`，但预编译的 `toolchain/validator/bin`、`toolchain/simrunner/bin` 单独补回）、`assets/_placeholder`、`data/_framework`、`adapters/headless`（无头适配层 `Adapters.Stub.dll` + 数值仿真骨架 `Core.Sim.dll` + README，ADR-0018 决策 3、ADR-0035 决策 1/5）打成一份版本快照 `dist/<version>/`，并生成扩展后的 `MANIFEST.txt`；同时无条件额外组装私服交付通道的四个包到 `dist/<version>/packages/{四个包名}/` 并 `npm pack` 出四个 `.tgz`（见下方"版本与发布"一节"私服通道"） |
+| `powershell -File build.ps1 -Dist <version>` | 额外把适配层包、`games/_template`、`toolchain`（不含 `.venv`/`__pycache__`/`registry`/`node_modules`/`bin`/`obj`，但预编译的 `toolchain/validator/bin`、`toolchain/simrunner/bin` 单独补回）、`assets/_placeholder`、`data/_framework`、`adapters/headless`（无头适配层 `Adapters.Stub.dll` + 数值仿真骨架 `Core.Sim.dll` + README，ADR-0018 决策 3、ADR-0035 决策 1/5）打成一份版本快照 `dist/<version>/`，并生成扩展后的 `MANIFEST.txt`；同时无条件额外组装私服交付通道的六个包到 `dist/<version>/packages/{六个包名}/` 并 `npm pack` 出六个 `.tgz`（两个可选的手感实验室包只作单独包，不进主 zip 与工具链包，ADR-0160）（见下方"版本与发布"一节"私服通道"） |
 | `powershell -File build.ps1 -Dist auto` | 同上，但版本号不由调用方指定，改为读取仓库根 `VERSION` 文件当前内容 |
 | `powershell -File build.ps1 -Dist <version> -Zip` | 在 `-Dist` 基础上额外打 `dist/ws-game-<version>.zip` + `dist/ws-game-<version>.lock`，不做任何版本号写回/提交/打标签（`.github/workflows/release.yml` 用这条路径） |
-| `powershell -File build.ps1 -Release <version> [-DryRun] [-Publish] [-PublishRegistry [-RegistryUrl <url>]]` | 完整发布流程：校验（含 `REGRESSION_LOG.md` 含 Unity 全量记录） → 写回版本号 → 全量门禁（含 IL2CPP 三步） → 提交 → 打包 + zip + lock + 四个 npm 包（打包完成自检 `git_commit` 指向发布提交） → 打标签；`-PublishRegistry` 独立于 `-Publish` 控制是否额外 `npm publish` 四个包到私服；发布提交之后失败用 `-Resume` 续跑；见下方"版本与发布"一节 |
+| `powershell -File build.ps1 -Release <version> [-DryRun] [-Publish] [-PublishRegistry [-RegistryUrl <url>]]` | 完整发布流程：校验（含 `REGRESSION_LOG.md` 含 Unity 全量记录） → 写回版本号 → 全量门禁（含 IL2CPP 三步） → 提交 → **候选阶段（ADR-0160）**：先把 `X-rc.N` 发到本地私服（标签 `rc`，不打标签不推送），样板仓库 `ws-game-samples` 升级到候选版本并跑它自己的全量门禁，红就在打标签前停下（样板仓库不存在时拒绝，显式 `-SkipSamplesCandidate` 才放行并记 OPT-OUT；样板位置 `-SamplesRepo` > 环境变量 `WS_GAME_SAMPLES` > 同级 `ws-game-samples`） → 打包 + zip + lock + 六个 npm 包（打包完成自检 `git_commit` 指向发布提交） → 打标签；`-PublishRegistry` 独立于 `-Publish` 控制是否额外 `npm publish` 六个包到私服；发布提交之后失败用 `-Resume` 续跑；见下方"版本与发布"一节 |
 
 同步与打包均按文件哈希比较、只处理变化的文件；`-Dist` 打的快照不入库，可随时由源码重新生成；`-Dist` 传入的版本号必须形如 `X.Y.Z`（三段纯数字），格式非法直接报错退出。
 
@@ -143,7 +143,7 @@ grep` 只扫受版本管理的文件；`architecture` 正文不出现具体引�
 对嵌入式最小仿真数据集跑三类场景，与既有基线比对统计量差异，见
 [core/sim/README.md](core/sim/README.md)"命令行入口"一节；ADR-0035 决策 3/5）；另一条"Unity 串行
 线"（`toolchain/_gate_line_unity.ps1`，内部必须串行——Unity 不允许同一工程有两个批处理实例同时
-跑）依次跑 `build.ps1 -SkipTests` 同步 DLL → 包清单一致性（私服交付通道四个 npm 包版本号 +
+跑）依次跑 `build.ps1 -SkipTests` 同步 DLL → 包清单一致性（私服交付通道六个 npm 包版本号 + 包边界判定 +
 `npm pack --dry-run` 排除规则，见"版本与发布"一节"私服通道"）→ Unity 编译检查 → Unity
 EditMode/PlayMode 测试 → 独立版构建 + 两种无人值守冒烟（`-gf-smoke` 连续模式默认流程、
 `-gf-smoke-discrete` 离散模式链路）→ 消费方演练（`toolchain/consumer_smoke.ps1`，见下一节）。
@@ -270,18 +270,18 @@ git branch release/1.0.x v1.0.0
 
 ### 游戏侧引用与升级
 
-游戏侧不直接引用框架仓库的开发目录，而是按版本号引用一份发布产物快照：`toolchain/get_framework.ps1 -Version <ver> -Target packages` 从 GitHub Release 拉取 `ws-game-<ver>.zip`/`.lock`，校验六个核心 DLL 的哈希与锁文件一致（锁文件存在 `headless_dlls`/`validator_dlls` 字段时一并校验无头适配层 DLL/预编译 validator 的 DLL 哈希，ADR-0018 决策 3、消费方反馈 E1；老锁文件没有这两个字段时跳过并提示，向后兼容）后解压到 `packages/ws-game-<ver>/`，并在游戏仓库根写入/校验 `ws-game.lock`；`-FromLocalDist <本机 zip 路径>` 可离线来源（校验规则不变）。`get_framework.ps1` 自身自包含（消费方反馈 E2 根治），可以只下载这一个文件使用——**每次发布的 Release 附件集合**为：`ws-game-<ver>.zip`、`ws-game-<ver>.lock`、`ws-game-<ver>-samples.zip`（消费方反馈 E4 新增，内含 `data/_sample`/`assets/_sample` 验收数据集，`get_framework.ps1 -WithSamples` 下载/校验/合并落地）、`get_framework.ps1`、`_hash.ps1`（兼容旧还原脚本）、四个私服包 `.tgz`（`com.gamefoundation.adapter.unity`/`com.gamefoundation.framework-data`/`com.gamefoundation.toolchain`/`com.gamefoundation.adapter.headless`，各附版本号）。这是 zip 快照通道；私服（按版本号依赖）是并存的第二条通道，见下一节"私服通道"。完整的四条消费通道、五条多游戏共用规则与升级步骤见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md) 第 3.5 节；接入步骤见 [architecture/13_新游戏接入指南.md](architecture/13_新游戏接入指南.md) 第 1 节；`get_framework.ps1` 详细参数与消费方反馈 E1～E4 的根治说明见 [toolchain/README.md](toolchain/README.md)"`get_framework.ps1`（游戏侧按版本号引用本框架）"一节。
+游戏侧不直接引用框架仓库的开发目录，而是按版本号引用一份发布产物快照：`toolchain/get_framework.ps1 -Version <ver> -Target packages` 从 GitHub Release 拉取 `ws-game-<ver>.zip`/`.lock`，校验六个核心 DLL 的哈希与锁文件一致（锁文件存在 `headless_dlls`/`validator_dlls` 字段时一并校验无头适配层 DLL/预编译 validator 的 DLL 哈希，ADR-0018 决策 3、消费方反馈 E1；老锁文件没有这两个字段时跳过并提示，向后兼容）后解压到 `packages/ws-game-<ver>/`，并在游戏仓库根写入/校验 `ws-game.lock`；`-FromLocalDist <本机 zip 路径>` 可离线来源（校验规则不变）。`get_framework.ps1` 自身自包含（消费方反馈 E2 根治），可以只下载这一个文件使用——**每次发布的 Release 附件集合**为：`ws-game-<ver>.zip`、`ws-game-<ver>.lock`、`ws-game-<ver>-samples.zip`（消费方反馈 E4 新增，内含 `data/_sample`/`assets/_sample` 验收数据集，`get_framework.ps1 -WithSamples` 下载/校验/合并落地）、`get_framework.ps1`、`_hash.ps1`（兼容旧还原脚本）、六个私服包 `.tgz`（`com.gamefoundation.adapter.unity`/`com.gamefoundation.framework-data`/`com.gamefoundation.toolchain`/`com.gamefoundation.adapter.headless`，另有两个可选的手感实验室包 `com.gamefoundation.feel-lab.unity`/`com.gamefoundation.feel-lab.headless`，只作单独附件、不进主 zip，各附版本号）。这是 zip 快照通道；私服（按版本号依赖）是并存的第二条通道，见下一节"私服通道"。完整的四条消费通道、五条多游戏共用规则与升级步骤见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md) 第 3.5 节；接入步骤见 [architecture/13_新游戏接入指南.md](architecture/13_新游戏接入指南.md) 第 1 节；`get_framework.ps1` 详细参数与消费方反馈 E1～E4 的根治说明见 [toolchain/README.md](toolchain/README.md)"`get_framework.ps1`（游戏侧按版本号引用本框架）"一节。
 
 ### 私服通道
 
-除 zip 快照通道外，框架同时提供一条私服（[Verdaccio](https://verdaccio.org/)，npm 兼容协议）通道：把框架拆成四个可独立按版本号依赖的包（`com.gamefoundation.adapter.unity`/`com.gamefoundation.framework-data`/`com.gamefoundation.toolchain`/`com.gamefoundation.adapter.headless`——第四个包 ADR-0018 决策 3 新增，随框架版本号发布但不是 Unity 依赖，不写入游戏工程 `Packages/manifest.json` 的 `dependencies`，供内容编辑器等无头宿主按需 `npm install`），发布到私有包仓库，游戏侧 Unity 工程用作用域注册表（`scopedRegistries.scopes: ["com.gamefoundation"]`）依赖前三个包。两条通道打包内容一致（同一次 `build.ps1 -Dist`/`-Release` 产出），互不排斥，可任选其一或两者都配。完整设计、四个包内容、两条通道取舍见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md) 第 3.5.1 节；快速开始、配置细节见 [toolchain/registry/README.md](toolchain/registry/README.md)。
+除 zip 快照通道外，框架同时提供一条私服（[Verdaccio](https://verdaccio.org/)，npm 兼容协议）通道：把框架拆成六个可独立按版本号依赖的包（`com.gamefoundation.adapter.unity`/`com.gamefoundation.framework-data`/`com.gamefoundation.toolchain`/`com.gamefoundation.adapter.headless`——第四个包 ADR-0018 决策 3 新增，随框架版本号发布但不是 Unity 依赖，不写入游戏工程 `Packages/manifest.json` 的 `dependencies`，供内容编辑器等无头宿主按需 `npm install`；后两个是可选的开发期手感实验室包——`com.gamefoundation.feel-lab.unity` 只在编辑器编译、游戏独立版不带，`com.gamefoundation.feel-lab.headless` 带命令行与实验室数据，想校准手感时再装，ADR-0160），发布到私有包仓库，游戏侧 Unity 工程用作用域注册表（`scopedRegistries.scopes: ["com.gamefoundation"]`）依赖前三个包。两条通道打包内容一致（同一次 `build.ps1 -Dist`/`-Release` 产出），互不排斥，可任选其一或两者都配。完整设计、各包内容、两条通道取舍见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md) 第 3.5.1 节；快速开始、配置细节见 [toolchain/registry/README.md](toolchain/registry/README.md)。
 
 ```powershell
 # 起私服（本机，默认 127.0.0.1:4873）
 powershell -File toolchain\registry\start_registry.ps1 -Detach
 # 无人值守建发布账号 + 令牌
 powershell -File toolchain\registry\init_publisher.ps1
-# 发布（-Release 已隐含打包四个 .tgz，-PublishRegistry 额外发到私服）
+# 发布（-Release 已隐含打包六个 .tgz，-PublishRegistry 额外发到私服）
 powershell -File build.ps1 -Release <version> -Publish -PublishRegistry
 
 # 游戏侧：生成/更新 Packages/manifest.json 片段 + ws-game.lock
