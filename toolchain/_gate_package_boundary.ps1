@@ -182,18 +182,27 @@ function Get-PackageBoundaryProblems {
 }
 
 # 发布树（dist/<版本>/ 或 zip 解包树）：只判路径。packages/<实验室包名>/ 与对应 .tgz 里允许实验室内容，其余一律不许。
+# -AllowLabPackages:$false 用于主 zip：实验室包根本不进主 zip（只作为单独的 .tgz 附件），出现就是问题。
+# manual/ 下是 API 参考与说明文档（描述实验室类型的页面文件名里会带 Lab 字样），不是实验室代码或数据，不按实验室名判；
+# 演示场景名在任何位置都不许出现。
 function Get-ReleaseTreeBoundaryProblems {
-    param([Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$RelativePaths)
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$RelativePaths,
+        [bool]$AllowLabPackages = $true
+    )
     $showHits = @()
     $labHits = @()
     foreach ($raw in $RelativePaths) {
         $p = ConvertTo-BoundaryPath -Path $raw
         if ($p -match $script:ShowcasePathPattern) { $showHits += $p }
         $inLabPackage = $false
-        foreach ($labName in $script:FeelLabPackageNames) {
-            if ($p.StartsWith("packages/$labName/") -or ($p -match ('^packages/' + [regex]::Escape($labName) + '-[^/]+\.tgz$'))) { $inLabPackage = $true }
+        if ($AllowLabPackages) {
+            foreach ($labName in $script:FeelLabPackageNames) {
+                if ($p.StartsWith("packages/$labName/") -or ($p -match ('^packages/' + [regex]::Escape($labName) + '-[^/]+\.tgz$'))) { $inLabPackage = $true }
+            }
         }
-        if ((-not $inLabPackage) -and (($p -match $script:LabNamePattern) -or ($p -match $script:LabDirPattern))) { $labHits += $p }
+        $isDocumentation = $p.StartsWith("manual/")
+        if ((-not $inLabPackage) -and (-not $isDocumentation) -and (($p -match $script:LabNamePattern) -or ($p -match $script:LabDirPattern))) { $labHits += $p }
     }
     $problems = @()
     if ($showHits.Count -gt 0) {

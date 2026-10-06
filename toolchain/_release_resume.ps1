@@ -483,7 +483,13 @@ function Get-ReleaseArtifactPaths {
     )
     $packagesRoot = Join-Path $RepoRoot ("dist\" + $Version + "\packages")
     $dirs = @()
-    foreach ($n in (Get-ReleasePackageNames -RepoRoot $RepoRoot)) { $dirs += (Join-Path $packagesRoot $n) }
+    $labTgz = @()
+    foreach ($n in (Get-ReleasePackageNames -RepoRoot $RepoRoot)) {
+        $dirs += (Join-Path $packagesRoot $n)
+        # ADR-0160：手感实验室两个可选包不进主 zip，CI 的"缺附件修复"无法从 zip 里抽它们，
+        # 因此由本机 gh release create / upload 直接作为附件带上。
+        if ($n -like "com.gamefoundation.feel-lab.*") { $labTgz += (Join-Path $packagesRoot ($n + "-" + $Version + ".tgz")) }
+    }
     return [PSCustomObject]@{
         ZipPath          = (Join-Path $RepoRoot ("dist\ws-game-" + $Version + ".zip"))
         LockPath         = (Join-Path $RepoRoot ("dist\ws-game-" + $Version + ".lock"))
@@ -493,6 +499,7 @@ function Get-ReleaseArtifactPaths {
         NotesPath        = (Join-Path $RepoRoot ("dist\release-notes-" + $Version + ".txt"))
         PackagesRoot     = $packagesRoot
         PackageDirs      = @($dirs)
+        LabTgzPaths      = @($labTgz)
     }
 }
 

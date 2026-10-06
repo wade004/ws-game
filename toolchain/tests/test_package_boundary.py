@@ -169,6 +169,12 @@ def results(tmp_path_factory: pytest.TempPathFactory) -> dict:
     # 实验室包自己引用实验室程序集是允许的（依赖方向是实验室依赖运行时）。
     add_dir("disk_lab_headless_is_not_asmdef_checked", LAB_HEADLESS, {"Tools~/feellab/x.asmdef": _asmdef("X", references=["FeelLab.Unity"])})
 
+    zip_cases = [
+        {"name": "zip_clean", "paths": ["Runtime/x.dll", "data/_framework/a.json", "manual/index.html", "packages/com.gamefoundation.adapter.unity-2.0.0.tgz"]},
+        {"name": "zip_lab_package_dir_leaked", "paths": ["packages/com.gamefoundation.feel-lab.unity/package.json", "packages/com.gamefoundation.feel-lab.unity/Runtime/LabHost/a.cs"]},
+        {"name": "zip_lab_tgz_leaked", "paths": ["packages/com.gamefoundation.feel-lab.headless-2.0.0.tgz"]},
+    ]
+
     tree_cases = [
         {"name": "tree_clean", "paths": ["Runtime/x.dll", "packages/com.gamefoundation.adapter.unity/package.json", "data/_framework/a.json", "manual/index.html"]},
         {"name": "tree_lab_in_lab_package_dir", "paths": ["packages/com.gamefoundation.feel-lab.unity/Runtime/LabHost/EngineLabHost.cs",
@@ -182,6 +188,8 @@ def results(tmp_path_factory: pytest.TempPathFactory) -> dict:
         {"name": "tree_showcase_anywhere", "paths": ["packages/com.gamefoundation.feel-lab.unity/Runtime/ShowcaseDirector.cs"]},
         {"name": "tree_showcase_assets", "paths": ["assets/_showcase/sprites/a.png"]},
         {"name": "tree_backslash", "paths": ["adapters\\unity\\Packages\\com.gamefoundation.adapter.unity\\Runtime\\LabHost\\a.cs"]},
+        {"name": "tree_manual_lab_api_pages_are_documentation", "paths": ["manual/api/Lab.Kernel.LabHost.html", "manual/concepts/lab/README.html"]},
+        {"name": "tree_manual_showcase_still_rejected", "paths": ["manual/concepts/showcase/README.html"]},
     ]
 
     player_cases: list[dict] = []
@@ -210,7 +218,7 @@ def results(tmp_path_factory: pytest.TempPathFactory) -> dict:
     add_player("player_no_scripting_json", base_player, scripting=None)
     player_cases.append({"name": "player_missing_dir", "dir": str(tmp / "players" / "does_not_exist")})
 
-    payload = {"lists": list_cases, "trees": tree_cases, "players": player_cases}
+    payload = {"lists": list_cases, "trees": tree_cases, "zips": zip_cases, "players": player_cases}
     payload_path = tmp / "payload.json"
     payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
@@ -230,6 +238,10 @@ foreach ($c in @($p.lists)) {{
 $out.trees = [ordered]@{{}}
 foreach ($c in @($p.trees)) {{
     $out.trees[$c.name] = @(Get-ReleaseTreeBoundaryProblems -RelativePaths ([string[]]@($c.paths)))
+}}
+$out.zips = [ordered]@{{}}
+foreach ($c in @($p.zips)) {{
+    $out.zips[$c.name] = @(Get-ReleaseTreeBoundaryProblems -RelativePaths ([string[]]@($c.paths)) -AllowLabPackages $false)
 }}
 $out.players = [ordered]@{{}}
 foreach ($c in @($p.players)) {{
@@ -371,6 +383,19 @@ def test_lab_content_outside_the_lab_packages_is_rejected_in_the_release_tree(re
 def test_showcase_content_is_rejected_anywhere_in_the_release_tree(results: dict, name: str) -> None:
     problems = results["trees"][name]
     assert any("演示" in p for p in problems), problems
+
+
+def test_manual_documentation_pages_about_the_lab_are_not_lab_content(results: dict) -> None:
+    assert results["trees"]["tree_manual_lab_api_pages_are_documentation"] == []
+    problems = results["trees"]["tree_manual_showcase_still_rejected"]
+    assert any("演示" in p for p in problems), problems
+
+
+def test_main_zip_has_no_room_for_lab_packages_at_all(results: dict) -> None:
+    assert results["zips"]["zip_clean"] == []
+    for name in ("zip_lab_package_dir_leaked", "zip_lab_tgz_leaked"):
+        problems = results["zips"][name]
+        assert len(problems) == 1 and "实验室" in problems[0], (name, problems)
 
 
 # ----------------------------------------------------------------------------

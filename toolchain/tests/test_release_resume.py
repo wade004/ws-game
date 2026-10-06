@@ -846,7 +846,7 @@ def test_resume_github_release_uploads_only_missing_assets_without_clobber(rel: 
     assert _gh_assets(rel) == kept
 
 
-def test_resume_github_release_absent_is_created_with_all_five_assets(rel: Skeleton) -> None:
+def test_resume_github_release_absent_is_created_with_all_seven_assets(rel: Skeleton) -> None:
     store = json.loads(rel.gh_store_path.read_text(encoding="utf-8"))
     kept = dict(store[rel.tag])
     del store[rel.tag]
@@ -854,7 +854,7 @@ def test_resume_github_release_absent_is_created_with_all_five_assets(rel: Skele
     _undo(rel, "githubRelease")
     proc = _resume(rel, "-Publish")
     assert proc.returncode == 0, proc.stdout_text
-    assert _gh_assets(rel) == kept and len(kept) == 5
+    assert _gh_assets(rel) == kept and len(kept) == 7
 
 
 def test_resume_github_release_size_mismatch_refused_never_clobbered(rel: Skeleton) -> None:

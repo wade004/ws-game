@@ -54,6 +54,7 @@ $script:FailFastFlagPath = if ($FailFastFlagPath -ne "") { $FailFastFlagPath } e
 . (Join-Path $RepoRoot "toolchain\_unity_path_length_guard.ps1")
 # 第四批（复盘 I-8 余项）：结果 XML / 冒烟日志 / 包清单三处判定逻辑抽成纯函数，见该文件头。
 . (Join-Path $RepoRoot "toolchain\_gate_unity_verdicts.ps1")
+. (Join-Path $RepoRoot "toolchain\_gate_package_boundary.ps1")
 # 包管理器子进程中途消失（"IPC stream failed to read"）的失败现场抓取，见该文件头判断记录：引擎步骤退出码
 # 非零且日志含该签名时，把 upm.log 等现场存进 $UpmEvidenceRoot（bin/ 下，被 .gitignore 覆盖）并给 Detail
 # 追加一行摘要，只追加后缀、不参与 Ok 判定。
@@ -129,7 +130,9 @@ try {
                 "com.gamefoundation.adapter.unity",
                 "com.gamefoundation.framework-data",
                 "com.gamefoundation.toolchain",
-                "com.gamefoundation.adapter.headless"
+                "com.gamefoundation.adapter.headless",
+                "com.gamefoundation.feel-lab.unity",
+                "com.gamefoundation.feel-lab.headless"
             )
             $problems = @()
             foreach ($pkgName in $packageNames) {
@@ -156,12 +159,15 @@ try {
                 # 抽取前逐字一致），由 toolchain/tests/test_gate_unity_verdicts.py 用伪造清单直接验证。
                 $entryPathList = @($fileEntries | ForEach-Object { [string]$_.path })
                 $problems += @(Get-PackageManifestProblems -PackageName $pkgName -EntryPaths $entryPathList)
+                # ADR-0160 包边界：适配层/数据/工具链/无头包里不得有任何实验室内容，任何包里都不得有演示场景内容；
+                # 实验室 Unity 包的程序集与插件必须只在编辑器生效。判定见 toolchain/_gate_package_boundary.ps1。
+                $problems += @(Get-PackageBoundaryProblems -PackageName $pkgName -EntryPaths $entryPathList -PackageDir $pkgDir)
             }
 
             if ($problems.Count -gt 0) {
                 throw ("包清单一致性校验失败：`n  " + ($problems -join "`n  "))
             }
-            [PSCustomObject]@{ Ok = $true; Detail = "四个包 version=$version 一致，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器，toolchain 包含预编译 validator+simrunner，adapter.headless 包含 Core.Sim.dll" }
+            [PSCustomObject]@{ Ok = $true; Detail = "六个包 version=$version 一致，包边界（实验室只在可选包、演示内容不进任何包、实验室 Unity 包只在编辑器生效）通过，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器，toolchain 包含预编译 validator+simrunner，adapter.headless 包含 Core.Sim.dll，feel-lab.headless 包含预编译 feellab" }
         }
     }
 

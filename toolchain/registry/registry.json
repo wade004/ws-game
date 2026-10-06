@@ -5,6 +5,8 @@
     "com.gamefoundation.adapter.unity",
     "com.gamefoundation.framework-data",
     "com.gamefoundation.toolchain",
-    "com.gamefoundation.adapter.headless"
+    "com.gamefoundation.adapter.headless",
+    "com.gamefoundation.feel-lab.unity",
+    "com.gamefoundation.feel-lab.headless"
   ]
 }

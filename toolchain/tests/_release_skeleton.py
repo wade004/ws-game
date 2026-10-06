@@ -40,6 +40,8 @@ PACKAGE_NAMES = (
     "com.gamefoundation.framework-data",
     "com.gamefoundation.toolchain",
     "com.gamefoundation.adapter.headless",
+    "com.gamefoundation.feel-lab.unity",
+    "com.gamefoundation.feel-lab.headless",
 )
 
 # 骨架里要复制的真实脚本（相对仓库根）。
@@ -54,6 +56,7 @@ COPIED_FILES = (
     "toolchain/_precommit_tiering_guard.ps1",
     "toolchain/_release_resume.ps1",
     "toolchain/_release_candidate.ps1",
+    "toolchain/_gate_package_boundary.ps1",
     "toolchain/prune_dist.ps1",
     "toolchain/resource_layout_map.json",
 )
@@ -444,7 +447,7 @@ def build_skeleton(tmp_path: Path, *, base_version: str = "1.2.0", release_versi
     _write(root / ".gitignore", "\n".join([
         "dist/", "bin/", "obj/",
         "adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/",
-        "adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Lab/",
+        "adapters/unity/Packages/com.gamefoundation.feel-lab.unity/Runtime/Plugins/*.dll",
         "adapters/unity/Assets/StreamingAssets/",
         "toolchain/registry/.npmrc",
         "",
@@ -457,6 +460,11 @@ def build_skeleton(tmp_path: Path, *, base_version: str = "1.2.0", release_versi
     _write(root / adapter_pkg / "package.json",
            _json_text({"name": "com.gamefoundation.adapter.unity", "version": base_version, "description": "适配层（骨架）"}))
     _write(root / adapter_pkg / "Runtime" / "readme.txt", "adapter runtime\n")
+    # 可选的手感实验室 Unity 包（ADR-0160）：源码 package.json 恒 0.0.0，版本与依赖由打包时写入。
+    lab_unity_pkg = "adapters/unity/Packages/com.gamefoundation.feel-lab.unity"
+    _write(root / lab_unity_pkg / "package.json",
+           _json_text({"name": "com.gamefoundation.feel-lab.unity", "version": "0.0.0", "description": "实验室 Unity 包（骨架）"}))
+    _write(root / lab_unity_pkg / "Runtime" / "readme.txt", "feel lab unity runtime\n")
     _write(root / "adapters/unity/Packages/packages-lock.json",
            '{\n  "dependencies": {\n    "com.gamefoundation.game-template": {\n      "version": "file:../../../games/_template",\n'
            '      "depth": 0,\n      "source": "local",\n      "dependencies": {\n'
@@ -490,7 +498,8 @@ def build_skeleton(tmp_path: Path, *, base_version: str = "1.2.0", release_versi
     _write(root / "toolchain/registry/.npmrc", "//registry.invalid:4873/:_authToken=stub\n")
     for manifest_dir, pkg_name in (("framework-data", "com.gamefoundation.framework-data"),
                                    ("toolchain", "com.gamefoundation.toolchain"),
-                                   ("adapter-headless", "com.gamefoundation.adapter.headless")):
+                                   ("adapter-headless", "com.gamefoundation.adapter.headless"),
+                                   ("feel-lab-headless", "com.gamefoundation.feel-lab.headless")):
         _write(root / "toolchain/registry/manifests" / manifest_dir / "package.json",
                _json_text({"name": pkg_name, "version": base_version, "description": "骨架包"}))
         _write(root / "toolchain/registry/manifests" / manifest_dir / "README.md", f"{pkg_name}\n")

@@ -118,13 +118,18 @@ namespace Lab
             variant ??= LabRunVariant.Default;
             var strip = meta.Feel && variant.EffectiveStrip(cell);
             var key = meta.ScriptId + (strip ? "|strip" : string.Empty);
-            if (!_scriptDatasets.TryGetValue(key, out var dataset))
+            // 同一个运行器可能被多个线程同时使用（测试按类并行共享运行器时出现过"并发改写字典"的随机失败），
+            // 缓存的查询与装载放在同一把锁里：同一键只装载一次，装载很快（数据集很小），串行化的代价可以忽略。
+            lock (_scriptDatasets)
             {
-                dataset = LabDataset.Load(LabDataSources.ForScript(Dataset.Sources, meta, _extraRootResolver, strip), Dataset.HostOptions);
-                _scriptDatasets[key] = dataset;
-            }
+                if (!_scriptDatasets.TryGetValue(key, out var dataset))
+                {
+                    dataset = LabDataset.Load(LabDataSources.ForScript(Dataset.Sources, meta, _extraRootResolver, strip), Dataset.HostOptions);
+                    _scriptDatasets[key] = dataset;
+                }
 
-            return dataset;
+                return dataset;
+            }
         }
 
         /// <summary>

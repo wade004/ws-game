@@ -38,6 +38,9 @@ EXPECTED_PACKAGE_NAMES = frozenset(
         "com.gamefoundation.framework-data",
         "com.gamefoundation.toolchain",
         "com.gamefoundation.adapter.headless",
+        # ADR-0160（2026-10-06）：两个可选的开发期包（手感实验室的 Unity 宿主与无头命令行）。
+        "com.gamefoundation.feel-lab.unity",
+        "com.gamefoundation.feel-lab.headless",
     }
 )
 
@@ -71,7 +74,7 @@ def test_registry_json_packages_match_expected_four() -> None:
     )
 
 
-def test_build_ps1_assembles_all_four_packages() -> None:
+def test_build_ps1_assembles_all_packages() -> None:
     text = _read_text("build.ps1")
     # 5.15 节：四个包各自的 $PackagesRoot 子目录赋值行，形如
     # `$pkgXxxDir = Join-Path $PackagesRoot "com.gamefoundation.xxx"`；直接从整份文本抽取候选包名
@@ -139,6 +142,10 @@ def test_get_framework_ps1_recognizes_all_four_package_names() -> None:
         "com.gamefoundation.adapter.headless 不应出现在 $ThreePackageNames"
         "（会被写入游戏工程 Packages/manifest.json 的 dependencies，违反该包判断记录）"
     )
+    # ADR-0160：手感实验室两个包是可选的开发期设施，同样不是运行时依赖，不得被默认写进游戏工程的 manifest.json。
+    for lab_name in ("com.gamefoundation.feel-lab.unity", "com.gamefoundation.feel-lab.headless"):
+        assert lab_name not in three_names, f"{lab_name} 不应出现在 $ThreePackageNames（可选的开发期包，ADR-0160）"
+        assert lab_name in optional_names, f"{lab_name} 应登记在 $OptionalPackageNames（ADR-0160）"
 
 
 def test_registry_manifests_directory_has_four_entries() -> None:
@@ -149,7 +156,7 @@ def test_registry_manifests_directory_has_four_entries() -> None:
     # adapters/unity/Packages/com.gamefoundation.adapter.unity/，见 build.ps1 5.15 节"包 1"注释），
     # 因此本目录只承载另外三个包各自的 package.json/README.md 源文件——与 registry.json 四个包
     # 相比恰好少一个，是既有约定，不是遗漏。
-    expected_subdirs = {"framework-data", "toolchain", "adapter-headless"}
+    expected_subdirs = {"framework-data", "toolchain", "adapter-headless", "feel-lab-headless"}
     assert subdirs == expected_subdirs, (
         f"toolchain/registry/manifests/ 子目录与预期不一致：多余={subdirs - expected_subdirs}，"
         f"缺失={expected_subdirs - subdirs}"
@@ -180,8 +187,8 @@ def test_release_yml_required_assets_match_expected_four_packages() -> None:
     # 已收口）。逐条数引号字符串字面量，防止漏加/多加条目却恰好包名集合仍然相等的边界情况（如
     # 重复了某个包名，集合去重后仍然是四个，但列表本身条目数不对）。
     entry_literals = re.findall(r'"\$?[^"]*\$version\.[a-z]+"', names_match.group(1))
-    assert len(entry_literals) == 6, (
-        f"release.yml 的 $requiredNames 应恰好六项（zip、lock、四个 .tgz），实际={len(entry_literals)}：{entry_literals}"
+    assert len(entry_literals) == 8, (
+        f"release.yml 的 $requiredNames 应恰好八项（zip、lock、六个 .tgz；ADR-0160 起 .tgz 含两个实验室包），实际={len(entry_literals)}：{entry_literals}"
     )
 
     paths_match = re.search(r"\$requiredPaths\s*=\s*@\{([^}]*)\}", text, re.DOTALL)

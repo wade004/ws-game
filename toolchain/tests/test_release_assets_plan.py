@@ -51,6 +51,8 @@ TGZS = [
     f"com.gamefoundation.framework-data-{VERSION}.tgz",
     f"com.gamefoundation.toolchain-{VERSION}.tgz",
     f"com.gamefoundation.adapter.headless-{VERSION}.tgz",
+    f"com.gamefoundation.feel-lab.unity-{VERSION}.tgz",
+    f"com.gamefoundation.feel-lab.headless-{VERSION}.tgz",
 ]
 PLAIN = ["get_framework.ps1", "_hash.ps1"]
 REQUIRED = [ZIP, LOCK, SAMPLES, *TGZS, *PLAIN]

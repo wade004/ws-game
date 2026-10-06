@@ -31,6 +31,8 @@ UNITY_PKG = "com.gamefoundation.adapter.unity"
 TOOLCHAIN_PKG = "com.gamefoundation.toolchain"
 HEADLESS_PKG = "com.gamefoundation.adapter.headless"
 DATA_PKG = "com.gamefoundation.framework-data"
+LAB_HEADLESS_PKG = "com.gamefoundation.feel-lab.headless"
+LAB_UNITY_PKG = "com.gamefoundation.feel-lab.unity"
 
 REQUIRED = {
     UNITY_PKG: [
@@ -47,6 +49,9 @@ REQUIRED = {
         "Tools~/validator/Directory.Build.props",
         "Tools~/simrunner/bin/SimRunner.dll",
         "Tools~/simrunner/Directory.Build.props",
+    ],
+    # ADR-0160：手感实验室命令行独立成可选包，原先随 toolchain 包的必需文件挪到这里。
+    LAB_HEADLESS_PKG: [
         "Tools~/feellab/bin/FeelLab.dll",
         "Tools~/feellab/bin/Lab.Kernel.dll",
         "Tools~/feellab/Directory.Build.props",
@@ -56,6 +61,12 @@ REQUIRED = {
         "Tools~/feellab/labroot/data/_equip/item/item.template.json",
         "Tools~/feellab/labroot/lab/fixtures/scripts/feel_kill.script.json",
         "Tools~/feellab/labroot/lab/fixtures/baselines/feel_kill.baseline.json",
+    ],
+    LAB_UNITY_PKG: [
+        "LabRoot~/data/_lab/lab/lab.scenario.json",
+        "LabRoot~/data/_equip/item/item.template.json",
+        "LabRoot~/lab/fixtures/scripts/feel_kill.script.json",
+        "LabRoot~/lab/fixtures/baselines/feel_kill.baseline.json",
     ],
     HEADLESS_PKG: ["Lib~/Core.Sim.dll"],
     DATA_PKG: [
@@ -123,6 +134,10 @@ def verdicts(tmp_path_factory: pytest.TempPathFactory) -> dict:
     add("exempt:validator_bin", TOOLCHAIN_PKG, _full_listing(TOOLCHAIN_PKG))
     add("exempt:simrunner_bin_only_for_those", TOOLCHAIN_PKG,
         _full_listing(TOOLCHAIN_PKG) + ["pkg/Tools~/other/bin/x.dll"])
+    add("exempt:feellab_bin_in_lab_headless", LAB_HEADLESS_PKG, _full_listing(LAB_HEADLESS_PKG))
+    # ADR-0160 反例：工具链包里夹带手感实验室命令行必须被拦住。
+    add("toolchain_leaks_feellab", TOOLCHAIN_PKG,
+        _full_listing(TOOLCHAIN_PKG) + ["pkg/Tools~/feellab/bin/FeelLab.dll"])
     add("two_forbidden_segments_reported_once_each", DATA_PKG,
         _full_listing(DATA_PKG) + ["a/bin/x", "b/bin/y", "c/obj/z"])
     # 必需文件按"路径以该后缀结尾"匹配：前缀目录不同也算齐；文件名只是子串则不算。
@@ -284,6 +299,15 @@ def test_forbidden_segment_detected_with_backslash_paths(verdicts: dict) -> None
 
 def test_prebuilt_tool_bin_directories_are_exempt_from_the_exclusion_list(verdicts: dict) -> None:
     assert verdicts["manifest"]["exempt:validator_bin"] == []
+
+
+def test_feellab_bin_is_exempt_in_lab_headless_package(verdicts: dict) -> None:
+    assert verdicts["manifest"]["exempt:feellab_bin_in_lab_headless"] == []
+
+
+def test_toolchain_package_must_not_carry_feellab(verdicts: dict) -> None:
+    problems = verdicts["manifest"]["toolchain_leaks_feellab"]
+    assert len(problems) == 1 and "feel-lab.headless" in problems[0], problems
 
 
 def test_exemption_does_not_cover_other_bin_directories(verdicts: dict) -> None:

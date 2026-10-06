@@ -96,6 +96,23 @@ function Get-SamplesRepoProblems {
     return @($problems)
 }
 
+# 原生命令的输出逐行回显到控制台（不进返回值），stderr 合并显示但不触发 $ErrorActionPreference=Stop 的终止错误；返回退出码。
+function Invoke-CandidateNativeStreaming {
+    param(
+        [Parameter(Mandatory = $true)][string]$Exe,
+        [string[]]$NativeArgs = @()
+    )
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Exe @NativeArgs 2>&1 | ForEach-Object { Write-Host "$_" }
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+    return $code
+}
+
 # 执行候选阶段。成功返回 [PSCustomObject]@{ Status = "Passed"/"OptOut"/"AlreadyDone"; Candidate; Detail }；失败 throw（调用方让发布流程终止）。
 function Invoke-ReleaseCandidateStage {
     param(
@@ -165,24 +182,24 @@ function Invoke-ReleaseCandidateStage {
         $BuildPackages = {
             param($rc)
             $buildScript = Join-Path $RepoRoot "build.ps1"
-            & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SkipTests -Dist $rc
-            if ($LASTEXITCODE -ne 0) { throw "构建候选包失败：build.ps1 -SkipTests -Dist $rc（退出码 $LASTEXITCODE）" }
+            $code = Invoke-CandidateNativeStreaming -Exe "powershell" -NativeArgs @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $buildScript, "-SkipTests", "-Dist", $rc)
+            if ($code -ne 0) { throw "构建候选包失败：build.ps1 -SkipTests -Dist $rc（退出码 $code）" }
             return (Join-Path $RepoRoot ("dist\" + $rc))
         }
     }
     if ($null -eq $PublishPackage) {
         $PublishPackage = {
             param($pkgDir, $rc)
-            & npm publish $pkgDir --registry $registryUrlResolved --userconfig $npmrcResolved --tag rc
-            if ($LASTEXITCODE -ne 0) { throw "发布候选包失败：npm publish $pkgDir（退出码 $LASTEXITCODE）" }
+            $code = Invoke-CandidateNativeStreaming -Exe "npm" -NativeArgs @("publish", $pkgDir, "--registry", $registryUrlResolved, "--userconfig", $npmrcResolved, "--tag", "rc")
+            if ($code -ne 0) { throw "发布候选包失败：npm publish $pkgDir（退出码 $code）" }
         }
     }
     if ($null -eq $UpgradeSamples) {
         $UpgradeSamples = {
             param($samplesRepo, $rc, $url)
             $script = Join-Path $samplesRepo "tools\upgrade_framework.ps1"
-            & powershell -NoProfile -ExecutionPolicy Bypass -File $script -Version $rc -RegistryUrl $url
-            if ($LASTEXITCODE -ne 0) { throw "样板仓库升级到 $rc 失败：$script（退出码 $LASTEXITCODE）" }
+            $code = Invoke-CandidateNativeStreaming -Exe "powershell" -NativeArgs @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $script, "-Version", $rc, "-RegistryUrl", $url)
+            if ($code -ne 0) { throw "样板仓库升级到 $rc 失败：$script（退出码 $code）" }
         }
     }
     if ($null -eq $RunSamplesGate) {
@@ -190,11 +207,18 @@ function Invoke-ReleaseCandidateStage {
             param($samplesRepo)
             $script = Join-Path $samplesRepo "check.ps1"
             $conclusion = ""
-            & powershell -NoProfile -ExecutionPolicy Bypass -File $script | ForEach-Object {
-                Write-Host $_
-                if ("$_" -match '^\s*门禁通过') { $conclusion = ("$_").Trim() }
+            $prevEap = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+                & powershell -NoProfile -ExecutionPolicy Bypass -File $script 2>&1 | ForEach-Object {
+                    Write-Host "$_"
+                    if ("$_" -match '^\s*门禁通过') { $conclusion = ("$_").Trim() }
+                }
+                $gateCode = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $prevEap
             }
-            return [PSCustomObject]@{ ExitCode = $LASTEXITCODE; Conclusion = $conclusion }
+            return [PSCustomObject]@{ ExitCode = $gateCode; Conclusion = $conclusion }
         }
     }
 
