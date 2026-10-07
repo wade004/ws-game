@@ -189,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
           f"{report['source_bytes']:,} -> {report['output_bytes']:,} 字节（{report['output_bytes'] / report['source_bytes']:.1%}）")
     if args.report is not None:
         args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     if report["missing_count"]:
         print(f"[warning] 源字体缺 {report['missing_count']} 个字（没有写进子集）：{report['missing_chars']}", file=sys.stderr)
         return 1

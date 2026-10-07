@@ -347,7 +347,7 @@ namespace Adapter.Unity.Tests.Runtime
 
             shell.UiPanelHost.Dialog.Show();
             yield return null;
-            Assert.AreEqual(Presentation.Ui.UiModalInputContext.ContextId, inputMap.ActiveInputContext);
+            Assert.AreEqual(UiModalInputContext.ContextId, inputMap.ActiveInputContext);
 
             shell.UiPanelHost.Dialog.Hide();
             yield return null;
