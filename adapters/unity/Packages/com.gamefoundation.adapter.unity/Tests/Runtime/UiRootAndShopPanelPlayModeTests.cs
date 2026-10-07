@@ -198,7 +198,7 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual(vendorId, vm.CurrentVendorId);
             Assert.Greater(vm.SellItems.Count, 0, "样例商人应有出售清单");
 
-            // 清单行数跟随视图模型；每行文本按规则由视图模型字段拼出（短 id 取最后一个 '.' 之后的段）。
+            // 清单行数跟随视图模型；每行文本按规则由视图模型字段拼出（物品名走 UiVisuals 本地化名，货币短 id 取最后一个 '.' 之后的段）。
             var buyRows = RowsOf(root.Content, "BuyList");
             Assert.AreEqual(vm.SellItems.Count, buyRows.Count);
             for (var i = 0; i < vm.SellItems.Count; i++)
@@ -206,7 +206,7 @@ namespace Adapter.Unity.Tests.Runtime
                 var item = vm.SellItems[i];
                 var label = buyRows[i].Find("Label").GetComponent<TextMeshProUGUI>().text;
                 var stockText = item.Stock.HasValue ? item.Stock.Value.ToString() : "不限";
-                var expected = $"{Short(item.ItemId)}  {item.PriceAmount}{Short(item.PriceCurrencyId)}  库存:{stockText}";
+                var expected = $"{ItemLabel(host, item.ItemId)}  {item.PriceAmount}{Short(item.PriceCurrencyId)}  库存:{stockText}";
                 Assert.AreEqual(expected, label, $"第 {i} 行文本");
                 Assert.AreEqual(!item.Stock.HasValue || item.Stock.Value > 0, buyRows[i].Find("Buy").GetComponent<Button>().interactable,
                     $"第 {i} 行购买按钮可用性 = 有库存或不限量");
@@ -627,6 +627,9 @@ namespace Adapter.Unity.Tests.Runtime
 
             Assert.AreEqual(0, visuals.RetiredPackCount, "引用者销毁后（重试间隔内）旧包释放");
         }
+
+        /// <summary>面板文字里的物品名：宿主有皮肤/展示信息（<c>host.Visuals</c>）时是本地化名（P4 备忘 1），否则退回短 id。</summary>
+        private static string ItemLabel(UiPanelHost host, Id id) => host.Visuals != null ? host.Visuals.ItemName(id) : Short(id);
 
         private static string Short(Id id)
         {
