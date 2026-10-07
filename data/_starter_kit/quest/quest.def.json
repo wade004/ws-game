@@ -1,0 +1,166 @@
+{
+  "table": "quest.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "quest.kit_kill_count",
+      "title_key": "l10n.quest.kit_kill_count.title",
+      "description_key": "l10n.quest.kit_kill_count.desc",
+      "objectives": [
+        {
+          "type": "kill",
+          "target_ref": "creature.kit_melee_grunt",
+          "count": 5,
+          "description_key": "l10n.quest.kit_kill_count.obj1"
+        }
+      ],
+      "start_method": "npc_gossip",
+      "turn_in_method": "npc_gossip",
+      "rewards": {
+        "xp_equivalent": 3,
+        "level": 1,
+        "currency": [
+          {
+            "currencyId": "econ.currency.gold",
+            "amount": 40
+          }
+        ],
+        "items": [
+          {
+            "itemId": "item.kit_armor_cloth",
+            "count": 1
+          }
+        ]
+      },
+      "repeatable": "none"
+    },
+    {
+      "id": "quest.kit_collect",
+      "title_key": "l10n.quest.kit_collect.title",
+      "description_key": "l10n.quest.kit_collect.desc",
+      "objectives": [
+        {
+          "type": "collect",
+          "target_ref": "item.kit_scrap",
+          "count": 4,
+          "description_key": "l10n.quest.kit_collect.obj1",
+          "param": {
+            "consume_on_progress": false
+          }
+        }
+      ],
+      "start_method": "npc_gossip",
+      "turn_in_method": "npc_gossip",
+      "rewards": {
+        "xp_equivalent": 2,
+        "level": 2,
+        "currency": [
+          {
+            "currencyId": "econ.currency.gold",
+            "amount": 30
+          }
+        ],
+        "items": [
+          {
+            "itemId": "item.kit_potion_small",
+            "count": 2
+          }
+        ]
+      },
+      "repeatable": "none"
+    },
+    {
+      "id": "quest.kit_talk",
+      "title_key": "l10n.quest.kit_talk.title",
+      "description_key": "l10n.quest.kit_talk.desc",
+      "objectives": [
+        {
+          "type": "talk",
+          "target_ref": "dialog.kit_vendor",
+          "count": 1,
+          "description_key": "l10n.quest.kit_talk.obj1"
+        }
+      ],
+      "start_method": "npc_gossip",
+      "turn_in_method": "npc_gossip",
+      "rewards": {
+        "xp_equivalent": 1,
+        "level": 1,
+        "currency": [
+          {
+            "currencyId": "econ.currency.gold",
+            "amount": 15
+          }
+        ],
+        "items": []
+      },
+      "repeatable": "none"
+    },
+    {
+      "id": "quest.kit_stage_1",
+      "title_key": "l10n.quest.kit_stage_1.title",
+      "description_key": "l10n.quest.kit_stage_1.desc",
+      "objectives": [
+        {
+          "type": "explore",
+          "target_ref": "area.kit_field_scout_point",
+          "count": 1,
+          "description_key": "l10n.quest.kit_stage_1.obj1"
+        },
+        {
+          "type": "kill",
+          "target_ref": "creature.kit_ranged_archer",
+          "count": 1,
+          "description_key": "l10n.quest.kit_stage_1.obj2"
+        }
+      ],
+      "start_method": "npc_gossip",
+      "turn_in_method": "npc_gossip",
+      "rewards": {
+        "xp_equivalent": 2,
+        "level": 2,
+        "currency": [
+          {
+            "currencyId": "econ.currency.gold",
+            "amount": 30
+          }
+        ],
+        "items": []
+      },
+      "repeatable": "none"
+    },
+    {
+      "id": "quest.kit_stage_2",
+      "title_key": "l10n.quest.kit_stage_2.title",
+      "description_key": "l10n.quest.kit_stage_2.desc",
+      "prerequisite": "quest.is_completed(quest.kit_stage_1)",
+      "objectives": [
+        {
+          "type": "kill",
+          "target_ref": "creature.kit_boss",
+          "count": 1,
+          "description_key": "l10n.quest.kit_stage_2.obj1"
+        }
+      ],
+      "start_method": "npc_gossip",
+      "turn_in_method": "npc_gossip",
+      "rewards": {
+        "xp_equivalent": 5,
+        "level": 4,
+        "currency": [
+          {
+            "currencyId": "econ.currency.gold",
+            "amount": 200
+          }
+        ],
+        "items": [
+          {
+            "itemId": "item.kit_sword_fine",
+            "count": 1
+          }
+        ]
+      },
+      "repeatable": "none"
+    }
+  ]
+}

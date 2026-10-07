@@ -134,7 +134,8 @@ function Get-PackageManifestProblems {
         $missingFeel = @(Get-MissingSuffixes -Suffixes @(
             "Data~/data/_feel/feel/feel.calibration.json",
             "Data~/data/_feel/feel/feel.preset.json",
-            "Data~/data/_feel_templates/feel/feel.preset.json"))
+            "Data~/data/_feel_templates/feel/feel.preset.json",
+            "Data~/data/_starter_kit/l10n/l10n.text.json"))
         if ($missingFeel.Count -gt 0) {
             $problems += ("$PackageName：npm pack --dry-run 文件清单缺失 data/_feel 手感框架数据（S1 发版打包断言）：" + ($missingFeel -join ", "))
         }

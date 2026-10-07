@@ -28,7 +28,7 @@ def test_framework_data_package_carries_the_feel_dataset() -> None:
 
 def test_manifest_lists_feel_file_count_and_table_versions() -> None:
     assert '"data/_feel: $dataFeelFileCount files"' in BUILD
-    assert '@("_framework", "_feel", "_feel_templates")' in BUILD  # data_schemas 遍历三个框架级数据根
+    assert '@("_framework", "_feel", "_feel_templates", "_starter_kit")' in BUILD  # data_schemas 遍历四个框架级数据根
     assert '"data/_feel_templates: $dataFeelTemplatesFileCount files"' in BUILD
 
 
@@ -105,3 +105,12 @@ def test_dist_and_packages_carry_the_default_feel_templates_root_but_streaming_a
     assert re.search(
         r'Join-Path \$DistRoot "data\\_feel_templates"\)\s+-Destination \(Join-Path \$pkgDataDataTilde "data\\_feel_templates"\)', BUILD)
     assert not re.search(r"Sync-ContentTree .*data\\_feel_templates", BUILD)
+
+
+def test_dist_and_packages_carry_the_starter_kit_root_but_not_the_lab_and_not_streaming_assets() -> None:
+    # 内容起步包根（ADR-0162）：进 dist、framework-data 包 Data~/、MANIFEST 计数；不进实验室根，不由 build.ps1 镜像进 StreamingAssets。
+    assert re.search(r'Copy-DistDir\s+-SourceRelative\s+"data\\_starter_kit"\s+-DestName\s+"data\\_starter_kit"', BUILD)
+    assert re.search(
+        r'Join-Path \$DistRoot "data\\_starter_kit"\)\s+-Destination \(Join-Path \$pkgDataDataTilde "data\\_starter_kit"\)', BUILD)
+    assert '"data/_starter_kit: $dataStarterKitFileCount files"' in BUILD
+    assert not re.search(r"Sync-ContentTree .*data\\_starter_kit", BUILD)

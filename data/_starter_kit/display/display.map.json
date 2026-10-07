@@ -1,0 +1,456 @@
+{
+  "table": "display.map",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.kit_gold",
+      "category": "item",
+      "logical_id": "econ.currency.gold",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_sword_basic",
+      "category": "item",
+      "logical_id": "item.kit_sword_basic",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_sword_fine",
+      "category": "item",
+      "logical_id": "item.kit_sword_fine",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_armor_cloth",
+      "category": "item",
+      "logical_id": "item.kit_armor_cloth",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_armor_mail",
+      "category": "item",
+      "logical_id": "item.kit_armor_mail",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_charm_basic",
+      "category": "item",
+      "logical_id": "item.kit_charm_basic",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_potion_small",
+      "category": "item",
+      "logical_id": "item.kit_potion_small",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_potion_large",
+      "category": "item",
+      "logical_id": "item.kit_potion_large",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_scrap",
+      "category": "item",
+      "logical_id": "item.kit_scrap",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_melee_1",
+      "category": "skill",
+      "logical_id": "skill.kit_melee_1",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_melee_2",
+      "category": "skill",
+      "logical_id": "skill.kit_melee_2",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_melee_3",
+      "category": "skill",
+      "logical_id": "skill.kit_melee_3",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_heavy",
+      "category": "skill",
+      "logical_id": "skill.kit_heavy",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_charge",
+      "category": "skill",
+      "logical_id": "skill.kit_charge",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_dodge",
+      "category": "skill",
+      "logical_id": "skill.kit_dodge",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_ranged_shot",
+      "category": "skill",
+      "logical_id": "skill.kit_ranged_shot",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_ultimate_aoe",
+      "category": "skill",
+      "logical_id": "skill.kit_ultimate_aoe",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_grunt_slash",
+      "category": "skill",
+      "logical_id": "skill.kit_grunt_slash",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_heavy_slam",
+      "category": "skill",
+      "logical_id": "skill.kit_heavy_slam",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_boss_swing",
+      "category": "skill",
+      "logical_id": "skill.kit_boss_swing",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_potion_small",
+      "category": "skill",
+      "logical_id": "skill.kit_potion_small",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_skill_potion_large",
+      "category": "skill",
+      "logical_id": "skill.kit_potion_large",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_player",
+      "category": "creature",
+      "logical_id": "creature.kit_player",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_melee_grunt",
+      "category": "creature",
+      "logical_id": "creature.kit_melee_grunt",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_ranged_archer",
+      "category": "creature",
+      "logical_id": "creature.kit_ranged_archer",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_heavy_brute",
+      "category": "creature",
+      "logical_id": "creature.kit_heavy_brute",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_boss",
+      "category": "creature",
+      "logical_id": "creature.kit_boss",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_npc_questgiver",
+      "category": "creature",
+      "logical_id": "creature.kit_npc_questgiver",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_npc_vendor",
+      "category": "creature",
+      "logical_id": "creature.kit_npc_vendor",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.kit_kit_npc_save_point",
+      "category": "creature",
+      "logical_id": "creature.kit_npc_save_point",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    }
+  ]
+}

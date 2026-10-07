@@ -1,0 +1,23 @@
+{
+  "table": "econ.gold_base_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "econ.gold_base.default",
+      "entries": [
+        {
+          "x": 1,
+          "y": 4
+        },
+        {
+          "x": 10,
+          "y": 12
+        },
+        {
+          "x": 30,
+          "y": 36
+        }
+      ]
+    }
+  ]
+}

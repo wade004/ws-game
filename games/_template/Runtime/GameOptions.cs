@@ -242,10 +242,19 @@ namespace Game.Template
         public const string FeelDatasetRoot = "data/_feel";
 
         /// <summary>
+        /// 内容起步包数据根（框架分发包的 <c>data/_starter_kit</c>：技能/敌人/装备/掉落/任务/对话/地图规则模板、通用界面与系统文案、数值曲线）。
+        /// 可选内容，<b>默认不装载</b>；游戏要用就在 <see cref="ExtraFrameworkDatasetRoots"/> 里声明它（见下方注释里的示例），再删掉自己数据里与它重复的通用表
+        /// （或在自己的行上写 <c>"override": true</c>）。
+        /// </summary>
+        public const string StarterKitDatasetRoot = "data/_starter_kit";
+
+        /// <summary>
         /// 手感落地 M1 补缺：额外的框架级数据根（相对内容根，与 <c>GameBootstrap</c> 的 <c>_frameworkDatasetRoot</c> 同一套解析规则），
         /// 与框架根、游戏根一起按顺序合并加载（顺序：框架根 → <see cref="FeelDatasetRoot"/>（仅在 <see cref="FeelOptions"/> 非空时自动加入）→ 本字段各项 → 游戏根）。
         /// 缺省空数组：不开手感、不配本字段时数据来源与此前逐位一致。游戏需要框架之外的共享数据包（如自己的另一套装备资产包）时在这里追加。
         /// </summary>
+        // 用内容起步包起步（默认关闭；取消下一行注释即声明起步包，起步包的 l10n.locale/l10n.text/stat/prog 等通用表不要在游戏数据根里重复定义）：
+        // public string[] ExtraFrameworkDatasetRoots = new[] { StarterKitDatasetRoot };
         public string[] ExtraFrameworkDatasetRoots = Array.Empty<string>();
 
         /// <summary>

@@ -1,0 +1,97 @@
+{
+  "table": "area.trigger_def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "area.kit_field_enter_pack",
+      "map_id": "world.kit_field",
+      "shape": {
+        "kind": "rect",
+        "center": {
+          "x": 25.0,
+          "y": 7.0
+        },
+        "length": 12.8,
+        "width": 8.8
+      },
+      "trigger_type": "encounter_start",
+      "one_shot": false,
+      "condition": "not world.has(world.kit_field_cleared)",
+      "params": {
+        "encounter_ref": "encounter.kit_field_pack"
+      }
+    },
+    {
+      "id": "area.kit_field_enter_boss",
+      "map_id": "world.kit_field",
+      "shape": {
+        "kind": "rect",
+        "center": {
+          "x": 42.5,
+          "y": 22.0
+        },
+        "length": 7.8,
+        "width": 12.8
+      },
+      "trigger_type": "encounter_start",
+      "one_shot": false,
+      "condition": "world.has(world.kit_field_cleared)",
+      "params": {
+        "encounter_ref": "encounter.kit_field_boss"
+      }
+    },
+    {
+      "id": "area.kit_town_to_field",
+      "map_id": "world.kit_town",
+      "shape": {
+        "kind": "rect",
+        "center": {
+          "x": 16.0,
+          "y": 19.4
+        },
+        "length": 4.0,
+        "width": 1.6
+      },
+      "trigger_type": "map_transition",
+      "one_shot": false,
+      "params": {
+        "target_map": "world.kit_field",
+        "spawn_point": "world.kit_field.spawn.default"
+      }
+    },
+    {
+      "id": "area.kit_field_to_town",
+      "map_id": "world.kit_field",
+      "shape": {
+        "kind": "rect",
+        "center": {
+          "x": 5.0,
+          "y": 9.7
+        },
+        "length": 2.6,
+        "width": 1.4
+      },
+      "trigger_type": "map_transition",
+      "one_shot": false,
+      "params": {
+        "target_map": "world.kit_town",
+        "spawn_point": "world.kit_town.spawn.from_field"
+      }
+    },
+    {
+      "id": "area.kit_field_scout_point",
+      "map_id": "world.kit_field",
+      "shape": {
+        "kind": "circle",
+        "radius": 4,
+        "center": {
+          "x": 30.0,
+          "y": 24.0
+        }
+      },
+      "trigger_type": "quest_explore",
+      "one_shot": false,
+      "params": {}
+    }
+  ]
+}

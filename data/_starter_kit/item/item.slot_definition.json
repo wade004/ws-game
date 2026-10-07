@@ -1,0 +1,58 @@
+{
+  "table": "item.slot_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.slot.main_hand",
+      "name_key": "l10n.item.slot.main_hand.name",
+      "sort_weight": 1,
+      "is_weapon": true,
+      "is_equipment": true,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0,
+      "has_armor": false
+    },
+    {
+      "id": "item.slot.chest",
+      "name_key": "l10n.item.slot.chest.name",
+      "sort_weight": 2,
+      "is_weapon": false,
+      "is_equipment": true,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0,
+      "has_armor": false,
+      "has_appearance": false
+    },
+    {
+      "id": "item.slot.trinket",
+      "name_key": "l10n.item.slot.trinket.name",
+      "sort_weight": 3,
+      "is_weapon": false,
+      "is_equipment": true,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0,
+      "has_armor": false,
+      "has_appearance": false
+    },
+    {
+      "id": "item.slot.consumable",
+      "name_key": "l10n.item.slot.consumable.name",
+      "sort_weight": 4,
+      "is_weapon": false,
+      "is_equipment": false,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0,
+      "has_armor": false
+    },
+    {
+      "id": "item.slot.material",
+      "name_key": "l10n.item.slot.material.name",
+      "sort_weight": 5,
+      "is_weapon": false,
+      "is_equipment": false,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0,
+      "has_armor": false
+    }
+  ]
+}

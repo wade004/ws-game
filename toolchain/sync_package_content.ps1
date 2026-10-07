@@ -233,6 +233,11 @@ Sync-Tree -SourceDir (Join-Path $dataDir "data\_feel") -TargetDir (Join-Path $De
 Write-Step "同步 Data~/data/_feel_templates -> $DestDir\data\_feel_templates"
 Sync-Tree -SourceDir (Join-Path $dataDir "data\_feel_templates") -TargetDir (Join-Path $DestDir "data\_feel_templates") -Label "data/_feel_templates"
 
+# 内容起步包（ADR-0162，data/_starter_kit）：与 _feel_templates 同款可选根，游戏把它加进 GameOptions.ExtraFrameworkDatasetRoots 后运行期要在
+# StreamingAssets 下找得到；不声明就不被装载，所以镜像它不影响不用起步包的游戏。旧版本包没有该目录时 Sync-Tree 只提示并跳过。
+Write-Step "同步 Data~/data/_starter_kit -> $DestDir\data\_starter_kit"
+Sync-Tree -SourceDir (Join-Path $dataDir "data\_starter_kit") -TargetDir (Join-Path $DestDir "data\_starter_kit") -Label "data/_starter_kit"
+
 Write-Step "同步 Data~/assets/_placeholder -> $DestDir\assets\_placeholder"
 Sync-Tree -SourceDir (Join-Path $dataDir "assets\_placeholder") -TargetDir (Join-Path $DestDir "assets\_placeholder") -Label "assets/_placeholder"
 

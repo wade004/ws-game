@@ -73,6 +73,7 @@ REQUIRED = {
         "Data~/data/_feel/feel/feel.calibration.json",
         "Data~/data/_feel/feel/feel.preset.json",
         "Data~/data/_feel_templates/feel/feel.preset.json",
+        "Data~/data/_starter_kit/l10n/l10n.text.json",
     ],
 }
 

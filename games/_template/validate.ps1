@@ -36,6 +36,8 @@ param(
     [string]$FrameworkRoot = "",
     [string]$FeelRoot = "",
     [switch]$NoFeel,
+    [string]$StarterKitRoot = "",
+    [switch]$StarterKit,
     [string]$DataRoot = "",
     [string]$ValidateDataScript = "",
     [string]$PythonExe = "python",
@@ -107,6 +109,16 @@ if ($FeelRoot -ne "" -and -not (Test-Path $FeelRoot)) {
     exit 2
 }
 
+# 内容起步包根（可选，默认不加入校验，与 GameOptions 默认不声明一致）：游戏声明了起步包就加 -StarterKit，
+# 默认取框架级数据表目录的同级 _starter_kit；也可用 -StarterKitRoot 显式指定。
+if ($StarterKit -and $StarterKitRoot -eq "") {
+    $StarterKitRoot = Join-Path (Split-Path -Parent $FrameworkRoot) "_starter_kit"
+}
+if ($StarterKitRoot -ne "" -and -not (Test-Path $StarterKitRoot)) {
+    Write-Host "内容起步包数据根不存在：$StarterKitRoot" -ForegroundColor Red
+    exit 2
+}
+
 if (-not (Test-Path $DataRoot)) {
     Write-Host "本游戏数据目录不存在：$DataRoot（复制模板改名后请同步 -DataRoot 默认值）" -ForegroundColor Red
     exit 2
@@ -116,11 +128,15 @@ Write-Host "框架级数据表：$FrameworkRoot"
 if ($FeelRoot -ne "") {
     Write-Host "框架手感数据：$FeelRoot"
 }
+if ($StarterKitRoot -ne "") {
+    Write-Host "内容起步包数据：$StarterKitRoot"
+}
 Write-Host "本游戏数据：  $DataRoot"
 Write-Host ""
 
 $pythonArgs = @($ValidateDataScript, "--framework-root", $FrameworkRoot)
 if ($FeelRoot -ne "") { $pythonArgs += @("--data-root", $FeelRoot) }
+if ($StarterKitRoot -ne "") { $pythonArgs += @("--data-root", $StarterKitRoot) }
 $pythonArgs += @("--data-root", $DataRoot)
 if ($SkipDotnet) { $pythonArgs += "--skip-dotnet" }
 if ($Strict) { $pythonArgs += "--strict" }

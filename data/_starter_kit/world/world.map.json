@@ -1,0 +1,52 @@
+{
+  "table": "world.map",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "world.kit_town",
+      "scene_ref": "scene.kit_town",
+      "nav_ref": "nav.kit_town",
+      "spawn_points": [
+        {
+          "id": "world.kit_town.spawn.default",
+          "position": {
+            "x": 16,
+            "y": 5
+          },
+          "facing": 1.5708
+        },
+        {
+          "id": "world.kit_town.spawn.from_field",
+          "position": {
+            "x": 16,
+            "y": 16
+          },
+          "facing": 1.5708
+        }
+      ]
+    },
+    {
+      "id": "world.kit_field",
+      "scene_ref": "scene.kit_field",
+      "nav_ref": "nav.kit_field",
+      "spawn_points": [
+        {
+          "id": "world.kit_field.spawn.default",
+          "position": {
+            "x": 9,
+            "y": 6
+          },
+          "facing": 0
+        },
+        {
+          "id": "world.kit_field.spawn.from_boss",
+          "position": {
+            "x": 42.5,
+            "y": 25.4
+          },
+          "facing": 1.5708
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "table": "prog.xp_source",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "prog.xp_source.kill",
+      "kind": "kill",
+      "base_xp": 0,
+      "weight": 1,
+      "base_curve_ref": "prog.xp_base_curve.kit"
+    },
+    {
+      "id": "prog.xp_source.quest",
+      "kind": "quest",
+      "base_xp": 0,
+      "weight": 1,
+      "base_curve_ref": "prog.xp_base_curve.kit"
+    }
+  ]
+}

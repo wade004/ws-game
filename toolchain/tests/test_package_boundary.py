@@ -38,7 +38,8 @@ CLEAN_RUNTIME = {
     ],
     TOOLCHAIN_PKG: ["package.json", "Tools~/validator/bin/Validator.dll", "Tools~/simrunner/bin/SimRunner.dll", "Tools~/validate_data.py"],
     DATA_PKG: ["package.json", "Data~/data/_framework/found/found.time_model.json", "Data~/data/_feel/feel/feel.preset.json",
-               "Data~/data/_feel_templates/feel/feel.preset.json", "Data~/assets/_placeholder/sprites/a.png"],
+               "Data~/data/_feel_templates/feel/feel.preset.json", "Data~/data/_starter_kit/l10n/l10n.text.json",
+               "Data~/assets/_placeholder/sprites/a.png"],
     HEADLESS_PKG: ["package.json", "Lib~/Core.Sim.dll", "Lib~/Adapters.Stub.dll"],
 }
 

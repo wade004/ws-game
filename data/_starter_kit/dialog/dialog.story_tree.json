@@ -1,0 +1,257 @@
+{
+  "table": "dialog.story_tree",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "dialog.kit_qg_kill_accept",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_kill_accept.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_kill_accept.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_kill_progress",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_kill_progress.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_kill_progress.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_kill_done",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_kill_done.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_kill_done.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_collect_accept",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_collect_accept.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_collect_accept.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_collect_progress",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_collect_progress.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_collect_progress.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_collect_done",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_collect_done.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_collect_done.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_s1_accept",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_s1_accept.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_s1_accept.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_s1_progress",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_s1_progress.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_s1_progress.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_s1_done",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_s1_done.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_s1_done.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_s2_accept",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_s2_accept.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_s2_accept.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_s2_progress",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_s2_progress.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_s2_progress.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_s2_done",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_s2_done.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_s2_done.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_talk_accept",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_talk_accept.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_talk_accept.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_vendor_message",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_vendor_message.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_vendor_message.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_save_done",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_save_done.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_save_done.b0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_qg_chat",
+      "nodes": [
+        {
+          "id": "node.n0",
+          "text_key": "l10n.dlg.kit_qg_chat.n0",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_chat.b_rumor",
+              "next_node_id": "node.n_rumor"
+            },
+            {
+              "text_key": "l10n.dlg.kit_qg_chat.b_after",
+              "next_node_id": "node.n_after",
+              "condition": "quest.is_completed(quest.kit_stage_2)"
+            },
+            {
+              "text_key": "l10n.dlg.kit_qg_chat.b_bye"
+            }
+          ]
+        },
+        {
+          "id": "node.n_rumor",
+          "text_key": "l10n.dlg.kit_qg_chat.n_rumor",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_chat.b_ok1"
+            }
+          ]
+        },
+        {
+          "id": "node.n_after",
+          "text_key": "l10n.dlg.kit_qg_chat.n_after",
+          "branches": [
+            {
+              "text_key": "l10n.dlg.kit_qg_chat.b_ok2"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

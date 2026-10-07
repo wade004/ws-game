@@ -1,0 +1,22 @@
+{
+  "table": "arch.class",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "arch.class.kit_hero",
+      "name_key": "l10n.arch.kit_hero.name",
+      "primary_stat": "stat.power",
+      "base_stats": {
+        "stat.power": 10,
+        "stat.vitality": 320,
+        "stat.move_speed": 5.4
+      },
+      "power_types": [
+        "arch.power.health",
+        "arch.power.stamina"
+      ],
+      "skill_book_ref": "skill.book.kit_hero",
+      "level_curve_ref": "prog.curve.kit_default"
+    }
+  ]
+}

@@ -1,0 +1,512 @@
+{
+  "table": "skill.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.kit_melee_1",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.34,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_arc_narrow",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 8,
+            "school": "school.physical",
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ]
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 90,
+        "active_ms": 80,
+        "recovery_ms": 170,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 90
+          }
+        ],
+        "combo": {
+          "next": "skill.kit_melee_2",
+          "open_ms": 170,
+          "close_ms": 340
+        }
+      }
+    },
+    {
+      "id": "skill.kit_melee_2",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.35,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_arc_narrow",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 8,
+            "school": "school.physical",
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ]
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 90,
+        "active_ms": 80,
+        "recovery_ms": 180,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 90
+          }
+        ],
+        "combo": {
+          "next": "skill.kit_melee_3",
+          "open_ms": 170,
+          "close_ms": 350
+        }
+      }
+    },
+    {
+      "id": "skill.kit_melee_3",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.52,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_arc_narrow",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 14,
+            "school": "school.physical",
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ]
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 140,
+        "active_ms": 100,
+        "recovery_ms": 280,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 140
+          }
+        ]
+      }
+    },
+    {
+      "id": "skill.kit_heavy",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.7,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_arc_wide",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 26,
+            "school": "school.physical",
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ]
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 260,
+        "active_ms": 100,
+        "recovery_ms": 340,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 260
+          }
+        ]
+      },
+      "cost": [
+        {
+          "power_type": "arch.power.stamina",
+          "amount": 18
+        }
+      ]
+    },
+    {
+      "id": "skill.kit_charge",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.55,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_circle_spin",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 20,
+            "school": "school.physical",
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ]
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 150,
+        "active_ms": 100,
+        "recovery_ms": 300,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 150
+          }
+        ],
+        "charge": {
+          "min_ms": 250,
+          "max_ms": 850,
+          "value_scale": {
+            "min": 1.0,
+            "max": 2.4
+          }
+        }
+      },
+      "cost": [
+        {
+          "power_type": "arch.power.stamina",
+          "amount": 30
+        }
+      ]
+    },
+    {
+      "id": "skill.kit_dodge",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.35,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_self",
+      "effects": [],
+      "timeline": {
+        "startup_ms": 50,
+        "active_ms": 150,
+        "recovery_ms": 150,
+        "markers": [
+          {
+            "name": "invuln_start",
+            "at_ms": 50
+          },
+          {
+            "name": "invuln_end",
+            "at_ms": 200
+          },
+          {
+            "name": "motion_start",
+            "at_ms": 50
+          },
+          {
+            "name": "motion_end",
+            "at_ms": 200
+          }
+        ],
+        "motion": {
+          "kind": "dash",
+          "distance": 2.6,
+          "direction": "facing",
+          "blocking": "stop"
+        }
+      },
+      "cost": [
+        {
+          "power_type": "arch.power.stamina",
+          "amount": 22
+        }
+      ]
+    },
+    {
+      "id": "skill.kit_ranged_shot",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 30,
+      "cast_time": 1.08,
+      "cooldown_duration": 1.6,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_nearest_enemy",
+      "effects": [
+        {
+          "kind": "projectile",
+          "params": {
+            "travel_mode": "straight",
+            "hit_behavior": "impact_on_first",
+            "speed": 13,
+            "max_range": 14,
+            "relation_policy": "hostile_only",
+            "on_hit_effects": [
+              {
+                "kind": "school_damage",
+                "params": {
+                  "base_value": 9,
+                  "school": "school.physical"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 600,
+        "active_ms": 60,
+        "recovery_ms": 420,
+        "markers": [
+          {
+            "name": "release",
+            "at_ms": 600
+          },
+          {
+            "name": "hit",
+            "at_ms": 600
+          }
+        ],
+        "target_assist": {
+          "chain_ref": "target.chain.kit_nearest_enemy",
+          "max_distance": 14,
+          "max_angle_deg": 180,
+          "mode": "face_only"
+        }
+      }
+    },
+    {
+      "id": "skill.kit_ultimate_aoe",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 4,
+      "cast_time": 2.65,
+      "cooldown_duration": 7.0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_circle_aoe",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 42,
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 1500,
+        "active_ms": 150,
+        "recovery_ms": 1000,
+        "markers": [
+          {
+            "name": "armor_start",
+            "at_ms": 0
+          },
+          {
+            "name": "armor_end",
+            "at_ms": 1500
+          },
+          {
+            "name": "hit",
+            "at_ms": 1500
+          }
+        ],
+        "target_assist": {
+          "chain_ref": "target.chain.kit_nearest_enemy",
+          "max_distance": 14,
+          "max_angle_deg": 180,
+          "mode": "face_only"
+        }
+      }
+    },
+    {
+      "id": "skill.kit_grunt_slash",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.88,
+      "cooldown_duration": 0.6,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_arc_narrow",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 380,
+        "active_ms": 80,
+        "recovery_ms": 420,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 380
+          }
+        ],
+        "target_assist": {
+          "chain_ref": "target.chain.kit_nearest_enemy",
+          "max_distance": 14,
+          "max_angle_deg": 180,
+          "mode": "face_only"
+        }
+      }
+    },
+    {
+      "id": "skill.kit_heavy_slam",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 1.47,
+      "cooldown_duration": 3.5,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_circle_aoe",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 26,
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 750,
+        "active_ms": 120,
+        "recovery_ms": 600,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 750
+          },
+          {
+            "name": "armor_start",
+            "at_ms": 0
+          },
+          {
+            "name": "armor_end",
+            "at_ms": 800
+          }
+        ],
+        "target_assist": {
+          "chain_ref": "target.chain.kit_nearest_enemy",
+          "max_distance": 14,
+          "max_angle_deg": 180,
+          "mode": "face_only"
+        }
+      }
+    },
+    {
+      "id": "skill.kit_boss_swing",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 4,
+      "cast_time": 1.18,
+      "cooldown_duration": 1.4,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_arc_wide",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 16,
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 520,
+        "active_ms": 100,
+        "recovery_ms": 560,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 520
+          }
+        ],
+        "target_assist": {
+          "chain_ref": "target.chain.kit_nearest_enemy",
+          "max_distance": 14,
+          "max_angle_deg": 180,
+          "mode": "face_only"
+        }
+      }
+    },
+    {
+      "id": "skill.kit_potion_small",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 0,
+      "cast_time": 0,
+      "cooldown_duration": 6,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_self",
+      "effects": [
+        {
+          "kind": "heal",
+          "params": {
+            "base_value": 60,
+            "coefficient": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "skill.kit_potion_large",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 0,
+      "cast_time": 0,
+      "cooldown_duration": 6,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.kit_self",
+      "effects": [
+        {
+          "kind": "heal",
+          "params": {
+            "base_value": 140,
+            "coefficient": 0
+          }
+        }
+      ]
+    }
+  ]
+}

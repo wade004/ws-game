@@ -1,0 +1,43 @@
+{
+  "table": "encounter.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "encounter.kit_field_pack",
+      "units": [
+        {
+          "spawn_ref": "spawn.kit_field_grunt_1"
+        },
+        {
+          "spawn_ref": "spawn.kit_field_grunt_2"
+        },
+        {
+          "spawn_ref": "spawn.kit_field_archer_1"
+        }
+      ],
+      "victory_condition": "enemies.count_in_range(80) == 0",
+      "defeat_condition": "self.hp_pct <= 0",
+      "rewards": {
+        "world_flags": [
+          {
+            "flagKey": "world.kit_field_cleared",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "encounter.kit_field_boss",
+      "units": [
+        {
+          "spawn_ref": "spawn.kit_field_brute_1"
+        },
+        {
+          "spawn_ref": "spawn.kit_field_boss_1"
+        }
+      ],
+      "victory_condition": "enemies.count_in_range(80) == 0",
+      "defeat_condition": "self.hp_pct <= 0"
+    }
+  ]
+}

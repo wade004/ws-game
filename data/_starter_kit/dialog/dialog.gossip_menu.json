@@ -1,0 +1,230 @@
+{
+  "table": "dialog.gossip_menu",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "dialog.kit_questgiver",
+      "greeting_key": "l10n.dlg.kit_qg.greeting",
+      "options": [
+        {
+          "text_key": "l10n.dlg.kit_qg.o_kill_accept",
+          "actions": [
+            {
+              "kind": "quest_accept",
+              "ref": "quest.kit_kill_count"
+            },
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_kill_accept"
+            }
+          ],
+          "visible_if": "quest.is_available(quest.kit_kill_count)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_kill_progress",
+          "actions": [
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_kill_progress"
+            }
+          ],
+          "visible_if": "quest.is_active(quest.kit_kill_count) and not quest.is_objectives_complete(quest.kit_kill_count)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_kill_done",
+          "actions": [
+            {
+              "kind": "quest_turn_in",
+              "ref": "quest.kit_kill_count"
+            },
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_kill_done"
+            }
+          ],
+          "visible_if": "quest.is_objectives_complete(quest.kit_kill_count)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_collect_accept",
+          "actions": [
+            {
+              "kind": "quest_accept",
+              "ref": "quest.kit_collect"
+            },
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_collect_accept"
+            }
+          ],
+          "visible_if": "quest.is_available(quest.kit_collect)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_collect_progress",
+          "actions": [
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_collect_progress"
+            }
+          ],
+          "visible_if": "quest.is_active(quest.kit_collect) and not quest.is_objectives_complete(quest.kit_collect)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_collect_done",
+          "actions": [
+            {
+              "kind": "quest_turn_in",
+              "ref": "quest.kit_collect"
+            },
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_collect_done"
+            }
+          ],
+          "visible_if": "quest.is_objectives_complete(quest.kit_collect)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_s1_accept",
+          "actions": [
+            {
+              "kind": "quest_accept",
+              "ref": "quest.kit_stage_1"
+            },
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_s1_accept"
+            }
+          ],
+          "visible_if": "quest.is_available(quest.kit_stage_1)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_s1_progress",
+          "actions": [
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_s1_progress"
+            }
+          ],
+          "visible_if": "quest.is_active(quest.kit_stage_1) and not quest.is_objectives_complete(quest.kit_stage_1)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_s1_done",
+          "actions": [
+            {
+              "kind": "quest_turn_in",
+              "ref": "quest.kit_stage_1"
+            },
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_s1_done"
+            }
+          ],
+          "visible_if": "quest.is_objectives_complete(quest.kit_stage_1)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_s2_accept",
+          "actions": [
+            {
+              "kind": "quest_accept",
+              "ref": "quest.kit_stage_2"
+            },
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_s2_accept"
+            }
+          ],
+          "visible_if": "quest.is_available(quest.kit_stage_2)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_s2_progress",
+          "actions": [
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_s2_progress"
+            }
+          ],
+          "visible_if": "quest.is_active(quest.kit_stage_2) and not quest.is_objectives_complete(quest.kit_stage_2)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_s2_done",
+          "actions": [
+            {
+              "kind": "quest_turn_in",
+              "ref": "quest.kit_stage_2"
+            },
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_s2_done"
+            }
+          ],
+          "visible_if": "quest.is_objectives_complete(quest.kit_stage_2)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_talk",
+          "actions": [
+            {
+              "kind": "quest_accept",
+              "ref": "quest.kit_talk"
+            },
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_talk_accept"
+            }
+          ],
+          "visible_if": "quest.is_available(quest.kit_talk)"
+        },
+        {
+          "text_key": "l10n.dlg.kit_qg.o_chat",
+          "actions": [
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_qg_chat"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_vendor",
+      "greeting_key": "l10n.dlg.kit_vendor.greeting",
+      "options": [
+        {
+          "text_key": "l10n.dlg.kit_vendor.o_shop",
+          "actions": [
+            {
+              "kind": "vendor",
+              "ref": "econ.vendor.kit_general"
+            }
+          ]
+        },
+        {
+          "text_key": "l10n.dlg.kit_vendor.o_message",
+          "actions": [
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_vendor_message"
+            }
+          ],
+          "visible_if": "quest.is_active(quest.kit_talk)"
+        }
+      ]
+    },
+    {
+      "id": "dialog.kit_save_point",
+      "greeting_key": "l10n.dlg.kit_save.greeting",
+      "options": [
+        {
+          "text_key": "l10n.dlg.kit_save.o_save",
+          "actions": [
+            {
+              "kind": "save"
+            },
+            {
+              "kind": "start_story",
+              "ref": "dialog.kit_save_done"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "table": "l10n.locale",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "l10n.locale.zh_cn",
+      "fallback": null,
+      "is_default": true
+    },
+    {
+      "id": "l10n.locale.en",
+      "fallback": "l10n.locale.zh_cn",
+      "is_default": false
+    }
+  ]
+}

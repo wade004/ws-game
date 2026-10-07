@@ -1,0 +1,11 @@
+{
+  "table": "world.flag_schema",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "world.kit_field_cleared",
+      "kind": "bool",
+      "description": "kit field arena cleared (written by the encounter reward)"
+    }
+  ]
+}

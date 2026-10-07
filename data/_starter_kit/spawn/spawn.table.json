@@ -1,0 +1,94 @@
+{
+  "table": "spawn.table",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "spawn.kit_field_grunt_1",
+      "map_id": "world.kit_field",
+      "content_ref": "creature.kit_melee_grunt",
+      "position": {
+        "x": 26.0,
+        "y": 7.0
+      },
+      "facing": 3.1416,
+      "respawn_policy": "never"
+    },
+    {
+      "id": "spawn.kit_field_grunt_2",
+      "map_id": "world.kit_field",
+      "content_ref": "creature.kit_melee_grunt",
+      "position": {
+        "x": 28.5,
+        "y": 4.2
+      },
+      "facing": 3.1416,
+      "respawn_policy": "never"
+    },
+    {
+      "id": "spawn.kit_field_archer_1",
+      "map_id": "world.kit_field",
+      "content_ref": "creature.kit_ranged_archer",
+      "position": {
+        "x": 30.0,
+        "y": 9.8
+      },
+      "facing": 3.1416,
+      "respawn_policy": "never"
+    },
+    {
+      "id": "spawn.kit_field_brute_1",
+      "map_id": "world.kit_field",
+      "content_ref": "creature.kit_heavy_brute",
+      "position": {
+        "x": 43.0,
+        "y": 23.0
+      },
+      "facing": 3.1416,
+      "respawn_policy": "never"
+    },
+    {
+      "id": "spawn.kit_field_boss_1",
+      "map_id": "world.kit_field",
+      "content_ref": "creature.kit_boss",
+      "position": {
+        "x": 43.5,
+        "y": 22.5
+      },
+      "facing": 3.1416,
+      "respawn_policy": "never"
+    },
+    {
+      "id": "spawn.kit_town_questgiver",
+      "map_id": "world.kit_town",
+      "content_ref": "creature.kit_npc_questgiver",
+      "position": {
+        "x": 19.0,
+        "y": 16.3
+      },
+      "facing": 3.1416,
+      "respawn_policy": "on_map_enter"
+    },
+    {
+      "id": "spawn.kit_town_vendor",
+      "map_id": "world.kit_town",
+      "content_ref": "creature.kit_npc_vendor",
+      "position": {
+        "x": 10.6,
+        "y": 13.2
+      },
+      "facing": 1.5708,
+      "respawn_policy": "on_map_enter"
+    },
+    {
+      "id": "spawn.kit_town_save_point",
+      "map_id": "world.kit_town",
+      "content_ref": "creature.kit_npc_save_point",
+      "position": {
+        "x": 14.0,
+        "y": 10.0
+      },
+      "facing": 0.0,
+      "respawn_policy": "on_map_enter"
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "table": "ai.behavior_profile",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ai.profile.kit_melee",
+      "perception_radius": 9,
+      "leash_range": 22,
+      "combat_return_policy": "return_to_spawn",
+      "rotation_ref": "ai.rotation.kit_melee",
+      "decision_interval": 0.25,
+      "transitions": {
+        "chase_to_combat": "self.distance_to_target <= 1.5",
+        "combat_to_chase": "self.distance_to_target > 2.3"
+      }
+    },
+    {
+      "id": "ai.profile.kit_ranged",
+      "perception_radius": 12,
+      "leash_range": 26,
+      "combat_return_policy": "return_to_spawn",
+      "rotation_ref": "ai.rotation.kit_ranged",
+      "decision_interval": 0.3,
+      "transitions": {
+        "chase_to_combat": "self.distance_to_target <= 9",
+        "combat_to_chase": "self.distance_to_target > 11"
+      }
+    },
+    {
+      "id": "ai.profile.kit_heavy",
+      "perception_radius": 11,
+      "leash_range": 20,
+      "combat_return_policy": "return_to_spawn",
+      "rotation_ref": "ai.rotation.kit_heavy",
+      "decision_interval": 0.3,
+      "transitions": {
+        "chase_to_combat": "self.distance_to_target <= 2.4",
+        "combat_to_chase": "self.distance_to_target > 3.4"
+      }
+    },
+    {
+      "id": "ai.profile.kit_boss",
+      "perception_radius": 18,
+      "leash_range": 40,
+      "combat_return_policy": "return_to_spawn",
+      "rotation_ref": "ai.rotation.kit_boss",
+      "decision_interval": 0.25,
+      "transitions": {
+        "chase_to_combat": "self.distance_to_target <= 3.2",
+        "combat_to_chase": "self.distance_to_target > 4.6"
+      }
+    }
+  ]
+}

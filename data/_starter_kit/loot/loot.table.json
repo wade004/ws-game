@@ -1,0 +1,155 @@
+{
+  "table": "loot.table",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "loot.kit_grunt",
+      "groups": [
+        {
+          "roll_mode": "chance_each",
+          "entries": [
+            {
+              "ref": "econ.currency.gold",
+              "weight_or_chance": 1.0,
+              "count_range": {
+                "min": 1,
+                "max": 2
+              }
+            },
+            {
+              "ref": "item.kit_potion_small",
+              "weight_or_chance": 0.12,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loot.kit_archer",
+      "groups": [
+        {
+          "roll_mode": "chance_each",
+          "entries": [
+            {
+              "ref": "econ.currency.gold",
+              "weight_or_chance": 1.0,
+              "count_range": {
+                "min": 1,
+                "max": 3
+              }
+            },
+            {
+              "ref": "item.kit_scrap",
+              "weight_or_chance": 0.55,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loot.kit_brute",
+      "groups": [
+        {
+          "roll_mode": "chance_each",
+          "entries": [
+            {
+              "ref": "econ.currency.gold",
+              "weight_or_chance": 1.0,
+              "count_range": {
+                "min": 6,
+                "max": 9
+              }
+            },
+            {
+              "ref": "item.kit_potion_small",
+              "weight_or_chance": 0.4,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            }
+          ]
+        },
+        {
+          "roll_mode": "weighted_pick_one",
+          "entries": [
+            {
+              "ref": "item.kit_charm_basic",
+              "weight_or_chance": 5,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.kit_armor_cloth",
+              "weight_or_chance": 3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.kit_sword_basic",
+              "weight_or_chance": 2,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loot.kit_boss",
+      "groups": [
+        {
+          "roll_mode": "chance_each",
+          "entries": [
+            {
+              "ref": "econ.currency.gold",
+              "weight_or_chance": 1.0,
+              "count_range": {
+                "min": 40,
+                "max": 60
+              }
+            },
+            {
+              "ref": "item.kit_sword_fine",
+              "weight_or_chance": 1.0,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.kit_potion_large",
+              "weight_or_chance": 1.0,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.kit_armor_mail",
+              "weight_or_chance": 0.5,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

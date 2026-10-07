@@ -1,0 +1,62 @@
+{
+  "table": "found.input_action",
+  "schema_version": 1,
+  "rows": [
+    {
+      "key": "input.action.ui_toggle_inventory",
+      "kind": "button",
+      "default_bindings": [
+        "key:i"
+      ],
+      "rebind_group": "default"
+    },
+    {
+      "key": "input.action.ui_toggle_equipment",
+      "kind": "button",
+      "default_bindings": [
+        "key:u"
+      ],
+      "rebind_group": "default"
+    },
+    {
+      "key": "input.action.ui_toggle_quest_log",
+      "kind": "button",
+      "default_bindings": [
+        "key:j"
+      ],
+      "rebind_group": "default"
+    },
+    {
+      "key": "input.action.ui_toggle_skill_book",
+      "kind": "button",
+      "default_bindings": [
+        "key:k"
+      ],
+      "rebind_group": "default"
+    },
+    {
+      "key": "input.action.ui_toggle_character_stats",
+      "kind": "button",
+      "default_bindings": [
+        "key:c"
+      ],
+      "rebind_group": "default"
+    },
+    {
+      "key": "input.action.ui_toggle_settings",
+      "kind": "button",
+      "default_bindings": [
+        "key:n"
+      ],
+      "rebind_group": "default"
+    },
+    {
+      "key": "input.action.ui_toggle_save_slots",
+      "kind": "button",
+      "default_bindings": [
+        "key:l"
+      ],
+      "rebind_group": "default"
+    }
+  ]
+}

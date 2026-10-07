@@ -1,0 +1,35 @@
+{
+  "table": "ui_layout_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ui_layout_definition.kit_hud",
+      "panel": "hud",
+      "fields": {
+        "anchor": "top_left"
+      }
+    },
+    {
+      "id": "ui_layout_definition.kit_action_bar",
+      "panel": "action_bar",
+      "slots": 4,
+      "fields": {
+        "anchor": "bottom_center"
+      }
+    },
+    {
+      "id": "ui_layout_definition.kit_pause_menu",
+      "panel": "pause_menu",
+      "fields": {
+        "anchor": "center"
+      }
+    },
+    {
+      "id": "ui_layout_definition.kit_save_slots",
+      "panel": "save_slots",
+      "fields": {
+        "anchor": "center"
+      }
+    }
+  ]
+}

@@ -351,3 +351,16 @@ def test_feel_and_feel_templates_data_roots_are_mirrored(project: Path) -> None:
         synced = dest / "data" / root / "feel" / "feel.preset.json"
         assert synced.exists(), f"data/{root} 没有同步进 StreamingAssets"
         assert synced.read_text(encoding="utf-8") == expected
+
+
+def test_starter_kit_data_root_is_mirrored(project: Path) -> None:
+    """不变量：包 Data~/data 下分发的内容起步包根（_starter_kit，ADR-0162）同步进 StreamingAssets，游戏把它声明为额外框架根后运行期才找得到。
+    复现：没有这一步镜像时，声明了起步包的游戏在运行期数据校验里整根缺失、引用悬空。"""
+    pkg = _make_package(project, FRAMEWORK_DATA)
+    _fill_data(pkg)
+    _write(pkg / "Data~" / "data" / "_starter_kit" / "l10n" / "l10n.text.json", '{"table":"l10n.text","kit":1}')
+    proc = _run("-UnityProjectPath", str(project))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    synced = _dest(project) / "data" / "_starter_kit" / "l10n" / "l10n.text.json"
+    assert synced.exists(), "data/_starter_kit 没有同步进 StreamingAssets"
+    assert synced.read_text(encoding="utf-8") == '{"table":"l10n.text","kit":1}'

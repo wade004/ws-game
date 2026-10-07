@@ -1,0 +1,35 @@
+{
+  "table": "skill.book",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.book.kit_hero",
+      "entries": [
+        {
+          "level": 1,
+          "skill_id": "skill.kit_melee_1"
+        },
+        {
+          "level": 1,
+          "skill_id": "skill.kit_melee_2"
+        },
+        {
+          "level": 1,
+          "skill_id": "skill.kit_melee_3"
+        },
+        {
+          "level": 1,
+          "skill_id": "skill.kit_heavy"
+        },
+        {
+          "level": 1,
+          "skill_id": "skill.kit_charge"
+        },
+        {
+          "level": 1,
+          "skill_id": "skill.kit_dodge"
+        }
+      ]
+    }
+  ]
+}

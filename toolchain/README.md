@@ -318,6 +318,21 @@ dotnet <SimRunner.dll> fight --framework-root <dir> --data-root <dir> [--data-ro
 的游戏能自己跑实验室"），并有一步断言游戏独立版构建产物里没有手感实验室与演示场景的任何程序集或资产；
 `check.ps1` 的 pkg_manifest 步骤要求无头包清单里有预编译命令行与实验室根的代表文件。
 
+## 字体子集工具（`font_subset.py`，内容起步包配套，ADR-0162）
+
+默认中文字体（`assets/_placeholder/fonts/noto_sans_cjk_sc.otf`，SIL OFL 1.1，约 15.7 MiB）覆盖整套简体中文，发版时按游戏实际用字裁剪：
+
+```
+python toolchain/font_subset.py --data-root data/_starter_kit --data-root <游戏数据根> --out <输出>.otf [--no-common] [--strict] [--extra-chars 字符串] [--extra-chars-file 文件] [--report 报告.json]
+```
+
+- **字符集 = 数据文本 + 常用字表 + 额外字符**：扫描每个 `--data-root` 下所有 `l10n.text` 表行的 `text`（多语言、多文件，不依赖文件名，按 JSON 里的 `table` 判定）；常用字表（默认带，`--no-common` 关）是 GB2312 一级汉字 3755 个（由标准库编码表按区位生成，不附带数据文件）、ASCII 可打印字符与中文标点；`--extra-chars`/`--extra-chars-file` 追加。
+- **缺字**：字符集里源字体没有的字符打印清单并以退出码 1 结束（子集仍写出）；`--strict` 下直接失败、不写文件。参数/输入错误退出码 2。
+- **实测（2026-10-07，起步包文案）**：整套 16,437,364 字节 → 起步包文案 + 常用字表 1,831,352 字节（11.1%，3900 字符）；只留数据用字 151,028 字节（0.9%，353 字符）。样板游戏 A 数据叠加起步包后约 1.83 MB。
+- **许可**：子集仍是同一字体的衍生版本，分发时继续附带 `LICENSE-OFL.txt`；字体名表与版权条目原样保留。
+- **确定性**：相同输入产生字节相同的输出。依赖只有 `fontTools`（工具链已安装，不新增依赖）；测试在没有 `fontTools` 的环境整体跳过（`toolchain/tests/test_font_subset.py`）。
+- 子集产物取决于具体游戏的文案，框架不分发；由游戏在发版流程里生成并替换同名字体资源（引用名与布局数据不变）。
+
 ## 生成事件常量（gen_event_constants.py）
 
 读取事件词汇登记表 `data/_sample/found/found.event_catalog.json`，为每一行生成一个

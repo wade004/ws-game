@@ -1,0 +1,127 @@
+{
+  "table": "item.template",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.kit_sword_basic",
+      "slot": "item.slot.main_hand",
+      "quality": "item.quality.common",
+      "item_level": 1,
+      "stack_size": 1,
+      "name_key": "l10n.item.kit_sword_basic.name",
+      "display_ref": "display.kit_kit_sword_basic",
+      "weapon_profile": {
+        "damage_min": 5,
+        "damage_max": 8,
+        "speed": 1.5
+      }
+    },
+    {
+      "id": "item.kit_sword_fine",
+      "slot": "item.slot.main_hand",
+      "quality": "item.quality.uncommon",
+      "item_level": 2,
+      "stack_size": 1,
+      "name_key": "l10n.item.kit_sword_fine.name",
+      "display_ref": "display.kit_kit_sword_fine",
+      "stats": [
+        {
+          "stat": "stat.power",
+          "op": "flat",
+          "value": 8
+        }
+      ],
+      "weapon_profile": {
+        "damage_min": 7,
+        "damage_max": 11,
+        "speed": 1.5
+      }
+    },
+    {
+      "id": "item.kit_armor_cloth",
+      "slot": "item.slot.chest",
+      "quality": "item.quality.common",
+      "item_level": 1,
+      "stack_size": 1,
+      "name_key": "l10n.item.kit_armor_cloth.name",
+      "display_ref": "display.kit_kit_armor_cloth",
+      "stats": [
+        {
+          "stat": "stat.armor",
+          "op": "flat",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "id": "item.kit_armor_mail",
+      "slot": "item.slot.chest",
+      "quality": "item.quality.uncommon",
+      "item_level": 2,
+      "stack_size": 1,
+      "name_key": "l10n.item.kit_armor_mail.name",
+      "display_ref": "display.kit_kit_armor_mail",
+      "stats": [
+        {
+          "stat": "stat.armor",
+          "op": "flat",
+          "value": 38
+        }
+      ]
+    },
+    {
+      "id": "item.kit_charm_basic",
+      "slot": "item.slot.trinket",
+      "quality": "item.quality.common",
+      "item_level": 1,
+      "stack_size": 1,
+      "name_key": "l10n.item.kit_charm_basic.name",
+      "display_ref": "display.kit_kit_charm_basic",
+      "stats": [
+        {
+          "stat": "stat.power",
+          "op": "flat",
+          "value": 2
+        },
+        {
+          "stat": "stat.vitality",
+          "op": "flat",
+          "value": 12
+        }
+      ]
+    },
+    {
+      "id": "item.kit_potion_small",
+      "slot": "item.slot.consumable",
+      "quality": "item.quality.common",
+      "item_level": 1,
+      "stack_size": 10,
+      "name_key": "l10n.item.kit_potion_small.name",
+      "display_ref": "display.kit_kit_potion_small",
+      "on_use": {
+        "skill_ref": "skill.kit_potion_small"
+      }
+    },
+    {
+      "id": "item.kit_potion_large",
+      "slot": "item.slot.consumable",
+      "quality": "item.quality.uncommon",
+      "item_level": 2,
+      "stack_size": 10,
+      "name_key": "l10n.item.kit_potion_large.name",
+      "display_ref": "display.kit_kit_potion_large",
+      "on_use": {
+        "skill_ref": "skill.kit_potion_large"
+      }
+    },
+    {
+      "id": "item.kit_scrap",
+      "slot": "item.slot.material",
+      "quality": "item.quality.common",
+      "item_level": 1,
+      "stack_size": 20,
+      "name_key": "l10n.item.kit_scrap.name",
+      "display_ref": "display.kit_kit_scrap"
+    }
+  ]
+}

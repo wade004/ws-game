@@ -1,0 +1,51 @@
+{
+  "table": "ai.rotation",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ai.rotation.kit_melee",
+      "entries": [
+        {
+          "priority": 10,
+          "condition": "self.distance_to_target <= 2.0",
+          "skill_id": "skill.kit_grunt_slash"
+        }
+      ]
+    },
+    {
+      "id": "ai.rotation.kit_ranged",
+      "entries": [
+        {
+          "priority": 10,
+          "condition": "self.distance_to_target <= 11",
+          "skill_id": "skill.kit_ranged_shot"
+        }
+      ]
+    },
+    {
+      "id": "ai.rotation.kit_heavy",
+      "entries": [
+        {
+          "priority": 10,
+          "condition": "self.distance_to_target <= 3.2",
+          "skill_id": "skill.kit_heavy_slam"
+        }
+      ]
+    },
+    {
+      "id": "ai.rotation.kit_boss",
+      "entries": [
+        {
+          "priority": 20,
+          "condition": "self.distance_to_target <= 3.4",
+          "skill_id": "skill.kit_ultimate_aoe"
+        },
+        {
+          "priority": 10,
+          "condition": "self.distance_to_target <= 2.8",
+          "skill_id": "skill.kit_boss_swing"
+        }
+      ]
+    }
+  ]
+}

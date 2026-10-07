@@ -1,0 +1,11 @@
+{
+  "table": "stat.weight",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "stat.weight.power",
+      "stat": "stat.power",
+      "weight": 5.0
+    }
+  ]
+}

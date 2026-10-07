@@ -187,6 +187,20 @@ powershell -File path\to\toolchain\get_framework.ps1 -Version <ver> -Target pack
   验收样例数据集，需要额外单独跑一次 zip 通道的 `-WithSamples`（哪怕平时按包依赖方式消费框架的
   其余内容），框架目前没有让私服通道本身携带样例数据的计划。
 
+## 使用内容起步包（可选，默认不装载）
+
+框架出厂一份游戏无关的内容起步包（`data/_starter_kit`：技能/敌人/装备/掉落/任务/对话/地图规则模板、系统文案、数值曲线、面板热键，见该目录 README 与
+[ADR-0162](../../architecture/adr/0162-内容起步包与默认中文字体子集工具.md)）。本模板**默认不声明它**，数据加载顺序与不引入时逐位一致；要用时在 `GameOptions` 里声明
+（`Runtime/GameOptions.cs` 的 `ExtraFrameworkDatasetRoots` 旁有注释掉的示例）：
+
+```csharp
+public string[] ExtraFrameworkDatasetRoots = new[] { StarterKitDatasetRoot };   // data/_starter_kit，装载顺序在框架根/手感根之后、游戏根之前
+```
+
+声明后：本模板 `data/game` 里与起步包重复的通用表（属性、经验曲线、槽位、品质、阵营、文案等）要么删掉改为引用起步包的行，要么在自己那行写 `"override": true`
+（同一个 id 在两个根里各定义一次是阻断错误）；`validate.ps1 -StarterKit`（或 `-StarterKitRoot <路径>`）把 `data/_starter_kit` 一并作为校验根。起步包里每个技能/物品/生物的外形映射指向占位精灵 id，
+游戏要写覆盖行换成自己的美术。字体与发版体积见 `toolchain/README.md` "字体子集工具"一节。
+
 ## 手感开关与数据根
 
 手感系统缺省关闭（`GameOptions.FeelOptions == null`），关闭时本模板的装配、数据加载、校验与热重载

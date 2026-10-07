@@ -1,0 +1,32 @@
+{
+  "table": "econ.vendor",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "econ.vendor.kit_general",
+      "name_key": "l10n.vendor.kit_general.name",
+      "sell_items": [
+        {
+          "item_id": "item.kit_potion_small",
+          "price_currency_id": "econ.currency.gold",
+          "price_amount": 10
+        },
+        {
+          "item_id": "item.kit_potion_large",
+          "price_currency_id": "econ.currency.gold",
+          "price_amount": 22
+        },
+        {
+          "item_id": "item.kit_sword_fine",
+          "price_currency_id": "econ.currency.gold",
+          "price_amount": 22
+        },
+        {
+          "item_id": "item.kit_armor_mail",
+          "price_currency_id": "econ.currency.gold",
+          "price_amount": 22
+        }
+      ]
+    }
+  ]
+}

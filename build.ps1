@@ -1580,6 +1580,9 @@ if ($DistRequested) {
     # 反馈档案、相机档案、占位特效），与 data/_feel 并列、可选：游戏要用模板就把它作为额外框架根装载；不装则与它无关。
     # 它不同步进 StreamingAssets（引导程序按显式常量装载 data/_feel），只进 dist、framework-data 包 Data~/ 与实验室根。
     $dataFeelTemplatesFileCount = Copy-DistDir -SourceRelative "data\_feel_templates" -DestName "data\_feel_templates"
+    # 内容起步包（ADR-0162）：data/_starter_kit 是框架出厂的可选通用内容数据根（技能/敌人/装备/掉落/任务/对话/地图规则模板、系统文案与数值曲线），
+    # 与 data/_feel_templates 同款分发：只进 dist、framework-data 包 Data~/，游戏要用就把它加进 GameOptions.ExtraFrameworkDatasetRoots（默认不装载）。
+    $dataStarterKitFileCount = Copy-DistDir -SourceRelative "data\_starter_kit" -DestName "data\_starter_kit"
     # 手感实验室是可选的开发期设施（ADR-0160，2026-10-06）：实验室数据集 data/_lab、data/_lab_action、占位装备集 data/_equip 与标准脚本/基线夹具
     # lab/fixtures 不再按"与仓库同路径"拷进 dist 根（原先 dist 根本身就是一个完整实验室根，那等于每个游戏的主 zip 都带着实验室），
     # 改为只进两个可选包：com.gamefoundation.feel-lab.headless 的 Tools~/feellab/labroot/ 与 com.gamefoundation.feel-lab.unity 的 LabRoot~/，
@@ -2114,6 +2117,7 @@ if ($DistRequested) {
     Copy-Item -Path (Join-Path $DistRoot "data\_framework") -Destination (Join-Path $pkgDataDataTilde "data\_framework") -Recurse -Force
     Copy-Item -Path (Join-Path $DistRoot "data\_feel") -Destination (Join-Path $pkgDataDataTilde "data\_feel") -Recurse -Force
     Copy-Item -Path (Join-Path $DistRoot "data\_feel_templates") -Destination (Join-Path $pkgDataDataTilde "data\_feel_templates") -Recurse -Force
+    Copy-Item -Path (Join-Path $DistRoot "data\_starter_kit") -Destination (Join-Path $pkgDataDataTilde "data\_starter_kit") -Recurse -Force
     Copy-Item -Path (Join-Path $DistRoot "assets\_placeholder") -Destination (Join-Path $pkgDataDataTilde "assets\_placeholder") -Recurse -Force
     Copy-Item -Path (Join-Path $DistRoot "assets\textmesh_pro_essentials") -Destination (Join-Path $pkgDataDataTilde "assets\textmesh_pro_essentials") -Recurse -Force
     Write-Host "  已组装 $pkgDataDir"
@@ -2254,7 +2258,7 @@ if ($DistRequested) {
     # -------------------------------------------------------------------
     $dataSchemaLines = @()
     # data/_feel 与 data/_framework 同属分发的框架级数据，表清单一并列出（手感落地 S1）。
-    foreach ($dataSrcName in @("_framework", "_feel", "_feel_templates")) {
+    foreach ($dataSrcName in @("_framework", "_feel", "_feel_templates", "_starter_kit")) {
         $dataFrameworkSrcDir = Join-Path $RepoRoot ("data\" + $dataSrcName)
         if (Test-Path $dataFrameworkSrcDir) {
             $schemaJsonFiles = Get-ChildItem -Path $dataFrameworkSrcDir -Filter "*.json" -File -Recurse | Sort-Object FullName
@@ -2305,6 +2309,7 @@ if ($DistRequested) {
         "data/_framework: $dataFrameworkFileCount files",
         "data/_feel: $dataFeelFileCount files",
         "data/_feel_templates: $dataFeelTemplatesFileCount files",
+        "data/_starter_kit: $dataStarterKitFileCount files",
         "packages/com.gamefoundation.feel-lab.unity (source, before LabRoot~): $feelLabUnityFileCount files",
         "assets/textmesh_pro_essentials: $tmpEssentialsFileCount files",
         $(if ($SkipManualEffective) { "manual: (skipped)" } else { "manual: $manualFileCount files" }),

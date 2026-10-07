@@ -1,0 +1,61 @@
+{
+  "table": "stat.definition",
+  "schema_version": 2,
+  "rows": [
+    {
+      "id": "stat.power",
+      "name_key": "l10n.stat.power.name",
+      "category": "primary",
+      "group": "primary"
+    },
+    {
+      "id": "stat.vitality",
+      "name_key": "l10n.stat.vitality.name",
+      "category": "primary",
+      "group": "primary"
+    },
+    {
+      "id": "stat.attack_power",
+      "name_key": "l10n.stat.attack_power.name",
+      "category": "derived",
+      "group": "secondary",
+      "derived_from": [
+        {
+          "stat": "stat.power",
+          "coefficient": 1.0
+        }
+      ]
+    },
+    {
+      "id": "stat.move_speed",
+      "name_key": "l10n.stat.move_speed.name",
+      "category": "misc",
+      "group": "secondary",
+      "default_base": 5
+    },
+    {
+      "id": "stat.damage_done_pct",
+      "name_key": "l10n.stat.damage_done_pct.name",
+      "category": "percent",
+      "group": "secondary",
+      "default_base": 0
+    },
+    {
+      "id": "stat.damage_taken_pct",
+      "name_key": "l10n.stat.damage_taken_pct.name",
+      "category": "percent",
+      "group": "secondary",
+      "default_base": 0
+    },
+    {
+      "id": "stat.armor",
+      "name_key": "l10n.stat.armor.name",
+      "category": "defense",
+      "group": "secondary",
+      "default_base": 0,
+      "clamp": {
+        "min": 0
+      }
+    }
+  ]
+}

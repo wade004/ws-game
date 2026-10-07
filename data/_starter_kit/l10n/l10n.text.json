@@ -1,0 +1,1926 @@
+{
+  "table": "l10n.text",
+  "schema_version": 1,
+  "rows": [
+    {
+      "key": "l10n.stat.power.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "力量"
+    },
+    {
+      "key": "l10n.stat.vitality.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "体力"
+    },
+    {
+      "key": "l10n.stat.attack_power.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "攻击强度"
+    },
+    {
+      "key": "l10n.stat.move_speed.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "移动速度"
+    },
+    {
+      "key": "l10n.stat.damage_done_pct.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "伤害加成"
+    },
+    {
+      "key": "l10n.stat.damage_taken_pct.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "受到伤害调整"
+    },
+    {
+      "key": "l10n.stat.armor.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "护甲"
+    },
+    {
+      "key": "l10n.power.health.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "生命"
+    },
+    {
+      "key": "l10n.power.stamina.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "体力槽"
+    },
+    {
+      "key": "l10n.arch.kit_hero.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "冒险者"
+    },
+    {
+      "key": "l10n.fac.player.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "冒险者"
+    },
+    {
+      "key": "l10n.fac.hostile.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "敌对势力"
+    },
+    {
+      "key": "l10n.fac.townsfolk.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "镇民"
+    },
+    {
+      "key": "l10n.diff.normal.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "普通"
+    },
+    {
+      "key": "l10n.econ.currency.gold.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "金币"
+    },
+    {
+      "key": "l10n.item.slot.main_hand.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "主手"
+    },
+    {
+      "key": "l10n.item.slot.chest.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "胸甲"
+    },
+    {
+      "key": "l10n.item.slot.trinket.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "饰品"
+    },
+    {
+      "key": "l10n.item.slot.consumable.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "消耗品"
+    },
+    {
+      "key": "l10n.item.slot.material.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "材料"
+    },
+    {
+      "key": "l10n.item.quality.common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "普通"
+    },
+    {
+      "key": "l10n.item.quality.uncommon.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "优秀"
+    },
+    {
+      "key": "l10n.item.quality.rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "精良"
+    },
+    {
+      "key": "l10n.item.quality.epic.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "史诗"
+    },
+    {
+      "key": "l10n.item.affix.kit_of_might.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "之力"
+    },
+    {
+      "key": "l10n.item.affix.kit_of_vigor.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "之韧"
+    },
+    {
+      "key": "l10n.item.affix.kit_of_the_bulwark.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "之壁"
+    },
+    {
+      "key": "l10n.item.kit_sword_basic.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "练习长剑"
+    },
+    {
+      "key": "l10n.item.kit_sword_fine.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "精钢长剑"
+    },
+    {
+      "key": "l10n.item.kit_armor_cloth.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "布甲"
+    },
+    {
+      "key": "l10n.item.kit_armor_mail.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "锁子甲"
+    },
+    {
+      "key": "l10n.item.kit_charm_basic.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "护符"
+    },
+    {
+      "key": "l10n.item.kit_potion_small.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "小治疗药水"
+    },
+    {
+      "key": "l10n.item.kit_potion_large.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "大治疗药水"
+    },
+    {
+      "key": "l10n.item.kit_scrap.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "碎料"
+    },
+    {
+      "key": "l10n.creature.tier.normal.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "普通"
+    },
+    {
+      "key": "l10n.creature.tier.elite.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "精英"
+    },
+    {
+      "key": "l10n.creature.tier.boss.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "首领"
+    },
+    {
+      "key": "l10n.creature.kit_player.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "冒险者"
+    },
+    {
+      "key": "l10n.creature.kit_melee_grunt.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "近战喽啰"
+    },
+    {
+      "key": "l10n.creature.kit_ranged_archer.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "远程射手"
+    },
+    {
+      "key": "l10n.creature.kit_heavy_brute.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "重型精英"
+    },
+    {
+      "key": "l10n.creature.kit_boss.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "首领骨架"
+    },
+    {
+      "key": "l10n.creature.kit_npc_questgiver.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "任务发布者"
+    },
+    {
+      "key": "l10n.creature.kit_npc_vendor.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "商人"
+    },
+    {
+      "key": "l10n.creature.kit_npc_save_point.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "存档点"
+    },
+    {
+      "key": "l10n.vendor.kit_general.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "杂货商"
+    },
+    {
+      "key": "l10n.quest.kit_kill_count.title",
+      "locale": "l10n.locale.zh_cn",
+      "text": "清剿喽啰"
+    },
+    {
+      "key": "l10n.quest.kit_kill_count.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "击败 5 名近战喽啰。"
+    },
+    {
+      "key": "l10n.quest.kit_kill_count.obj1",
+      "locale": "l10n.locale.zh_cn",
+      "text": "击败近战喽啰"
+    },
+    {
+      "key": "l10n.quest.kit_collect.title",
+      "locale": "l10n.locale.zh_cn",
+      "text": "收集碎料"
+    },
+    {
+      "key": "l10n.quest.kit_collect.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "收集 4 份碎料交给发布者。"
+    },
+    {
+      "key": "l10n.quest.kit_collect.obj1",
+      "locale": "l10n.locale.zh_cn",
+      "text": "收集碎料"
+    },
+    {
+      "key": "l10n.quest.kit_talk.title",
+      "locale": "l10n.locale.zh_cn",
+      "text": "捎个口信"
+    },
+    {
+      "key": "l10n.quest.kit_talk.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "去和商人说一声。"
+    },
+    {
+      "key": "l10n.quest.kit_talk.obj1",
+      "locale": "l10n.locale.zh_cn",
+      "text": "与商人交谈"
+    },
+    {
+      "key": "l10n.quest.kit_stage_1.title",
+      "locale": "l10n.locale.zh_cn",
+      "text": "前哨侦察"
+    },
+    {
+      "key": "l10n.quest.kit_stage_1.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "探索前哨并击败守卫。"
+    },
+    {
+      "key": "l10n.quest.kit_stage_1.obj1",
+      "locale": "l10n.locale.zh_cn",
+      "text": "抵达侦察点"
+    },
+    {
+      "key": "l10n.quest.kit_stage_1.obj2",
+      "locale": "l10n.locale.zh_cn",
+      "text": "击败守卫射手"
+    },
+    {
+      "key": "l10n.quest.kit_stage_2.title",
+      "locale": "l10n.locale.zh_cn",
+      "text": "讨伐首领"
+    },
+    {
+      "key": "l10n.quest.kit_stage_2.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "前哨已探明，去讨伐首领。"
+    },
+    {
+      "key": "l10n.quest.kit_stage_2.obj1",
+      "locale": "l10n.locale.zh_cn",
+      "text": "击败首领"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_kill_accept",
+      "locale": "l10n.locale.zh_cn",
+      "text": "接受任务"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_kill_progress",
+      "locale": "l10n.locale.zh_cn",
+      "text": "任务进展如何"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_kill_done",
+      "locale": "l10n.locale.zh_cn",
+      "text": "交付任务"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_collect_accept",
+      "locale": "l10n.locale.zh_cn",
+      "text": "接受任务"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_collect_progress",
+      "locale": "l10n.locale.zh_cn",
+      "text": "任务进展如何"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_collect_done",
+      "locale": "l10n.locale.zh_cn",
+      "text": "交付任务"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_s1_accept",
+      "locale": "l10n.locale.zh_cn",
+      "text": "接受任务"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_s1_progress",
+      "locale": "l10n.locale.zh_cn",
+      "text": "任务进展如何"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_s1_done",
+      "locale": "l10n.locale.zh_cn",
+      "text": "交付任务"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_s2_accept",
+      "locale": "l10n.locale.zh_cn",
+      "text": "接受任务"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_s2_progress",
+      "locale": "l10n.locale.zh_cn",
+      "text": "任务进展如何"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_s2_done",
+      "locale": "l10n.locale.zh_cn",
+      "text": "交付任务"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_talk",
+      "locale": "l10n.locale.zh_cn",
+      "text": "我来传个话"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_chat",
+      "locale": "l10n.locale.zh_cn",
+      "text": "随便聊聊"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.greeting",
+      "locale": "l10n.locale.zh_cn",
+      "text": "有什么能帮你的吗？"
+    },
+    {
+      "key": "l10n.dlg.kit_vendor.greeting",
+      "locale": "l10n.locale.zh_cn",
+      "text": "看看有什么需要的？"
+    },
+    {
+      "key": "l10n.dlg.kit_vendor.o_shop",
+      "locale": "l10n.locale.zh_cn",
+      "text": "买卖东西"
+    },
+    {
+      "key": "l10n.dlg.kit_vendor.o_message",
+      "locale": "l10n.locale.zh_cn",
+      "text": "有人托我带话"
+    },
+    {
+      "key": "l10n.dlg.kit_save.greeting",
+      "locale": "l10n.locale.zh_cn",
+      "text": "要把进度记下来吗？"
+    },
+    {
+      "key": "l10n.dlg.kit_save.o_save",
+      "locale": "l10n.locale.zh_cn",
+      "text": "存档"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_kill_accept.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "拜托了，小心行事。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_kill_accept.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "交给我吧。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_kill_progress.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "还没完成吗？再加把劲。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_kill_progress.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "我这就去。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_kill_done.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "干得漂亮，这是你的报酬。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_kill_done.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "多谢。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_collect_accept.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "拜托了，小心行事。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_collect_accept.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "交给我吧。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_collect_progress.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "还没完成吗？再加把劲。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_collect_progress.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "我这就去。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_collect_done.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "干得漂亮，这是你的报酬。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_collect_done.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "多谢。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s1_accept.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "拜托了，小心行事。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s1_accept.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "交给我吧。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s1_progress.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "还没完成吗？再加把劲。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s1_progress.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "我这就去。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s1_done.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "干得漂亮，这是你的报酬。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s1_done.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "多谢。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s2_accept.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "拜托了，小心行事。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s2_accept.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "交给我吧。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s2_progress.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "还没完成吗？再加把劲。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s2_progress.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "我这就去。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s2_done.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "干得漂亮，这是你的报酬。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s2_done.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "多谢。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_talk_accept.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "去和商人说一声，他会明白的。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_talk_accept.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "好的。"
+    },
+    {
+      "key": "l10n.dlg.kit_vendor_message.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "原来如此，替我谢谢他。"
+    },
+    {
+      "key": "l10n.dlg.kit_vendor_message.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "我会转达。"
+    },
+    {
+      "key": "l10n.dlg.kit_save_done.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "进度已经记下。"
+    },
+    {
+      "key": "l10n.dlg.kit_save_done.b0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "好的。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.n0",
+      "locale": "l10n.locale.zh_cn",
+      "text": "最近这一带不太平。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.b_rumor",
+      "locale": "l10n.locale.zh_cn",
+      "text": "出什么事了？"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.b_after",
+      "locale": "l10n.locale.zh_cn",
+      "text": "首领已经伏诛了。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.b_bye",
+      "locale": "l10n.locale.zh_cn",
+      "text": "再见。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.n_rumor",
+      "locale": "l10n.locale.zh_cn",
+      "text": "野外来了一伙不速之客。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.b_ok1",
+      "locale": "l10n.locale.zh_cn",
+      "text": "我留意着。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.n_after",
+      "locale": "l10n.locale.zh_cn",
+      "text": "真是太好了，总算安生了。"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.b_ok2",
+      "locale": "l10n.locale.zh_cn",
+      "text": "保重。"
+    },
+    {
+      "key": "l10n.shell.kit_new_game",
+      "locale": "l10n.locale.zh_cn",
+      "text": "新的冒险"
+    },
+    {
+      "key": "l10n.shell.kit_continue",
+      "locale": "l10n.locale.zh_cn",
+      "text": "继续冒险"
+    },
+    {
+      "key": "l10n.shell.kit_quit",
+      "locale": "l10n.locale.zh_cn",
+      "text": "退出"
+    },
+    {
+      "key": "l10n.ui.close",
+      "locale": "l10n.locale.zh_cn",
+      "text": "关闭"
+    },
+    {
+      "key": "l10n.ui.leave",
+      "locale": "l10n.locale.zh_cn",
+      "text": "离开"
+    },
+    {
+      "key": "l10n.ui.price",
+      "locale": "l10n.locale.zh_cn",
+      "text": "{price} 金币"
+    },
+    {
+      "key": "l10n.ui.language",
+      "locale": "l10n.locale.zh_cn",
+      "text": "语言：{language}"
+    },
+    {
+      "key": "l10n.ui.locale.zh_cn",
+      "locale": "l10n.locale.zh_cn",
+      "text": "简体中文"
+    },
+    {
+      "key": "l10n.ui.locale.en",
+      "locale": "l10n.locale.zh_cn",
+      "text": "English"
+    },
+    {
+      "key": "l10n.ui.bag.title",
+      "locale": "l10n.locale.zh_cn",
+      "text": "背包与装备"
+    },
+    {
+      "key": "l10n.ui.bag.items",
+      "locale": "l10n.locale.zh_cn",
+      "text": "物品"
+    },
+    {
+      "key": "l10n.ui.bag.equipment",
+      "locale": "l10n.locale.zh_cn",
+      "text": "装备"
+    },
+    {
+      "key": "l10n.ui.bag.stats",
+      "locale": "l10n.locale.zh_cn",
+      "text": "角色"
+    },
+    {
+      "key": "l10n.ui.bag.empty",
+      "locale": "l10n.locale.zh_cn",
+      "text": "背包是空的"
+    },
+    {
+      "key": "l10n.ui.bag.slot_empty",
+      "locale": "l10n.locale.zh_cn",
+      "text": "（空）"
+    },
+    {
+      "key": "l10n.ui.bag.equipped_tag",
+      "locale": "l10n.locale.zh_cn",
+      "text": "已装备"
+    },
+    {
+      "key": "l10n.ui.bag.equip",
+      "locale": "l10n.locale.zh_cn",
+      "text": "装备"
+    },
+    {
+      "key": "l10n.ui.bag.unequip",
+      "locale": "l10n.locale.zh_cn",
+      "text": "卸下"
+    },
+    {
+      "key": "l10n.ui.bag.use",
+      "locale": "l10n.locale.zh_cn",
+      "text": "使用"
+    },
+    {
+      "key": "l10n.ui.bag.usable",
+      "locale": "l10n.locale.zh_cn",
+      "text": "可使用"
+    },
+    {
+      "key": "l10n.ui.bag.value",
+      "locale": "l10n.locale.zh_cn",
+      "text": "出售价：{price} 金币"
+    },
+    {
+      "key": "l10n.ui.bag.hint",
+      "locale": "l10n.locale.zh_cn",
+      "text": "点一件物品查看详情；点已装备的物品可卸下。"
+    },
+    {
+      "key": "l10n.ui.pause.title",
+      "locale": "l10n.locale.zh_cn",
+      "text": "已暂停"
+    },
+    {
+      "key": "l10n.ui.pause.resume",
+      "locale": "l10n.locale.zh_cn",
+      "text": "继续游戏"
+    },
+    {
+      "key": "l10n.ui.pause.save",
+      "locale": "l10n.locale.zh_cn",
+      "text": "保存游戏"
+    },
+    {
+      "key": "l10n.ui.pause.settings",
+      "locale": "l10n.locale.zh_cn",
+      "text": "设置"
+    },
+    {
+      "key": "l10n.ui.pause.main_menu",
+      "locale": "l10n.locale.zh_cn",
+      "text": "返回主菜单"
+    },
+    {
+      "key": "l10n.ui.pause.saved",
+      "locale": "l10n.locale.zh_cn",
+      "text": "已保存"
+    },
+    {
+      "key": "l10n.ui.pause.save_failed",
+      "locale": "l10n.locale.zh_cn",
+      "text": "保存失败"
+    },
+    {
+      "key": "l10n.ui.quest.title",
+      "locale": "l10n.locale.zh_cn",
+      "text": "任务日志"
+    },
+    {
+      "key": "l10n.ui.quest.none",
+      "locale": "l10n.locale.zh_cn",
+      "text": "没有进行中的任务"
+    },
+    {
+      "key": "l10n.ui.quest.state.active",
+      "locale": "l10n.locale.zh_cn",
+      "text": "进行中"
+    },
+    {
+      "key": "l10n.ui.quest.state.complete",
+      "locale": "l10n.locale.zh_cn",
+      "text": "可交付"
+    },
+    {
+      "key": "l10n.ui.quest.state.done",
+      "locale": "l10n.locale.zh_cn",
+      "text": "已完成"
+    },
+    {
+      "key": "l10n.ui.stat.level",
+      "locale": "l10n.locale.zh_cn",
+      "text": "等级"
+    },
+    {
+      "key": "l10n.ui.stat.xp",
+      "locale": "l10n.locale.zh_cn",
+      "text": "经验"
+    },
+    {
+      "key": "l10n.ui.stat.max",
+      "locale": "l10n.locale.zh_cn",
+      "text": "已满级"
+    },
+    {
+      "key": "l10n.ui.volume.music",
+      "locale": "l10n.locale.zh_cn",
+      "text": "音乐"
+    },
+    {
+      "key": "l10n.ui.volume.sfx",
+      "locale": "l10n.locale.zh_cn",
+      "text": "音效"
+    },
+    {
+      "key": "l10n.ui.volume.ui",
+      "locale": "l10n.locale.zh_cn",
+      "text": "界面"
+    },
+    {
+      "key": "l10n.ui.settings.title",
+      "locale": "l10n.locale.zh_cn",
+      "text": "设置"
+    },
+    {
+      "key": "l10n.ui.settings.back",
+      "locale": "l10n.locale.zh_cn",
+      "text": "返回"
+    },
+    {
+      "key": "l10n.ui.settings.language",
+      "locale": "l10n.locale.zh_cn",
+      "text": "语言"
+    },
+    {
+      "key": "l10n.ui.settings.volume",
+      "locale": "l10n.locale.zh_cn",
+      "text": "音量"
+    },
+    {
+      "key": "l10n.ui.settings.save",
+      "locale": "l10n.locale.zh_cn",
+      "text": "保存设置"
+    },
+    {
+      "key": "l10n.ui.settings.bus_sfx",
+      "locale": "l10n.locale.zh_cn",
+      "text": "总线：音效"
+    },
+    {
+      "key": "l10n.ui.settings.bindings_header",
+      "locale": "l10n.locale.zh_cn",
+      "text": "按键绑定"
+    },
+    {
+      "key": "l10n.ui.settings.no_bindings",
+      "locale": "l10n.locale.zh_cn",
+      "text": "（没有可改的按键）"
+    },
+    {
+      "key": "l10n.ui.settings.conflict",
+      "locale": "l10n.locale.zh_cn",
+      "text": "冲突"
+    },
+    {
+      "key": "l10n.ui.dialog.none",
+      "locale": "l10n.locale.zh_cn",
+      "text": "（当前无对话）"
+    },
+    {
+      "key": "l10n.ui.dialog.leave",
+      "locale": "l10n.locale.zh_cn",
+      "text": "离开"
+    },
+    {
+      "key": "l10n.ui.shop.buy",
+      "locale": "l10n.locale.zh_cn",
+      "text": "购买"
+    },
+    {
+      "key": "l10n.ui.shop.sell",
+      "locale": "l10n.locale.zh_cn",
+      "text": "卖出"
+    },
+    {
+      "key": "l10n.ui.shop.buy_btn",
+      "locale": "l10n.locale.zh_cn",
+      "text": "购买"
+    },
+    {
+      "key": "l10n.ui.shop.sell_btn",
+      "locale": "l10n.locale.zh_cn",
+      "text": "卖出"
+    },
+    {
+      "key": "l10n.ui.shop.gold",
+      "locale": "l10n.locale.zh_cn",
+      "text": "金币：{gold}"
+    },
+    {
+      "key": "l10n.ui.shop.no_funds",
+      "locale": "l10n.locale.zh_cn",
+      "text": "金币不足"
+    },
+    {
+      "key": "l10n.ui.shop.bag_full",
+      "locale": "l10n.locale.zh_cn",
+      "text": "背包已满"
+    },
+    {
+      "key": "l10n.ui.shop.failed",
+      "locale": "l10n.locale.zh_cn",
+      "text": "无法购买"
+    },
+    {
+      "key": "l10n.ui.shop.nothing_to_sell",
+      "locale": "l10n.locale.zh_cn",
+      "text": "没有可出售的物品"
+    },
+    {
+      "key": "l10n.ui.shop.sell_header",
+      "locale": "l10n.locale.zh_cn",
+      "text": "出售清单"
+    },
+    {
+      "key": "l10n.ui.shop.backpack_header",
+      "locale": "l10n.locale.zh_cn",
+      "text": "背包（可卖出）"
+    },
+    {
+      "key": "l10n.ui.shop.balance",
+      "locale": "l10n.locale.zh_cn",
+      "text": "货币："
+    },
+    {
+      "key": "l10n.ui.shop.not_open",
+      "locale": "l10n.locale.zh_cn",
+      "text": "（未打开商店）"
+    },
+    {
+      "key": "l10n.ui.shop.unlimited",
+      "locale": "l10n.locale.zh_cn",
+      "text": "无限"
+    },
+    {
+      "key": "l10n.ui.shop.stock",
+      "locale": "l10n.locale.zh_cn",
+      "text": "库存:"
+    },
+    {
+      "key": "l10n.ui.tooltip.item_level",
+      "locale": "l10n.locale.zh_cn",
+      "text": "物品等级"
+    },
+    {
+      "key": "l10n.ui.tooltip.slot",
+      "locale": "l10n.locale.zh_cn",
+      "text": "部位"
+    },
+    {
+      "key": "l10n.ui.tooltip.damage",
+      "locale": "l10n.locale.zh_cn",
+      "text": "伤害"
+    },
+    {
+      "key": "l10n.ui.tooltip.speed",
+      "locale": "l10n.locale.zh_cn",
+      "text": "速度"
+    },
+    {
+      "key": "l10n.ui.tooltip.required_level",
+      "locale": "l10n.locale.zh_cn",
+      "text": "需要等级"
+    },
+    {
+      "key": "l10n.stat.power.name",
+      "locale": "l10n.locale.en",
+      "text": "Power"
+    },
+    {
+      "key": "l10n.stat.vitality.name",
+      "locale": "l10n.locale.en",
+      "text": "Vitality"
+    },
+    {
+      "key": "l10n.stat.attack_power.name",
+      "locale": "l10n.locale.en",
+      "text": "Attack Power"
+    },
+    {
+      "key": "l10n.stat.move_speed.name",
+      "locale": "l10n.locale.en",
+      "text": "Move Speed"
+    },
+    {
+      "key": "l10n.stat.damage_done_pct.name",
+      "locale": "l10n.locale.en",
+      "text": "Damage Bonus"
+    },
+    {
+      "key": "l10n.stat.damage_taken_pct.name",
+      "locale": "l10n.locale.en",
+      "text": "Damage Taken"
+    },
+    {
+      "key": "l10n.stat.armor.name",
+      "locale": "l10n.locale.en",
+      "text": "Armor"
+    },
+    {
+      "key": "l10n.power.health.name",
+      "locale": "l10n.locale.en",
+      "text": "Health"
+    },
+    {
+      "key": "l10n.power.stamina.name",
+      "locale": "l10n.locale.en",
+      "text": "Stamina"
+    },
+    {
+      "key": "l10n.arch.kit_hero.name",
+      "locale": "l10n.locale.en",
+      "text": "Adventurer"
+    },
+    {
+      "key": "l10n.fac.player.name",
+      "locale": "l10n.locale.en",
+      "text": "Adventurers"
+    },
+    {
+      "key": "l10n.fac.hostile.name",
+      "locale": "l10n.locale.en",
+      "text": "Hostiles"
+    },
+    {
+      "key": "l10n.fac.townsfolk.name",
+      "locale": "l10n.locale.en",
+      "text": "Townsfolk"
+    },
+    {
+      "key": "l10n.diff.normal.name",
+      "locale": "l10n.locale.en",
+      "text": "Normal"
+    },
+    {
+      "key": "l10n.econ.currency.gold.name",
+      "locale": "l10n.locale.en",
+      "text": "Gold"
+    },
+    {
+      "key": "l10n.item.slot.main_hand.name",
+      "locale": "l10n.locale.en",
+      "text": "Main Hand"
+    },
+    {
+      "key": "l10n.item.slot.chest.name",
+      "locale": "l10n.locale.en",
+      "text": "Armor"
+    },
+    {
+      "key": "l10n.item.slot.trinket.name",
+      "locale": "l10n.locale.en",
+      "text": "Trinket"
+    },
+    {
+      "key": "l10n.item.slot.consumable.name",
+      "locale": "l10n.locale.en",
+      "text": "Consumable"
+    },
+    {
+      "key": "l10n.item.slot.material.name",
+      "locale": "l10n.locale.en",
+      "text": "Material"
+    },
+    {
+      "key": "l10n.item.quality.common.name",
+      "locale": "l10n.locale.en",
+      "text": "Common"
+    },
+    {
+      "key": "l10n.item.quality.uncommon.name",
+      "locale": "l10n.locale.en",
+      "text": "Uncommon"
+    },
+    {
+      "key": "l10n.item.quality.rare.name",
+      "locale": "l10n.locale.en",
+      "text": "Rare"
+    },
+    {
+      "key": "l10n.item.quality.epic.name",
+      "locale": "l10n.locale.en",
+      "text": "Epic"
+    },
+    {
+      "key": "l10n.item.affix.kit_of_might.name",
+      "locale": "l10n.locale.en",
+      "text": "of Might"
+    },
+    {
+      "key": "l10n.item.affix.kit_of_vigor.name",
+      "locale": "l10n.locale.en",
+      "text": "of Vigor"
+    },
+    {
+      "key": "l10n.item.affix.kit_of_the_bulwark.name",
+      "locale": "l10n.locale.en",
+      "text": "of the Bulwark"
+    },
+    {
+      "key": "l10n.item.kit_sword_basic.name",
+      "locale": "l10n.locale.en",
+      "text": "Practice Sword"
+    },
+    {
+      "key": "l10n.item.kit_sword_fine.name",
+      "locale": "l10n.locale.en",
+      "text": "Steel Sword"
+    },
+    {
+      "key": "l10n.item.kit_armor_cloth.name",
+      "locale": "l10n.locale.en",
+      "text": "Cloth Armor"
+    },
+    {
+      "key": "l10n.item.kit_armor_mail.name",
+      "locale": "l10n.locale.en",
+      "text": "Chain Mail"
+    },
+    {
+      "key": "l10n.item.kit_charm_basic.name",
+      "locale": "l10n.locale.en",
+      "text": "Charm"
+    },
+    {
+      "key": "l10n.item.kit_potion_small.name",
+      "locale": "l10n.locale.en",
+      "text": "Minor Healing Potion"
+    },
+    {
+      "key": "l10n.item.kit_potion_large.name",
+      "locale": "l10n.locale.en",
+      "text": "Greater Healing Potion"
+    },
+    {
+      "key": "l10n.item.kit_scrap.name",
+      "locale": "l10n.locale.en",
+      "text": "Scrap"
+    },
+    {
+      "key": "l10n.creature.tier.normal.name",
+      "locale": "l10n.locale.en",
+      "text": "Normal"
+    },
+    {
+      "key": "l10n.creature.tier.elite.name",
+      "locale": "l10n.locale.en",
+      "text": "Elite"
+    },
+    {
+      "key": "l10n.creature.tier.boss.name",
+      "locale": "l10n.locale.en",
+      "text": "Boss"
+    },
+    {
+      "key": "l10n.creature.kit_player.name",
+      "locale": "l10n.locale.en",
+      "text": "Adventurer"
+    },
+    {
+      "key": "l10n.creature.kit_melee_grunt.name",
+      "locale": "l10n.locale.en",
+      "text": "Melee Grunt"
+    },
+    {
+      "key": "l10n.creature.kit_ranged_archer.name",
+      "locale": "l10n.locale.en",
+      "text": "Ranged Archer"
+    },
+    {
+      "key": "l10n.creature.kit_heavy_brute.name",
+      "locale": "l10n.locale.en",
+      "text": "Heavy Brute"
+    },
+    {
+      "key": "l10n.creature.kit_boss.name",
+      "locale": "l10n.locale.en",
+      "text": "Boss Skeleton"
+    },
+    {
+      "key": "l10n.creature.kit_npc_questgiver.name",
+      "locale": "l10n.locale.en",
+      "text": "Quest Giver"
+    },
+    {
+      "key": "l10n.creature.kit_npc_vendor.name",
+      "locale": "l10n.locale.en",
+      "text": "Merchant"
+    },
+    {
+      "key": "l10n.creature.kit_npc_save_point.name",
+      "locale": "l10n.locale.en",
+      "text": "Save Point"
+    },
+    {
+      "key": "l10n.vendor.kit_general.name",
+      "locale": "l10n.locale.en",
+      "text": "General Merchant"
+    },
+    {
+      "key": "l10n.quest.kit_kill_count.title",
+      "locale": "l10n.locale.en",
+      "text": "Thin the Pack"
+    },
+    {
+      "key": "l10n.quest.kit_kill_count.desc",
+      "locale": "l10n.locale.en",
+      "text": "Defeat 5 melee grunts."
+    },
+    {
+      "key": "l10n.quest.kit_kill_count.obj1",
+      "locale": "l10n.locale.en",
+      "text": "Defeat melee grunts"
+    },
+    {
+      "key": "l10n.quest.kit_collect.title",
+      "locale": "l10n.locale.en",
+      "text": "Gather Scrap"
+    },
+    {
+      "key": "l10n.quest.kit_collect.desc",
+      "locale": "l10n.locale.en",
+      "text": "Bring 4 pieces of scrap back."
+    },
+    {
+      "key": "l10n.quest.kit_collect.obj1",
+      "locale": "l10n.locale.en",
+      "text": "Collect scrap"
+    },
+    {
+      "key": "l10n.quest.kit_talk.title",
+      "locale": "l10n.locale.en",
+      "text": "Deliver a Message"
+    },
+    {
+      "key": "l10n.quest.kit_talk.desc",
+      "locale": "l10n.locale.en",
+      "text": "Go and speak to the merchant."
+    },
+    {
+      "key": "l10n.quest.kit_talk.obj1",
+      "locale": "l10n.locale.en",
+      "text": "Speak to the merchant"
+    },
+    {
+      "key": "l10n.quest.kit_stage_1.title",
+      "locale": "l10n.locale.en",
+      "text": "Scout the Outpost"
+    },
+    {
+      "key": "l10n.quest.kit_stage_1.desc",
+      "locale": "l10n.locale.en",
+      "text": "Explore the outpost and defeat its guard."
+    },
+    {
+      "key": "l10n.quest.kit_stage_1.obj1",
+      "locale": "l10n.locale.en",
+      "text": "Reach the scout point"
+    },
+    {
+      "key": "l10n.quest.kit_stage_1.obj2",
+      "locale": "l10n.locale.en",
+      "text": "Defeat the archer guard"
+    },
+    {
+      "key": "l10n.quest.kit_stage_2.title",
+      "locale": "l10n.locale.en",
+      "text": "Slay the Warlord"
+    },
+    {
+      "key": "l10n.quest.kit_stage_2.desc",
+      "locale": "l10n.locale.en",
+      "text": "The outpost is scouted; now take down the boss."
+    },
+    {
+      "key": "l10n.quest.kit_stage_2.obj1",
+      "locale": "l10n.locale.en",
+      "text": "Defeat the boss"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_kill_accept",
+      "locale": "l10n.locale.en",
+      "text": "Accept the quest"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_kill_progress",
+      "locale": "l10n.locale.en",
+      "text": "How is the quest going?"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_kill_done",
+      "locale": "l10n.locale.en",
+      "text": "Turn in the quest"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_collect_accept",
+      "locale": "l10n.locale.en",
+      "text": "Accept the quest"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_collect_progress",
+      "locale": "l10n.locale.en",
+      "text": "How is the quest going?"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_collect_done",
+      "locale": "l10n.locale.en",
+      "text": "Turn in the quest"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_s1_accept",
+      "locale": "l10n.locale.en",
+      "text": "Accept the quest"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_s1_progress",
+      "locale": "l10n.locale.en",
+      "text": "How is the quest going?"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_s1_done",
+      "locale": "l10n.locale.en",
+      "text": "Turn in the quest"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_s2_accept",
+      "locale": "l10n.locale.en",
+      "text": "Accept the quest"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_s2_progress",
+      "locale": "l10n.locale.en",
+      "text": "How is the quest going?"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_s2_done",
+      "locale": "l10n.locale.en",
+      "text": "Turn in the quest"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_talk",
+      "locale": "l10n.locale.en",
+      "text": "I have a message"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.o_chat",
+      "locale": "l10n.locale.en",
+      "text": "Just chatting"
+    },
+    {
+      "key": "l10n.dlg.kit_qg.greeting",
+      "locale": "l10n.locale.en",
+      "text": "What can I do for you?"
+    },
+    {
+      "key": "l10n.dlg.kit_vendor.greeting",
+      "locale": "l10n.locale.en",
+      "text": "See anything you need?"
+    },
+    {
+      "key": "l10n.dlg.kit_vendor.o_shop",
+      "locale": "l10n.locale.en",
+      "text": "Browse wares"
+    },
+    {
+      "key": "l10n.dlg.kit_vendor.o_message",
+      "locale": "l10n.locale.en",
+      "text": "Someone asked me to pass on word"
+    },
+    {
+      "key": "l10n.dlg.kit_save.greeting",
+      "locale": "l10n.locale.en",
+      "text": "Record your progress?"
+    },
+    {
+      "key": "l10n.dlg.kit_save.o_save",
+      "locale": "l10n.locale.en",
+      "text": "Save game"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_kill_accept.n0",
+      "locale": "l10n.locale.en",
+      "text": "Thank you. Be careful out there."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_kill_accept.b0",
+      "locale": "l10n.locale.en",
+      "text": "Leave it to me."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_kill_progress.n0",
+      "locale": "l10n.locale.en",
+      "text": "Not done yet? Keep at it."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_kill_progress.b0",
+      "locale": "l10n.locale.en",
+      "text": "On it."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_kill_done.n0",
+      "locale": "l10n.locale.en",
+      "text": "Well done. Here is your reward."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_kill_done.b0",
+      "locale": "l10n.locale.en",
+      "text": "Thanks."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_collect_accept.n0",
+      "locale": "l10n.locale.en",
+      "text": "Thank you. Be careful out there."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_collect_accept.b0",
+      "locale": "l10n.locale.en",
+      "text": "Leave it to me."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_collect_progress.n0",
+      "locale": "l10n.locale.en",
+      "text": "Not done yet? Keep at it."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_collect_progress.b0",
+      "locale": "l10n.locale.en",
+      "text": "On it."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_collect_done.n0",
+      "locale": "l10n.locale.en",
+      "text": "Well done. Here is your reward."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_collect_done.b0",
+      "locale": "l10n.locale.en",
+      "text": "Thanks."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s1_accept.n0",
+      "locale": "l10n.locale.en",
+      "text": "Thank you. Be careful out there."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s1_accept.b0",
+      "locale": "l10n.locale.en",
+      "text": "Leave it to me."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s1_progress.n0",
+      "locale": "l10n.locale.en",
+      "text": "Not done yet? Keep at it."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s1_progress.b0",
+      "locale": "l10n.locale.en",
+      "text": "On it."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s1_done.n0",
+      "locale": "l10n.locale.en",
+      "text": "Well done. Here is your reward."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s1_done.b0",
+      "locale": "l10n.locale.en",
+      "text": "Thanks."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s2_accept.n0",
+      "locale": "l10n.locale.en",
+      "text": "Thank you. Be careful out there."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s2_accept.b0",
+      "locale": "l10n.locale.en",
+      "text": "Leave it to me."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s2_progress.n0",
+      "locale": "l10n.locale.en",
+      "text": "Not done yet? Keep at it."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s2_progress.b0",
+      "locale": "l10n.locale.en",
+      "text": "On it."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s2_done.n0",
+      "locale": "l10n.locale.en",
+      "text": "Well done. Here is your reward."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_s2_done.b0",
+      "locale": "l10n.locale.en",
+      "text": "Thanks."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_talk_accept.n0",
+      "locale": "l10n.locale.en",
+      "text": "Tell the merchant. He will understand."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_talk_accept.b0",
+      "locale": "l10n.locale.en",
+      "text": "Will do."
+    },
+    {
+      "key": "l10n.dlg.kit_vendor_message.n0",
+      "locale": "l10n.locale.en",
+      "text": "I see. Thank him for me."
+    },
+    {
+      "key": "l10n.dlg.kit_vendor_message.b0",
+      "locale": "l10n.locale.en",
+      "text": "I will."
+    },
+    {
+      "key": "l10n.dlg.kit_save_done.n0",
+      "locale": "l10n.locale.en",
+      "text": "Your progress has been recorded."
+    },
+    {
+      "key": "l10n.dlg.kit_save_done.b0",
+      "locale": "l10n.locale.en",
+      "text": "OK."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.n0",
+      "locale": "l10n.locale.en",
+      "text": "Things have been unsettled lately."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.b_rumor",
+      "locale": "l10n.locale.en",
+      "text": "What happened?"
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.b_after",
+      "locale": "l10n.locale.en",
+      "text": "The boss has been slain."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.b_bye",
+      "locale": "l10n.locale.en",
+      "text": "Goodbye."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.n_rumor",
+      "locale": "l10n.locale.en",
+      "text": "A band of intruders has appeared in the field."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.b_ok1",
+      "locale": "l10n.locale.en",
+      "text": "I will keep an eye out."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.n_after",
+      "locale": "l10n.locale.en",
+      "text": "Wonderful. At last, some peace."
+    },
+    {
+      "key": "l10n.dlg.kit_qg_chat.b_ok2",
+      "locale": "l10n.locale.en",
+      "text": "Take care."
+    },
+    {
+      "key": "l10n.shell.kit_new_game",
+      "locale": "l10n.locale.en",
+      "text": "New Game"
+    },
+    {
+      "key": "l10n.shell.kit_continue",
+      "locale": "l10n.locale.en",
+      "text": "Continue"
+    },
+    {
+      "key": "l10n.shell.kit_quit",
+      "locale": "l10n.locale.en",
+      "text": "Quit"
+    },
+    {
+      "key": "l10n.ui.close",
+      "locale": "l10n.locale.en",
+      "text": "Close"
+    },
+    {
+      "key": "l10n.ui.leave",
+      "locale": "l10n.locale.en",
+      "text": "Leave"
+    },
+    {
+      "key": "l10n.ui.price",
+      "locale": "l10n.locale.en",
+      "text": "{price} gold"
+    },
+    {
+      "key": "l10n.ui.language",
+      "locale": "l10n.locale.en",
+      "text": "Language: {language}"
+    },
+    {
+      "key": "l10n.ui.locale.zh_cn",
+      "locale": "l10n.locale.en",
+      "text": "Simplified Chinese"
+    },
+    {
+      "key": "l10n.ui.locale.en",
+      "locale": "l10n.locale.en",
+      "text": "English"
+    },
+    {
+      "key": "l10n.ui.bag.title",
+      "locale": "l10n.locale.en",
+      "text": "Inventory & Equipment"
+    },
+    {
+      "key": "l10n.ui.bag.items",
+      "locale": "l10n.locale.en",
+      "text": "Items"
+    },
+    {
+      "key": "l10n.ui.bag.equipment",
+      "locale": "l10n.locale.en",
+      "text": "Equipment"
+    },
+    {
+      "key": "l10n.ui.bag.stats",
+      "locale": "l10n.locale.en",
+      "text": "Character"
+    },
+    {
+      "key": "l10n.ui.bag.empty",
+      "locale": "l10n.locale.en",
+      "text": "The bag is empty"
+    },
+    {
+      "key": "l10n.ui.bag.slot_empty",
+      "locale": "l10n.locale.en",
+      "text": "(empty)"
+    },
+    {
+      "key": "l10n.ui.bag.equipped_tag",
+      "locale": "l10n.locale.en",
+      "text": "Equipped"
+    },
+    {
+      "key": "l10n.ui.bag.equip",
+      "locale": "l10n.locale.en",
+      "text": "Equip"
+    },
+    {
+      "key": "l10n.ui.bag.unequip",
+      "locale": "l10n.locale.en",
+      "text": "Unequip"
+    },
+    {
+      "key": "l10n.ui.bag.use",
+      "locale": "l10n.locale.en",
+      "text": "Use"
+    },
+    {
+      "key": "l10n.ui.bag.usable",
+      "locale": "l10n.locale.en",
+      "text": "Usable"
+    },
+    {
+      "key": "l10n.ui.bag.value",
+      "locale": "l10n.locale.en",
+      "text": "Sell value: {price} gold"
+    },
+    {
+      "key": "l10n.ui.bag.hint",
+      "locale": "l10n.locale.en",
+      "text": "Select an item to see details. Select an equipped item to unequip it."
+    },
+    {
+      "key": "l10n.ui.pause.title",
+      "locale": "l10n.locale.en",
+      "text": "Paused"
+    },
+    {
+      "key": "l10n.ui.pause.resume",
+      "locale": "l10n.locale.en",
+      "text": "Resume"
+    },
+    {
+      "key": "l10n.ui.pause.save",
+      "locale": "l10n.locale.en",
+      "text": "Save Game"
+    },
+    {
+      "key": "l10n.ui.pause.settings",
+      "locale": "l10n.locale.en",
+      "text": "Settings"
+    },
+    {
+      "key": "l10n.ui.pause.main_menu",
+      "locale": "l10n.locale.en",
+      "text": "Main Menu"
+    },
+    {
+      "key": "l10n.ui.pause.saved",
+      "locale": "l10n.locale.en",
+      "text": "Game saved"
+    },
+    {
+      "key": "l10n.ui.pause.save_failed",
+      "locale": "l10n.locale.en",
+      "text": "Save failed"
+    },
+    {
+      "key": "l10n.ui.quest.title",
+      "locale": "l10n.locale.en",
+      "text": "Quest Log"
+    },
+    {
+      "key": "l10n.ui.quest.none",
+      "locale": "l10n.locale.en",
+      "text": "No active quests"
+    },
+    {
+      "key": "l10n.ui.quest.state.active",
+      "locale": "l10n.locale.en",
+      "text": "In progress"
+    },
+    {
+      "key": "l10n.ui.quest.state.complete",
+      "locale": "l10n.locale.en",
+      "text": "Ready to turn in"
+    },
+    {
+      "key": "l10n.ui.quest.state.done",
+      "locale": "l10n.locale.en",
+      "text": "Completed"
+    },
+    {
+      "key": "l10n.ui.stat.level",
+      "locale": "l10n.locale.en",
+      "text": "Level"
+    },
+    {
+      "key": "l10n.ui.stat.xp",
+      "locale": "l10n.locale.en",
+      "text": "Experience"
+    },
+    {
+      "key": "l10n.ui.stat.max",
+      "locale": "l10n.locale.en",
+      "text": "Max level"
+    },
+    {
+      "key": "l10n.ui.volume.music",
+      "locale": "l10n.locale.en",
+      "text": "Music"
+    },
+    {
+      "key": "l10n.ui.volume.sfx",
+      "locale": "l10n.locale.en",
+      "text": "Effects"
+    },
+    {
+      "key": "l10n.ui.volume.ui",
+      "locale": "l10n.locale.en",
+      "text": "Interface"
+    },
+    {
+      "key": "l10n.ui.settings.title",
+      "locale": "l10n.locale.en",
+      "text": "Settings"
+    },
+    {
+      "key": "l10n.ui.settings.back",
+      "locale": "l10n.locale.en",
+      "text": "Back"
+    },
+    {
+      "key": "l10n.ui.settings.language",
+      "locale": "l10n.locale.en",
+      "text": "Language"
+    },
+    {
+      "key": "l10n.ui.settings.volume",
+      "locale": "l10n.locale.en",
+      "text": "Volume"
+    },
+    {
+      "key": "l10n.ui.settings.save",
+      "locale": "l10n.locale.en",
+      "text": "Save Settings"
+    },
+    {
+      "key": "l10n.ui.settings.bus_sfx",
+      "locale": "l10n.locale.en",
+      "text": "Bus: Effects"
+    },
+    {
+      "key": "l10n.ui.settings.bindings_header",
+      "locale": "l10n.locale.en",
+      "text": "Key Bindings"
+    },
+    {
+      "key": "l10n.ui.settings.no_bindings",
+      "locale": "l10n.locale.en",
+      "text": "(no rebindable keys)"
+    },
+    {
+      "key": "l10n.ui.settings.conflict",
+      "locale": "l10n.locale.en",
+      "text": "conflict"
+    },
+    {
+      "key": "l10n.ui.dialog.none",
+      "locale": "l10n.locale.en",
+      "text": "(no active dialog)"
+    },
+    {
+      "key": "l10n.ui.dialog.leave",
+      "locale": "l10n.locale.en",
+      "text": "Leave"
+    },
+    {
+      "key": "l10n.ui.shop.buy",
+      "locale": "l10n.locale.en",
+      "text": "Buy"
+    },
+    {
+      "key": "l10n.ui.shop.sell",
+      "locale": "l10n.locale.en",
+      "text": "Sell"
+    },
+    {
+      "key": "l10n.ui.shop.buy_btn",
+      "locale": "l10n.locale.en",
+      "text": "Buy"
+    },
+    {
+      "key": "l10n.ui.shop.sell_btn",
+      "locale": "l10n.locale.en",
+      "text": "Sell"
+    },
+    {
+      "key": "l10n.ui.shop.gold",
+      "locale": "l10n.locale.en",
+      "text": "Gold: {gold}"
+    },
+    {
+      "key": "l10n.ui.shop.no_funds",
+      "locale": "l10n.locale.en",
+      "text": "Not enough gold"
+    },
+    {
+      "key": "l10n.ui.shop.bag_full",
+      "locale": "l10n.locale.en",
+      "text": "The bag is full"
+    },
+    {
+      "key": "l10n.ui.shop.failed",
+      "locale": "l10n.locale.en",
+      "text": "Cannot buy"
+    },
+    {
+      "key": "l10n.ui.shop.nothing_to_sell",
+      "locale": "l10n.locale.en",
+      "text": "Nothing to sell"
+    },
+    {
+      "key": "l10n.ui.shop.sell_header",
+      "locale": "l10n.locale.en",
+      "text": "For sale"
+    },
+    {
+      "key": "l10n.ui.shop.backpack_header",
+      "locale": "l10n.locale.en",
+      "text": "Backpack (sellable)"
+    },
+    {
+      "key": "l10n.ui.shop.balance",
+      "locale": "l10n.locale.en",
+      "text": "Balance: "
+    },
+    {
+      "key": "l10n.ui.shop.not_open",
+      "locale": "l10n.locale.en",
+      "text": "(no shop open)"
+    },
+    {
+      "key": "l10n.ui.shop.unlimited",
+      "locale": "l10n.locale.en",
+      "text": "unlimited"
+    },
+    {
+      "key": "l10n.ui.shop.stock",
+      "locale": "l10n.locale.en",
+      "text": "Stock:"
+    },
+    {
+      "key": "l10n.ui.tooltip.item_level",
+      "locale": "l10n.locale.en",
+      "text": "Item level"
+    },
+    {
+      "key": "l10n.ui.tooltip.slot",
+      "locale": "l10n.locale.en",
+      "text": "Slot"
+    },
+    {
+      "key": "l10n.ui.tooltip.damage",
+      "locale": "l10n.locale.en",
+      "text": "Damage"
+    },
+    {
+      "key": "l10n.ui.tooltip.speed",
+      "locale": "l10n.locale.en",
+      "text": "Speed"
+    },
+    {
+      "key": "l10n.ui.tooltip.required_level",
+      "locale": "l10n.locale.en",
+      "text": "Required level"
+    }
+  ]
+}

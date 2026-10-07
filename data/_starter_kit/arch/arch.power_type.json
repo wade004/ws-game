@@ -1,0 +1,28 @@
+{
+  "table": "arch.power_type",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "arch.power.health",
+      "name_key": "l10n.power.health.name",
+      "max_source": {
+        "kind": "stat",
+        "stat": "stat.vitality"
+      },
+      "refill_on_leave_combat": true,
+      "start_full": true,
+      "override": true
+    },
+    {
+      "id": "arch.power.stamina",
+      "name_key": "l10n.power.stamina.name",
+      "max_source": {
+        "kind": "fixed",
+        "value": 100
+      },
+      "regen_in_combat": 16,
+      "regen_out_of_combat": 28,
+      "start_full": true
+    }
+  ]
+}

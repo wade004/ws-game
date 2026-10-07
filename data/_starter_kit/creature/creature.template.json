@@ -1,0 +1,133 @@
+{
+  "table": "creature.template",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "creature.kit_player",
+      "display_ref": "display.kit_kit_player",
+      "name_key": "l10n.creature.kit_player.name",
+      "level": 1,
+      "tier": "creature.tier.normal",
+      "base_stats": {
+        "stat.vitality": 320,
+        "stat.power": 10,
+        "stat.move_speed": 5.4
+      },
+      "faction_id": "fac.player"
+    },
+    {
+      "id": "creature.kit_melee_grunt",
+      "display_ref": "display.kit_kit_melee_grunt",
+      "name_key": "l10n.creature.kit_melee_grunt.name",
+      "level": 1,
+      "tier": "creature.tier.normal",
+      "base_stats": {
+        "stat.vitality": 60,
+        "stat.power": 6,
+        "stat.move_speed": 4.0
+      },
+      "faction_id": "fac.hostile",
+      "ai_behavior_ref": "ai.profile.kit_melee",
+      "loot_table_ref": "loot.kit_grunt"
+    },
+    {
+      "id": "creature.kit_ranged_archer",
+      "display_ref": "display.kit_kit_ranged_archer",
+      "name_key": "l10n.creature.kit_ranged_archer.name",
+      "level": 2,
+      "tier": "creature.tier.normal",
+      "base_stats": {
+        "stat.vitality": 45,
+        "stat.power": 6,
+        "stat.move_speed": 3.2
+      },
+      "faction_id": "fac.hostile",
+      "ai_behavior_ref": "ai.profile.kit_ranged",
+      "loot_table_ref": "loot.kit_archer"
+    },
+    {
+      "id": "creature.kit_heavy_brute",
+      "display_ref": "display.kit_kit_heavy_brute",
+      "name_key": "l10n.creature.kit_heavy_brute.name",
+      "level": 2,
+      "tier": "creature.tier.elite",
+      "base_stats": {
+        "stat.vitality": 240,
+        "stat.power": 6,
+        "stat.move_speed": 2.8
+      },
+      "faction_id": "fac.hostile",
+      "ai_behavior_ref": "ai.profile.kit_heavy",
+      "loot_table_ref": "loot.kit_brute"
+    },
+    {
+      "id": "creature.kit_boss",
+      "display_ref": "display.kit_kit_boss",
+      "name_key": "l10n.creature.kit_boss.name",
+      "level": 4,
+      "tier": "creature.tier.boss",
+      "base_stats": {
+        "stat.vitality": 700,
+        "stat.power": 12,
+        "stat.move_speed": 2.6
+      },
+      "faction_id": "fac.hostile",
+      "ai_behavior_ref": "ai.profile.kit_boss",
+      "loot_table_ref": "loot.kit_boss"
+    },
+    {
+      "id": "creature.kit_npc_questgiver",
+      "display_ref": "display.kit_kit_npc_questgiver",
+      "name_key": "l10n.creature.kit_npc_questgiver.name",
+      "level": 1,
+      "tier": "creature.tier.normal",
+      "base_stats": {
+        "stat.vitality": 200,
+        "stat.power": 1,
+        "stat.move_speed": 0
+      },
+      "faction_id": "fac.townsfolk",
+      "npc_flags": [
+        "npc_flag.questgiver",
+        "npc_flag.gossip"
+      ],
+      "gossip_menu_ref": "dialog.kit_questgiver"
+    },
+    {
+      "id": "creature.kit_npc_vendor",
+      "display_ref": "display.kit_kit_npc_vendor",
+      "name_key": "l10n.creature.kit_npc_vendor.name",
+      "level": 1,
+      "tier": "creature.tier.normal",
+      "base_stats": {
+        "stat.vitality": 200,
+        "stat.power": 1,
+        "stat.move_speed": 0
+      },
+      "faction_id": "fac.townsfolk",
+      "npc_flags": [
+        "npc_flag.vendor",
+        "npc_flag.gossip"
+      ],
+      "gossip_menu_ref": "dialog.kit_vendor"
+    },
+    {
+      "id": "creature.kit_npc_save_point",
+      "display_ref": "display.kit_kit_npc_save_point",
+      "name_key": "l10n.creature.kit_npc_save_point.name",
+      "level": 1,
+      "tier": "creature.tier.normal",
+      "base_stats": {
+        "stat.vitality": 200,
+        "stat.power": 1,
+        "stat.move_speed": 0
+      },
+      "faction_id": "fac.townsfolk",
+      "npc_flags": [
+        "npc_flag.save_point",
+        "npc_flag.gossip"
+      ],
+      "gossip_menu_ref": "dialog.kit_save_point"
+    }
+  ]
+}

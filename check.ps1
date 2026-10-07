@@ -1050,6 +1050,36 @@ Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root data/_f
 }
 
 # -----------------------------------------------------------------------------
+# 10d3. 内容起步包数据根 data/_starter_kit 校验（ADR-0162）：叠加在框架根 data/_framework 之上，
+#       validate_data.py --strict 须 0 error 0 warning（起步包是出厂可选内容，自己先要是一份干净数据）。秒级步骤。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/validate_data.py --strict --framework-root data/_framework --data-root data/_starter_kit（内容起步包数据根，errors/warnings 须为 0）" -Id "validate_starter_kit_data" {
+    Push-Location $RepoRoot
+    try {
+        $ErrorActionPreference = "Continue"
+        $kitDataOutput = @(& python "toolchain/validate_data.py" "--strict" "--framework-root" "data/_framework" "--data-root" "data/_starter_kit")
+        $kitDataExit = $LASTEXITCODE
+        $kitDataOutput | ForEach-Object { Write-Host $_ }
+    } finally {
+        Pop-Location
+    }
+    if ($kitDataExit -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "validate_data.py 退出码=$kitDataExit，见上方输出" }
+    }
+    $kitSummaryLines = @($kitDataOutput | Where-Object { $_ -match 'errors\s+(\d+),\s*warnings\s+(\d+)' })
+    if ($kitSummaryLines.Count -eq 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "未在输出里找到 'errors N, warnings M' 汇总行，无法确认 errors/warnings 为 0" }
+    }
+    [void]($kitSummaryLines[-1] -match 'errors\s+(\d+),\s*warnings\s+(\d+)')
+    $kitErrors = [int]$Matches[1]
+    $kitWarnings = [int]$Matches[2]
+    if ($kitErrors -ne 0 -or $kitWarnings -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "内容起步包数据根应为 0 error 0 warning，实际 errors=$kitErrors warnings=$kitWarnings" }
+    }
+    [PSCustomObject]@{ Ok = $true; Detail = "errors=0 warnings=0" }
+}
+
+# -----------------------------------------------------------------------------
 # 10e. 装备完整性检查（import_assets.py equip，手感设计/08 第 5 节）：装备资产包（图标、外观映射、纸娃娃层 ×
 #      必备/推荐姿势键 × 方向档、武器双表、音效材质）+ 界面皮肤包（槽位框/品质框/拖拽态/提示框/预览区/主题）。
 #      只比对文件与数据行是否存在，秒级。--strict-warnings：框架占位装备集是参照实现，必须零错误零警告

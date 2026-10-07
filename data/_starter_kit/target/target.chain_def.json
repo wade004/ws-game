@@ -1,0 +1,98 @@
+{
+  "table": "target.chain_def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "target.chain.kit_self",
+      "source": "self",
+      "max_targets": 1
+    },
+    {
+      "id": "target.chain.kit_nearest_enemy",
+      "source": "nearest_in_shape",
+      "shape": {
+        "kind": "circle",
+        "radius": 16
+      },
+      "filters": [
+        "relation:hostile",
+        "alive"
+      ],
+      "sort_by": {
+        "key": "distance",
+        "direction": "asc"
+      },
+      "max_targets": 1
+    },
+    {
+      "id": "target.chain.kit_arc_narrow",
+      "source": "all_in_shape",
+      "shape": {
+        "kind": "cone",
+        "angle": 1.75,
+        "radius": 2.6
+      },
+      "filters": [
+        "relation:hostile",
+        "alive"
+      ],
+      "sort_by": {
+        "key": "distance",
+        "direction": "asc"
+      },
+      "max_targets": 6
+    },
+    {
+      "id": "target.chain.kit_arc_wide",
+      "source": "all_in_shape",
+      "shape": {
+        "kind": "cone",
+        "angle": 2.6,
+        "radius": 3.0
+      },
+      "filters": [
+        "relation:hostile",
+        "alive"
+      ],
+      "sort_by": {
+        "key": "distance",
+        "direction": "asc"
+      },
+      "max_targets": 8
+    },
+    {
+      "id": "target.chain.kit_circle_spin",
+      "source": "all_in_shape",
+      "shape": {
+        "kind": "circle",
+        "radius": 3.3
+      },
+      "filters": [
+        "relation:hostile",
+        "alive"
+      ],
+      "sort_by": {
+        "key": "distance",
+        "direction": "asc"
+      },
+      "max_targets": 10
+    },
+    {
+      "id": "target.chain.kit_circle_aoe",
+      "source": "all_in_shape",
+      "shape": {
+        "kind": "circle",
+        "radius": 3.2
+      },
+      "filters": [
+        "relation:hostile",
+        "alive"
+      ],
+      "sort_by": {
+        "key": "distance",
+        "direction": "asc"
+      },
+      "max_targets": 4
+    }
+  ]
+}

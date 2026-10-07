@@ -349,5 +349,29 @@ namespace Game.Template.EditorTests
             var roots = Build<System.Collections.Generic.IReadOnlyList<string>>(options, "BuildExtraFrameworkDatasetRoots");
             CollectionAssert.AreEqual(new[] { "data/_extra_pack" }, roots.ToArray());
         }
+
+        // P4：内容起步包是可选数据根，默认不装载；游戏显式声明才进加载顺序（位置在手感根之后、其它额外根之前由声明顺序决定）。
+        [Test]
+        public void StarterKit_DefaultOptions_DoNotLoadTheStarterKit()
+        {
+            var roots = Build<System.Collections.Generic.IReadOnlyList<string>>(new GameOptions(), "BuildExtraFrameworkDatasetRoots");
+            CollectionAssert.DoesNotContain(roots.ToArray(), GameOptions.StarterKitDatasetRoot);
+
+            var withFeel = new GameOptions { FeelOptions = new Core.Carriers.Assembly.CarriersFeelOptions() };
+            var feelRoots = Build<System.Collections.Generic.IReadOnlyList<string>>(withFeel, "BuildExtraFrameworkDatasetRoots");
+            CollectionAssert.DoesNotContain(feelRoots.ToArray(), GameOptions.StarterKitDatasetRoot);
+        }
+
+        [Test]
+        public void StarterKit_DeclaredInExtraRoots_IsLoadedAfterTheFeelRoot_WithoutDuplicates()
+        {
+            var options = new GameOptions
+            {
+                FeelOptions = new Core.Carriers.Assembly.CarriersFeelOptions(),
+                ExtraFrameworkDatasetRoots = new[] { GameOptions.StarterKitDatasetRoot, GameOptions.StarterKitDatasetRoot },
+            };
+            var roots = Build<System.Collections.Generic.IReadOnlyList<string>>(options, "BuildExtraFrameworkDatasetRoots");
+            CollectionAssert.AreEqual(new[] { GameOptions.FeelDatasetRoot, GameOptions.StarterKitDatasetRoot }, roots.ToArray());
+        }
     }
 }
