@@ -28,7 +28,7 @@
       "depth": 0,
       "source": "local",
       "dependencies": {
-        "com.gamefoundation.adapter.unity": "2.2.0"
+        "com.gamefoundation.adapter.unity": "2.3.0"
       }
     },
     "com.unity.2d.sprite": {
