@@ -26,7 +26,7 @@ namespace Presentation.Ui
     /// 不含任何引擎类型；引擎侧的提示框控件（皮肤包 <c>tooltip/*</c>）只负责把它画出来。
     /// <para>
     /// 判断记录（属性行的取舍）：只列数据里真的有的项——物品等级、武器伤害/速度、固定属性（<c>stats</c>）、等级需求；没有的项不出现，
-    /// 不补"0"占位行。文案：名称/品质/槽位/属性名走本地化键（<paramref name="text"/> 为空或键缺失时退回短名），行标签是固定的中文词。
+    /// 不补"0"占位行。文案：名称/品质/槽位/属性名/行标签都走本地化键（<paramref name="text"/> 为空或键缺失时退回短名；行标签退回固定的中文词，键见 <see cref="KeyItemLevel"/> 等）。
     /// </para>
     /// </summary>
     public sealed class ItemTooltipContent
@@ -66,6 +66,14 @@ namespace Presentation.Ui
         public const string LabelDamage = "伤害";
         public const string LabelSpeed = "攻速";
         public const string LabelRequiredLevel = "需要等级";
+
+        /// <summary>P4 备忘 1：行标签的本地化键（此前只有上面写死的中文常量，英文界面里详情面板会混出中文）。<c>text</c> 取得到文案就用它，
+        /// 取不到（没传 <c>text</c>、键缺失返回空串）退回上面的中文常量——不带本地化表的既有调用方行为逐位不变。文案行由游戏数据或框架起步包提供。</summary>
+        public static readonly Id KeyItemLevel = new Id("l10n.ui.tooltip.item_level");
+        public static readonly Id KeySlot = new Id("l10n.ui.tooltip.slot");
+        public static readonly Id KeyDamage = new Id("l10n.ui.tooltip.damage");
+        public static readonly Id KeySpeed = new Id("l10n.ui.tooltip.speed");
+        public static readonly Id KeyRequiredLevel = new Id("l10n.ui.tooltip.required_level");
 
         /// <summary>物品模板 <paramref name="template"/> 的提示框内容；模板在数据里不存在返回 null。</summary>
         public static ItemTooltipContent? Build(IDataRegistryView registry, Id template, Func<Id, string>? text = null)
@@ -112,12 +120,12 @@ namespace Presentation.Ui
             var rows = new List<ItemTooltipRow>();
             if (slotText.Length > 0)
             {
-                rows.Add(new ItemTooltipRow(LabelSlot, slotText));
+                rows.Add(new ItemTooltipRow(Localize(KeySlot, LabelSlot), slotText));
             }
 
             if (row.TryGetInt("item_level", out var itemLevel))
             {
-                rows.Add(new ItemTooltipRow(LabelItemLevel, itemLevel.ToString(CultureInfo.InvariantCulture)));
+                rows.Add(new ItemTooltipRow(Localize(KeyItemLevel, LabelItemLevel), itemLevel.ToString(CultureInfo.InvariantCulture)));
             }
 
             if (row.TryGetObject("weapon_profile", out var profile))
@@ -125,8 +133,8 @@ namespace Presentation.Ui
                 var min = Number(profile, "damage_min");
                 var max = Number(profile, "damage_max");
                 var speed = Number(profile, "speed");
-                rows.Add(new ItemTooltipRow(LabelDamage, Format(min) + " - " + Format(max)));
-                rows.Add(new ItemTooltipRow(LabelSpeed, Format(speed)));
+                rows.Add(new ItemTooltipRow(Localize(KeyDamage, LabelDamage), Format(min) + " - " + Format(max)));
+                rows.Add(new ItemTooltipRow(Localize(KeySpeed, LabelSpeed), Format(speed)));
             }
 
             if (row.TryGetArray("stats", out var stats))
@@ -152,7 +160,7 @@ namespace Presentation.Ui
 
             if (row.TryGetObject("requirements", out var requirements) && requirements.TryGetValue("level", out var levelValue) && levelValue is JsonNumber level)
             {
-                rows.Add(new ItemTooltipRow(LabelRequiredLevel, Format(level.Value)));
+                rows.Add(new ItemTooltipRow(Localize(KeyRequiredLevel, LabelRequiredLevel), Format(level.Value)));
             }
 
             return new ItemTooltipContent(template, name, qualityShort, qualityText, slotText, rows);

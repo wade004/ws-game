@@ -26,13 +26,22 @@ namespace Adapter.Unity.Ui.Panels
         private InventoryViewModel _inventory = null!;
         private UiIntents _intents = null!;
         private TextMeshProUGUI _balanceLabel = null!;
+        private TextMeshProUGUI _buyHeader = null!;
+        private TextMeshProUGUI _sellHeader = null!;
+        private UiVisuals? _visuals;
         private RectTransform _buyList = null!;
         private RectTransform _sellList = null!;
         private readonly List<GameObject> _buyRows = new List<GameObject>();
         private readonly List<GameObject> _sellRows = new List<GameObject>();
 
         public void Construct(RectTransform parent, ShopViewModel vm, InventoryViewModel inventory, UiIntents intents)
+            => Construct(parent, vm, inventory, intents, visuals: null);
+
+        /// <summary>P4 备忘 1 新增重载（旧签名原样保留并转调）：<paramref name="visuals"/> 非空时物品名经 <see cref="UiVisuals.ItemName"/> 取本地化名
+        /// （与背包面板、提示框同一条取名路径），取不到或为 null 退回短 id；界面词经 <see cref="UiPanelBehaviour.L10n"/> 查表。</summary>
+        public void Construct(RectTransform parent, ShopViewModel vm, InventoryViewModel inventory, UiIntents intents, UiVisuals? visuals)
         {
+            _visuals = visuals;
             _vm = vm;
             _inventory = inventory;
             _intents = intents;
@@ -43,14 +52,14 @@ namespace Adapter.Unity.Ui.Panels
             _balanceLabel = UiWidgets.CreateLabel("Balance", root, "-", 16);
             UiWidgets.SetRect(_balanceLabel.rectTransform, new Vector2(0, 1), new Vector2(1, 1), new Vector2(8, -28), new Vector2(-8, -8));
 
-            var buyHeader = UiWidgets.CreateLabel("BuyHeader", root, "出售清单", 14);
-            UiWidgets.SetRect(buyHeader.rectTransform, new Vector2(0, 1), new Vector2(1, 1), new Vector2(8, -52), new Vector2(-8, -36));
+            _buyHeader = UiWidgets.CreateLabel("BuyHeader", root, T("l10n.ui.shop.sell_header", "出售清单"), 14);
+            UiWidgets.SetRect(_buyHeader.rectTransform, new Vector2(0, 1), new Vector2(1, 1), new Vector2(8, -52), new Vector2(-8, -36));
 
             _buyList = UiWidgets.CreateVerticalList("BuyList", root, 2f);
             UiWidgets.SetRect(_buyList, new Vector2(0, 0.5f), new Vector2(1, 1), new Vector2(8, -140), new Vector2(-8, -56));
 
-            var sellHeader = UiWidgets.CreateLabel("SellHeader", root, "背包（可卖出）", 14);
-            UiWidgets.SetRect(sellHeader.rectTransform, new Vector2(0, 0.5f), new Vector2(1, 0.5f), new Vector2(8, -18), new Vector2(-8, 2));
+            _sellHeader = UiWidgets.CreateLabel("SellHeader", root, T("l10n.ui.shop.backpack_header", "背包（可卖出）"), 14);
+            UiWidgets.SetRect(_sellHeader.rectTransform, new Vector2(0, 0.5f), new Vector2(1, 0.5f), new Vector2(8, -18), new Vector2(-8, 2));
 
             _sellList = UiWidgets.CreateVerticalList("SellList", root, 2f);
             UiWidgets.SetRect(_sellList, Vector2.zero, new Vector2(1, 0.5f), new Vector2(8, 8), new Vector2(-8, -18));
@@ -73,9 +82,11 @@ namespace Adapter.Unity.Ui.Panels
 
         public override void RefreshUi()
         {
+            _buyHeader.text = T("l10n.ui.shop.sell_header", "出售清单");
+            _sellHeader.text = T("l10n.ui.shop.backpack_header", "背包（可卖出）");
             _balanceLabel.text = _vm.CurrentVendorId.HasValue
-                ? $"货币：{FormatBalances()}"
-                : "（未打开商店）";
+                ? T("l10n.ui.shop.balance", "货币：") + FormatBalances()
+                : T("l10n.ui.shop.not_open", "（未打开商店）");
 
             RefreshBuyRows();
             RefreshSellRows();
@@ -107,11 +118,13 @@ namespace Adapter.Unity.Ui.Panels
             {
                 var item = _vm.SellItems[i];
                 var label = _buyRows[i].transform.Find("Label").GetComponent<TextMeshProUGUI>();
-                var stockText = item.Stock.HasValue ? item.Stock.Value.ToString() : "不限";
-                label.text = $"{ShortId(item.ItemId)}  {item.PriceAmount}{ShortId(item.PriceCurrencyId)}  库存:{stockText}";
+                var stockText = item.Stock.HasValue ? item.Stock.Value.ToString() : T("l10n.ui.shop.unlimited", "不限");
+                var stockWord = T("l10n.ui.shop.stock", "库存:");
+                label.text = $"{ItemName(item.ItemId)}  {item.PriceAmount}{ShortId(item.PriceCurrencyId)}  {stockWord}{stockText}";
 
                 var button = _buyRows[i].transform.Find("Buy").GetComponent<UnityEngine.UI.Button>();
                 button.interactable = !item.Stock.HasValue || item.Stock.Value > 0;
+                button.transform.Find("Label").GetComponent<TextMeshProUGUI>().text = T("l10n.ui.shop.buy", "购买");
             }
         }
 
@@ -124,7 +137,8 @@ namespace Adapter.Unity.Ui.Panels
             {
                 var slot = slots[i];
                 var label = _sellRows[i].transform.Find("Label").GetComponent<TextMeshProUGUI>();
-                label.text = $"{ShortId(slot.TemplateId)} x{slot.Count}";
+                label.text = $"{ItemName(slot.TemplateId)} x{slot.Count}";
+                _sellRows[i].transform.Find("Sell/Label").GetComponent<TextMeshProUGUI>().text = T("l10n.ui.shop.sell", "卖出");
             }
         }
 
@@ -144,11 +158,11 @@ namespace Adapter.Unity.Ui.Panels
                 var capturedIndex = rowIndex;
                 if (isBuyRow)
                 {
-                    UiWidgets.CreateButton("Buy", rect, "购买", () => OnBuyClicked(capturedIndex));
+                    UiWidgets.CreateButton("Buy", rect, T("l10n.ui.shop.buy", "购买"), () => OnBuyClicked(capturedIndex));
                 }
                 else
                 {
-                    UiWidgets.CreateButton("Sell", rect, "卖出", () => OnSellClicked(capturedIndex));
+                    UiWidgets.CreateButton("Sell", rect, T("l10n.ui.shop.sell", "卖出"), () => OnSellClicked(capturedIndex));
                 }
                 rows.Add(row);
             }
@@ -179,6 +193,8 @@ namespace Adapter.Unity.Ui.Panels
             var slot = _inventory.Slots[index];
             _intents.Sell(_vm.CurrentVendorId.Value, slot.InstanceId, count: 1);
         }
+
+        private string ItemName(Id template) => _visuals != null ? _visuals.ItemName(template) : ShortId(template);
 
         private static string ShortId(Id id)
         {

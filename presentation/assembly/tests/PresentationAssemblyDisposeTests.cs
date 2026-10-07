@@ -139,8 +139,8 @@ namespace Tests.Presentation.Assembly
             Assert.True(remaining.Count == 0, "Dispose 后仍有表现层订阅未退订：" + string.Join(", ", remaining.GroupBy(o => o).Select(g => g.Key + "×" + g.Count())));
             // 非表现层订阅（gameplay/core 自己的）不受影响。
             Assert.Equal(othersBefore, bus.LiveOwners().Count);
-            // MapLayerHost 在 SceneRouter 上挂的 post_load/pre_unload 钩子各注销一个。
-            Assert.Equal(postLoadBefore - 1, gameplay.Hooks.CallbackCount(WellKnownHooks.ScenePostLoad));
+            // MapLayerHost 在 SceneRouter 上挂的 post_load/pre_unload 钩子各注销一个；MapMusicHost（P4 备忘 2，默认开）另挂一个 post_load。
+            Assert.Equal(postLoadBefore - 2, gameplay.Hooks.CallbackCount(WellKnownHooks.ScenePostLoad));
             Assert.Equal(preUnloadBefore - 1, gameplay.Hooks.CallbackCount(WellKnownHooks.ScenePreUnload));
         }
 
@@ -187,14 +187,14 @@ namespace Tests.Presentation.Assembly
             var subsystems = DisposablePublicSubsystems(presentation);
 
             // 装配根把 Dispose 责任落在自己身上的每个子系统，要么在总线上有订阅（Dispose 后归零已由
-            // Dispose_RetiresEveryPresentationOwnedBusSubscription_* 断言），要么是 MapLayerHost（场景钩子，同上条断言）。
+            // Dispose_RetiresEveryPresentationOwnedBusSubscription_* 断言），要么是 MapLayerHost/MapMusicHost（场景钩子，同上条断言）。
             // 新增 IDisposable 公开子系统却没有可观测的释放效果时，这里会红，提醒补上观测手段。
             Assert.NotEmpty(subsystems);
             foreach (var (name, value) in subsystems)
             {
                 var typeName = value.GetType().FullName!;
                 Assert.True(
-                    owners.Contains(typeName) || value is MapLayerHost,
+                    owners.Contains(typeName) || value is MapLayerHost || value is global::Presentation.VfxSfx.Core.MapMusicHost,
                     $"公开 IDisposable 子系统 {name}（{typeName}）没有任何可观测的订阅/钩子，Dispose 完整性无法被验证");
             }
         }

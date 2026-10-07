@@ -311,6 +311,55 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.IsTrue(healthDropped, "多次点击动作条槽位 0 后，目标生物血量应当至少下降过一次");
         }
 
+        /// <summary>P4 备忘 1：参考对话面板的"离开"按钮——点击后玩家的对话会话被关闭（红：此前面板没有这个按钮）。</summary>
+        [UnityTest]
+        public IEnumerator Dialog_LeaveButton_ClosesTheSession()
+        {
+            yield return LoadShellScene();
+            var shell = RequireShellRoot();
+            yield return EnterInWorld(shell);
+
+            var playerId = shell.Framework.PlayerId;
+            shell.Framework.Gameplay.Dialog.OpenGossip(playerId, new Id("npc.sample_hunter"), new Id("dialog.sample_hunter"));
+            shell.UiPanelHost.Dialog.Show();
+            shell.UiPanelHost.Dialog.RefreshUi();
+            Assert.IsNotNull(shell.Framework.Gameplay.Dialog.GetGossipView(playerId));
+
+            var leave = shell.UiPanelHost.GameplayGroup.Find("Dialog/DialogPanel/Content/LeaveButton")?.GetComponent<Button>();
+            Assert.IsNotNull(leave, "对话面板应当有离开按钮");
+            leave!.onClick.Invoke();
+
+            Assert.IsNull(shell.Framework.Gameplay.Dialog.GetGossipView(playerId), "点击离开后对话会话应当已关闭");
+        }
+
+        /// <summary>P4 备忘 5/8 的面板侧接线：UiPanelHost 默认持有热键判定与模态输入上下文，开关属性可关；模态面板（对话）打开时输入映射栈顶是本宿主压入的上下文，关闭后弹出。</summary>
+        [UnityTest]
+        public IEnumerator PanelHost_ModalPanelOpen_PushesInputContext_AndPopsOnClose_AndSwitchesWork()
+        {
+            yield return LoadShellScene();
+            var shell = RequireShellRoot();
+            yield return EnterInWorld(shell);
+            var inputMap = shell.Framework.Presentation.InputMap;
+
+            Assert.IsTrue(shell.UiPanelHost.LegacyHotkeysEnabled);
+            Assert.IsTrue(shell.UiPanelHost.ModalInputContextEnabled);
+            Assert.IsFalse(inputMap.ActiveInputContext.HasValue);
+
+            shell.UiPanelHost.Dialog.Show();
+            yield return null;
+            Assert.AreEqual(Presentation.Ui.UiModalInputContext.ContextId, inputMap.ActiveInputContext);
+
+            shell.UiPanelHost.Dialog.Hide();
+            yield return null;
+            Assert.IsFalse(inputMap.ActiveInputContext.HasValue, "模态面板全部关闭后应当弹出上下文");
+
+            shell.UiPanelHost.ModalInputContextEnabled = false;
+            shell.UiPanelHost.Dialog.Show();
+            yield return null;
+            Assert.IsFalse(inputMap.ActiveInputContext.HasValue, "关掉 ModalInputContextEnabled 后不再压入");
+            shell.UiPanelHost.Dialog.Hide();
+        }
+
         [UnityTest]
         public IEnumerator Dialog_ChooseAcceptOption_AdvancesQuestState()
         {

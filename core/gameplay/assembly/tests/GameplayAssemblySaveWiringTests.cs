@@ -6,7 +6,9 @@ using Core.Foundation.EventBus;
 using Core.Foundation.Rng;
 using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
+using Core.Foundation.SceneRouter;
 using Core.Gameplay.Assembly;
+using Core.Gameplay.Quest;
 using Xunit;
 
 namespace Tests.Gameplay.Assembly
@@ -15,7 +17,7 @@ namespace Tests.Gameplay.Assembly
     /// P4 备忘 7 不变量（真实 <c>GameplayAssembly</c> + 真实 <c>SaveSystem</c>）：<see cref="ISaveSystem.ResetAllSections"/> 把
     /// 已登记的游戏层持久化域（等级/经验、背包）清回默认态，不碰地图与实体本身，不发业务事件——新游戏不再需要"装配后先存一份原始槽"。
     /// </summary>
-    public sealed class GameplayAssemblyResetAllSectionsTests
+    public sealed class GameplayAssemblySaveWiringTests
     {
         private static readonly Id MapId = new Id("world.p4_reset_map");
         private static readonly Id PlayerId = new Id("unit.p4_reset_player");
@@ -97,7 +99,7 @@ namespace Tests.Gameplay.Assembly
         /// cref="Core.Numbers.Progression.LevelSync"/> 委托应当在 <c>RegisterUnit</c> 内部就把这份
         /// 权威等级同步写回实体字段，不需要调用方自己再补一行 <c>player.Level = level</c>。
         /// </summary>
-        private static Fixture Build(int level = 1, StubFileSystem? sharedFs = null)
+        private static Fixture Build(int level = 1, StubFileSystem? sharedFs = null, AutoSavePolicy? autoSave = null)
         {
             var bus = new EventBus(EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()), new EventBusOptions { StrictCatalog = false });
 
@@ -114,7 +116,13 @@ namespace Tests.Gameplay.Assembly
             // "全新进程读一份已有存档"）可以共享同一个内存文件系统实例，读写同一个存档槽——不需要
             // 额外发明"导出/导入原始存档文件"这类本仓库并不存在的 API。
             var fs = sharedFs ?? new StubFileSystem();
-            var saveSystem = new SaveSystem(fs, new SaveSystemOptions(new Id("game.p4_reset_test")), bus);
+            var saveOptions = new SaveSystemOptions(new Id("game.p4_reset_test"));
+            if (autoSave != null)
+            {
+                saveOptions.AutoSave = autoSave;
+            }
+
+            var saveSystem = new SaveSystem(fs, saveOptions, bus);
 
             var gameplay = new GameplayAssembly(
                 bus, registry, rng, world, spatial, saveSystem,
@@ -160,6 +168,89 @@ namespace Tests.Gameplay.Assembly
             Assert.Equal(1, fx.Player.Level);
             Assert.Empty(fx.Gameplay.Carriers.Inventory.ListItems(PlayerId));
             Assert.Same(fx.Player, fx.World.GetEntity(PlayerId));
+        }
+
+        private static readonly Id AutosaveSlot = new Id("slot.autosave");
+
+        private static void TickOnce(Fixture fx)
+        {
+            fx.Bus.DispatchPending();
+            fx.World.Tick(SimStep.Continuous(0.1));
+        }
+
+        /// <summary>P4 备忘 4（红：此前没有任何框架消费者订阅 scene.load_finished）：策略位 OnMapSwitch 开启时，地图切换完成后的下一个固定步写自动存档。</summary>
+        [Fact]
+        public void AutosaveOnMapSwitch_Enabled_WritesAutosaveSlot_AtNextTick_NotInsideEventHandling()
+        {
+            var fx = Build(autoSave: new AutoSavePolicy { OnMapSwitch = true });
+            fx.Gameplay.RegisterPersistables(fx.SaveSystem, fx.Player);
+
+            fx.Bus.Enqueue(new SceneLoadFinishedEvent(MapId));
+            fx.Bus.DispatchPending();
+            Assert.False(fx.SaveSystem.SlotExists(AutosaveSlot), "事件处理里只记待存，不写盘");
+
+            fx.World.Tick(SimStep.Continuous(0.1));
+            Assert.True(fx.SaveSystem.SlotExists(AutosaveSlot));
+        }
+
+        /// <summary>不变量：策略位默认关闭（OnMapSwitch 默认 false）时换图不写自动存档——开关由数据/选项声明，不是无条件行为。</summary>
+        [Fact]
+        public void AutosaveOnMapSwitch_DefaultPolicy_DoesNotWrite()
+        {
+            var fx = Build();
+            fx.Gameplay.RegisterPersistables(fx.SaveSystem, fx.Player);
+
+            fx.Bus.Enqueue(new SceneLoadFinishedEvent(MapId));
+            TickOnce(fx);
+
+            Assert.False(fx.SaveSystem.SlotExists(AutosaveSlot));
+        }
+
+        [Fact]
+        public void AutosaveOnQuestComplete_TurnedInOrCompletedByPlayer_WritesAutosaveSlot()
+        {
+            var fx = Build(autoSave: new AutoSavePolicy { OnQuestComplete = true });
+            fx.Gameplay.RegisterPersistables(fx.SaveSystem, fx.Player);
+
+            fx.Bus.Enqueue(new QuestTurnedInEvent(PlayerId, new Id("quest.p4_any")));
+            TickOnce(fx);
+
+            Assert.True(fx.SaveSystem.SlotExists(AutosaveSlot));
+        }
+
+        [Fact]
+        public void AutosaveOnQuestComplete_PolicyOff_OrOtherUnit_DoesNotWrite()
+        {
+            var off = Build(autoSave: new AutoSavePolicy { OnQuestComplete = false });
+            off.Gameplay.RegisterPersistables(off.SaveSystem, off.Player);
+            off.Bus.Enqueue(new QuestTurnedInEvent(PlayerId, new Id("quest.p4_any")));
+            TickOnce(off);
+            Assert.False(off.SaveSystem.SlotExists(AutosaveSlot));
+
+            var other = Build(autoSave: new AutoSavePolicy { OnQuestComplete = true });
+            other.Gameplay.RegisterPersistables(other.SaveSystem, other.Player);
+            other.Bus.Enqueue(new QuestTurnedInEvent(new Id("unit.p4_someone_else"), new Id("quest.p4_any")));
+            TickOnce(other);
+            Assert.False(other.SaveSystem.SlotExists(AutosaveSlot));
+        }
+
+        /// <summary>不变量：同一固定步内的多个触发合并成一次写盘；下一步没有新触发则不再写。</summary>
+        [Fact]
+        public void Autosave_MultipleTriggersInOneStep_CoalesceToOneWrite()
+        {
+            var fx = Build(autoSave: new AutoSavePolicy { OnMapSwitch = true, OnQuestComplete = true });
+            fx.Gameplay.RegisterPersistables(fx.SaveSystem, fx.Player);
+            var saves = 0;
+            using var _ = fx.Bus.Subscribe(SaveEventKeys.SaveCompleted, e => saves++);
+
+            fx.Bus.Enqueue(new SceneLoadFinishedEvent(MapId));
+            fx.Bus.Enqueue(new QuestTurnedInEvent(PlayerId, new Id("quest.p4_a")));
+            fx.Bus.Enqueue(new QuestTurnedInEvent(PlayerId, new Id("quest.p4_b")));
+            TickOnce(fx);
+            TickOnce(fx);
+            fx.Bus.DispatchPending();
+
+            Assert.Equal(1, saves);
         }
     }
 }

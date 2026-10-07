@@ -83,6 +83,77 @@ namespace Core.Foundation.InputMap
         }
 
         // -----------------------------------------------------------------
+        // 输入上下文栈（P4 备忘 8）
+        // -----------------------------------------------------------------
+
+        private readonly List<InputContext> _contexts = new List<InputContext>();
+        private bool _contextsChanged;
+
+        private sealed class InputContext
+        {
+            public Id Id;
+            public HashSet<string> Allowed = null!;
+        }
+
+        /// <summary>
+        /// 判断记录（P4 备忘 8，样板游戏 A 反馈）：模态界面（对话、商店、暂停菜单……）打开时要把移动与战斗输入挡掉，此前框架没有这条通路，
+        /// 游戏只能包一层 <c>IInput</c> 过滤器。现在按"动作"挡而不是按物理键挡：栈顶上下文的 <c>allowedActions</c> 之外的动作一律视为未激活
+        /// （按钮动作：不激活、不产生 <see cref="InputActionTriggeredEvent"/>、不产生边沿；轴动作：输出零向量），
+        /// 栈顶之下的上下文被遮住、不叠加（栈顶独占，弹出后下一层恢复生效）。同一 <paramref name="contextId"/> 重复压入只更新该层的放行表、不改位置。
+        /// 被挡动作的物理按键状态仍照常跟踪：压入时正按住的战斗键会补一条"抬起"边沿给缓冲接收端（不会卡成按住）；
+        /// 弹出时仍按住的键只恢复"持有"状态、不补"按下"边沿（不会因为关了一个界面凭空打出一刀）。放行表里没声明过的动作名记一条诊断并忽略。
+        /// </summary>
+        public void PushInputContext(Id contextId, IReadOnlyCollection<string> allowedActions)
+        {
+            if (allowedActions == null) throw new ArgumentNullException(nameof(allowedActions));
+            var allowed = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var name in allowedActions)
+            {
+                if (!_actions.ContainsKey(name))
+                {
+                    _diagnostics.Warn($"输入上下文 \"{contextId}\" 的放行表里有未声明的动作 \"{name}\"，已忽略");
+                    continue;
+                }
+
+                allowed.Add(name);
+            }
+
+            for (int i = 0; i < _contexts.Count; i++)
+            {
+                if (_contexts[i].Id.Equals(contextId))
+                {
+                    _contexts[i].Allowed = allowed;
+                    _contextsChanged = true;
+                    return;
+                }
+            }
+
+            _contexts.Add(new InputContext { Id = contextId, Allowed = allowed });
+            _contextsChanged = true;
+        }
+
+        /// <summary>弹出 <paramref name="contextId"/> 对应的上下文（不要求它在栈顶：多个模态界面可以乱序关闭）；没有这一层返回 false。</summary>
+        public bool PopInputContext(Id contextId)
+        {
+            for (int i = 0; i < _contexts.Count; i++)
+            {
+                if (_contexts[i].Id.Equals(contextId))
+                {
+                    _contexts.RemoveAt(i);
+                    _contextsChanged = true;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public Id? ActiveInputContext => _contexts.Count == 0 ? (Id?)null : _contexts[_contexts.Count - 1].Id;
+
+        private bool IsBlocked(string actionName) =>
+            _contexts.Count > 0 && !_contexts[_contexts.Count - 1].Allowed.Contains(actionName);
+
+        // -----------------------------------------------------------------
         // 声明
         // -----------------------------------------------------------------
 
@@ -246,13 +317,20 @@ namespace Core.Foundation.InputMap
             // 手感设计/01 第 1 节：登记了边沿接收端时，批次开始先把"上次激活状态"对齐到当前状态（防重绑定后漂移），
             // 每个事件处理完后重算按钮动作激活状态，状态翻转即记一条边沿，批次末统一按发生顺序交付。
             var edgeSink = _edgeSink;
+            var contextsChanged = _contextsChanged;
+            _contextsChanged = false;
             if (edgeSink != null)
             {
                 _edgeScratch.Clear();
                 foreach (var name in _actionOrder)
                 {
                     var st = _actions[name];
-                    st.EdgeActive = st.CurrentActive;
+
+                    // P4 备忘 8：上下文刚变过时，被放行的动作按物理持有状态对齐（弹出后仍按住的键不补"按下"边沿），
+                    // 被挡的动作保持上一次可见状态（随后记一条"抬起"边沿）。
+                    st.EdgeActive = contextsChanged && st.Definition.Kind == ActionKind.Button && !IsBlocked(name)
+                        ? EvaluateDigital(st.ParsedBindings)
+                        : st.CurrentActive;
                 }
             }
 
@@ -288,7 +366,7 @@ namespace Core.Foundation.InputMap
                     {
                         var st = _actions[name];
                         if (st.Definition.Kind != ActionKind.Button) continue;
-                        var nowActive = EvaluateDigital(st.ParsedBindings);
+                        var nowActive = !IsBlocked(name) && EvaluateDigital(st.ParsedBindings);
                         if (nowActive != st.EdgeActive)
                         {
                             st.EdgeActive = nowActive;
@@ -301,6 +379,14 @@ namespace Core.Foundation.InputMap
             foreach (var name in _actionOrder)
             {
                 var state = _actions[name];
+                if (IsBlocked(name))
+                {
+                    // P4 备忘 8：被栈顶输入上下文挡住的动作——按钮视为未激活且不触发，轴输出零（物理按键状态仍在 _keysDown 等集合里照常跟踪）。
+                    state.CurrentActive = false;
+                    state.CachedAxis = Vec2.Zero;
+                    continue;
+                }
+
                 switch (state.Definition.Kind)
                 {
                     case ActionKind.Button:
@@ -337,6 +423,22 @@ namespace Core.Foundation.InputMap
                         }
 
                         break;
+                }
+            }
+
+            if (edgeSink != null && contextsChanged)
+            {
+                // P4 备忘 8：本批次没有任何输入事件时事件循环里不会重算，上下文变化造成的"被挡动作抬起"在这里补一条边沿。
+                foreach (var name in _actionOrder)
+                {
+                    var st = _actions[name];
+                    if (st.Definition.Kind != ActionKind.Button) continue;
+                    var nowActive = !IsBlocked(name) && EvaluateDigital(st.ParsedBindings);
+                    if (nowActive != st.EdgeActive)
+                    {
+                        st.EdgeActive = nowActive;
+                        _edgeScratch.Add(new KeyValuePair<string, bool>(name, nowActive));
+                    }
                 }
             }
 

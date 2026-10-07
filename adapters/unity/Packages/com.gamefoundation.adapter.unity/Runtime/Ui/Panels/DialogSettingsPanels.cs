@@ -32,6 +32,7 @@ namespace Adapter.Unity.Ui.Panels
         private IL10nHost _l10n = null!;
         private TextMeshProUGUI _bodyLabel = null!;
         private RectTransform _optionsList = null!;
+        private TextMeshProUGUI _leaveLabel = null!;
         private readonly System.Collections.Generic.List<GameObject> _optionButtons = new System.Collections.Generic.List<GameObject>();
         // 判断记录（消费方反馈第十六批，阻塞，框架缺陷修复）：此前 UiWidgets.CreateButton 的
         // onClick 闭包只在“新建”按钮时绑定一次（见下方 RebuildOptions），按钮被复用（选项数量
@@ -50,15 +51,21 @@ namespace Adapter.Unity.Ui.Panels
             _vm = vm;
             _intents = intents;
             _l10n = l10n;
+            L10n ??= l10n;
             var root = UiWidgets.CreatePanelBackground("DialogPanel", parent, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(420f, 220f), new Vector2(0f, 200f));
             var vlist = UiWidgets.CreateVerticalList("Content", root, 6f);
             UiWidgets.SetRect(vlist, Vector2.zero, Vector2.one, new Vector2(10, 10), new Vector2(-10, -10));
-            _bodyLabel = UiWidgets.CreateLabel("Body", vlist, "（当前无对话）", 16);
+            _bodyLabel = UiWidgets.CreateLabel("Body", vlist, T("l10n.ui.dialog.none", "（当前无对话）"), 16);
             _optionsList = UiWidgets.CreateVerticalList("Options", vlist, 4f);
+
+            // P4 备忘 1：参考对话面板此前没有离开对话的出口；"离开"按钮转发 UiIntents.CloseDialog。
+            var (_, _, leaveLabel) = UiWidgets.CreateButton("LeaveButton", vlist, T("l10n.ui.dialog.leave", "离开"), () => _intents.CloseDialog());
+            _leaveLabel = leaveLabel;
         }
 
         public override void RefreshUi()
         {
+            _leaveLabel.text = T("l10n.ui.dialog.leave", "离开");
             if (_vm.Story != null)
             {
                 _bodyLabel.gameObject.SetActive(true);
@@ -83,7 +90,7 @@ namespace Adapter.Unity.Ui.Panels
             else
             {
                 _bodyLabel.gameObject.SetActive(true);
-                _bodyLabel.text = "（当前无对话）";
+                _bodyLabel.text = T("l10n.ui.dialog.none", "（当前无对话）");
                 RebuildOptions(0, null, null);
             }
         }
@@ -128,6 +135,9 @@ namespace Adapter.Unity.Ui.Panels
         private UiIntents _intents = null!;
         private Action _onSave = null!;
         private TextMeshProUGUI _bindingsLabel = null!;
+        private TextMeshProUGUI _titleLabel = null!;
+        private TextMeshProUGUI? _busSfxLabel;
+        private TextMeshProUGUI _saveLabel = null!;
         private readonly System.Collections.Generic.Dictionary<string, Slider> _volumeSliders = new System.Collections.Generic.Dictionary<string, Slider>(StringComparer.Ordinal);
 
         public void Construct(
@@ -141,7 +151,7 @@ namespace Adapter.Unity.Ui.Panels
             var vlist = UiWidgets.CreateVerticalList("Content", root, 6f);
             UiWidgets.SetRect(vlist, Vector2.zero, Vector2.one, new Vector2(12, 12), new Vector2(-12, -12));
 
-            UiWidgets.CreateLabel("Title", vlist, "设置", 20);
+            _titleLabel = UiWidgets.CreateLabel("Title", vlist, T("l10n.ui.settings.title", "设置"), 20);
 
             // 判断记录（IAudio 总线音量为什么单独一条 slider，不与下面的"分层音量"合并）：
             // presentation/ui 的"分层音量"读写完全经外部注入回调（该模块不拥有 SfxPlayer，见
@@ -153,7 +163,8 @@ namespace Adapter.Unity.Ui.Panels
             // IAudio 总线音量变化"的字面要求，与下面的"分层音量"滑条并存、互不替代。
             if (getSfxBusVolume != null && onSfxBusVolumeChanged != null)
             {
-                BuildVolumeRow(vlist, "总线：Sfx", getSfxBusVolume(), v => onSfxBusVolumeChanged(v));
+                var busSlider = BuildVolumeRow(vlist, T("l10n.ui.settings.bus_sfx", "总线：Sfx"), getSfxBusVolume(), v => onSfxBusVolumeChanged(v));
+                _busSfxLabel = busSlider.transform.parent.Find("Label").GetComponent<TextMeshProUGUI>();
             }
 
             foreach (var layer in vm.LayerVolumes.Keys)
@@ -163,8 +174,9 @@ namespace Adapter.Unity.Ui.Panels
                 _volumeSliders[layer] = slider;
             }
 
-            _bindingsLabel = UiWidgets.CreateLabel("Bindings", vlist, "（按键绑定）", 13);
-            UiWidgets.CreateButton("SaveButton", vlist, "保存设置", () => _onSave());
+            _bindingsLabel = UiWidgets.CreateLabel("Bindings", vlist, T("l10n.ui.settings.bindings_header", "（按键绑定）"), 13);
+            var (_, _, saveLabel) = UiWidgets.CreateButton("SaveButton", vlist, T("l10n.ui.settings.save", "保存设置"), () => _onSave());
+            _saveLabel = saveLabel;
         }
 
         private static Slider BuildVolumeRow(Transform parent, string label, double initialValue, Action<double> onChanged)
@@ -199,6 +211,15 @@ namespace Adapter.Unity.Ui.Panels
 
         public override void RefreshUi()
         {
+            // 界面词每帧按当前语言重取（运行期切语言立刻生效）。
+            _titleLabel.text = T("l10n.ui.settings.title", "设置");
+            _saveLabel.text = T("l10n.ui.settings.save", "保存设置");
+            if (_busSfxLabel != null)
+            {
+                _busSfxLabel.text = T("l10n.ui.settings.bus_sfx", "总线：Sfx");
+            }
+
+            var conflictWord = T("l10n.ui.settings.conflict", "冲突");
             var sb = new StringBuilder();
             foreach (var row in _vm.Bindings)
             {
@@ -207,12 +228,12 @@ namespace Adapter.Unity.Ui.Panels
                 {
                     if (row.Conflicts[i].Count > 0)
                     {
-                        sb.Append("  [冲突: ").Append(string.Join(",", row.Conflicts[i])).Append(']');
+                        sb.Append("  [").Append(conflictWord).Append(": ").Append(string.Join(",", row.Conflicts[i])).Append(']');
                     }
                 }
                 sb.Append('\n');
             }
-            _bindingsLabel.text = sb.Length > 0 ? sb.ToString() : "（无按键绑定配置）";
+            _bindingsLabel.text = sb.Length > 0 ? sb.ToString() : T("l10n.ui.settings.no_bindings", "（无按键绑定配置）");
         }
     }
 }

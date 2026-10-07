@@ -139,6 +139,11 @@ namespace Presentation.Assembly
 
         public VfxOptions? VfxOptions { get; set; }
         public SfxOptions? SfxOptions { get; set; }
+
+        /// <summary>P4 备忘 2：是否按地图切背景音乐——场景加载完成时读该地图 <c>world.map.music_ref</c> 经 <see cref="IMusicPlayer"/> 播放
+        /// （见 <see cref="MapMusicHost"/>）。默认 true；游戏自己接管曲目选择时设 false（此时不构造 <see cref="MapMusic"/>，
+        /// <see cref="Music"/> 仍可用于手动播放）。</summary>
+        public bool MapMusicEnabled { get; set; } = true;
         public CameraHostOptions? CameraHostOptions { get; set; }
         public FeedbackOptions? FeedbackOptions { get; set; }
 
@@ -233,6 +238,12 @@ namespace Presentation.Assembly
         public IVfxPlayer Vfx { get; }
 
         public ISfxPlayer Sfx { get; }
+
+        /// <summary>P4 备忘 2：背景音乐播放器——资源未加载时先加载再开播（<c>IAudio.PlayMusic</c> 本身不加载），见 <see cref="IMusicPlayer"/>。</summary>
+        public IMusicPlayer Music { get; }
+
+        /// <summary>P4 备忘 2：按地图 <c>music_ref</c> 切曲的宿主；<see cref="PresentationAssemblyOptions.MapMusicEnabled"/> 为 false 时为 null。</summary>
+        public MapMusicHost? MapMusic { get; }
 
         /// <summary>诊断转发到引擎控制台跟进（判断记录 10）：<see cref="Vfx"/> 是接口类型
         /// （<see cref="IVfxPlayer"/> 未声明 <c>Diagnostics</c>），本属性直接转发内部
@@ -598,6 +609,13 @@ namespace Presentation.Assembly
             var sfxPlayer = new SfxPlayer(audio, rng, sfxCatalog, opts.SfxOptions, null, resourceLoader, entityPositionResolver);
             Vfx = vfxPlayer;
             Sfx = sfxPlayer;
+            // P4 备忘 2：音乐播放器（自带加载）与按地图切曲宿主；后者可由 MapMusicEnabled 关掉。
+            var musicPlayer = new MusicPlayer(audio, resourceLoader, sfxPlayer.Diagnostics);
+            Music = musicPlayer;
+            if (opts.MapMusicEnabled)
+            {
+                MapMusic = new MapMusicHost(sceneRouter, registry, musicPlayer, sfxPlayer.Diagnostics);
+            }
             // 诊断转发到引擎控制台跟进（判断记录 10）：见 VfxDiagnostics/SfxDiagnostics 属性注释——
             // 本装配根不传 diagnostics 构造参数给 VfxPlayer/SfxPlayer（保持"各自独立默认自建一份
             // PresentationDiagnosticsRecorder"，不引入共享实例，见判断记录 10 取舍理由），这里只是
@@ -1233,6 +1251,10 @@ namespace Presentation.Assembly
             Release(nameof(ViewBinder), ViewBinder.Dispose);
             Release(nameof(Stride), Stride.Dispose);
             Release(nameof(MapLayers), MapLayers.Dispose);
+            if (MapMusic != null)
+            {
+                Release(nameof(MapMusic), MapMusic.Dispose);
+            }
             Release(nameof(Camera), Camera.Dispose);
             if (AnimMarkers != null)
             {

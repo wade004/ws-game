@@ -98,5 +98,20 @@ namespace Core.Foundation.InputMap
         void ImportAxisSettings(JsonObject settings)
         {
         }
+
+        /// <summary>
+        /// 输入上下文栈（P4 备忘 8）：压入一层上下文，栈顶上下文的 <paramref name="allowedActions"/> 之外的动作视为未激活（按钮不触发、轴输出零），
+        /// 用于模态界面期间挡掉移动与战斗；同一 <paramref name="contextId"/> 重复压入只更新放行表。弹出见 <see cref="PopInputContext"/>。
+        /// 默认接口成员（ABI 只新增）：什么都不做（"本实现不支持上下文栈"）；<see cref="InputMapHost"/> 覆盖为真实实现。
+        /// </summary>
+        void PushInputContext(Id contextId, IReadOnlyCollection<string> allowedActions)
+        {
+        }
+
+        /// <summary>弹出 <paramref name="contextId"/> 对应的上下文，返回是否确有这一层；默认接口成员：返回 false。</summary>
+        bool PopInputContext(Id contextId) => false;
+
+        /// <summary>当前栈顶上下文 id；栈空（或本实现不支持）为 null。默认接口成员。</summary>
+        Id? ActiveInputContext => null;
     }
 }

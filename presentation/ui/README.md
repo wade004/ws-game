@@ -706,3 +706,11 @@ UI 意图方法名语义，不新建第二套词汇表。
 "` 曾被静默当合法路径，现改 `\z`。下标最大值 `int.MaxValue` 与前导零
 （`[007]` = 7）仍合法。同批补测（仅测试）：`tests/UiIntentsCoverageTests.cs`（T-M37，18 个带 `panelId` 的重载逐个、失败结果、
 无事件总线降级）、`tests/ViewModelEventTriggerTests.cs`（T-M38，12 个视图模型的订阅键集合与逐键刷新）。
+
+## 判断记录（参考面板热键由数据声明、模态输入上下文、对话"离开"、界面词本地化，2026-10-07，消费方反馈样板游戏 A 备忘 5/8/1）
+
+1. **热键**：`UiPanelHotkeys`——数据里有名为 `input.action.ui_toggle_<面板>`（如 `input.action.ui_toggle_inventory`、`..._quest_log`）的按钮动作就用它的当前绑定（可改键、可存设置）；没声明的面板在 `LegacyEnabled`（默认 true）时沿用原写死键 I/U/J/K/C/N/L，设 false 全部关闭；声明了动作的面板不再响应写死键。引擎侧 `UiPanelHost.LegacyHotkeysEnabled`。
+2. **模态输入上下文**：`UiModalInputContext`——对话/商店/暂停菜单/设置/存档槽任一打开时向输入映射压入 `input.context.ui_modal`（放行确认/取消/交互/菜单/暂停与已声明的 `ui_toggle_*`），全部关闭时弹出；`UiPanelHost.ModalInputContextEnabled`（默认 true，游戏自己管输入上下文时设 false）。
+3. **对话离开**：`UiIntents.CloseDialog()` / `CloseDialog(panelId)`（`ui.action_invoked` 动作名 `close_dialog`）；`DialogPanel` 新增"离开"按钮。
+4. **界面词本地化**：`UiPanelBehaviour.L10n` + `T(key, 默认中文)`：`l10n.ui.dialog.{none,leave}`、`l10n.ui.settings.{title,save,bus_sfx,bindings_header,no_bindings,conflict}`、`l10n.ui.shop.{sell_header,backpack_header,balance,not_open,buy,sell,stock,unlimited}`；
+   物品提示框行标签 `ItemTooltipBuilder.KeyItemLevel/KeySlot/KeyDamage/KeySpeed/KeyRequiredLevel`（`l10n.ui.tooltip.*`）。文案表里有键就用，没有退回中文默认词；`UiVisuals` 的文本函数改为"缺键返回空串"，名称取不到文案时退回短 id（此前缺键返回键本身）。商店面板物品名改经 `UiVisuals.ItemName`。框架起步包（`data/_starter_kit`）提供这些键的中英文文案。

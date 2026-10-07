@@ -45,5 +45,25 @@ namespace Adapter.Unity.Ui
         public void Toggle() => gameObject.SetActive(!gameObject.activeSelf);
 
         public abstract void RefreshUi();
+
+        /// <summary>
+        /// P4 备忘 1：本地化宿主（可选）。面板里写死的界面词（标题、按钮、行标签）改经 <see cref="T"/> 取文案：设了本属性且文案表里有
+        /// <c>l10n.ui.*</c> 对应键就用表里的，否则退回代码里的中文默认词——不带本地化表的既有调用方行为逐位不变。
+        /// 由 <see cref="UiPanelHost"/> 在构造面板时设置；直接 new 面板的测试/游戏可自行赋值。
+        /// </summary>
+        public Core.Foundation.Localization.IL10nHost? L10n { get; set; }
+
+        /// <summary>界面词查表：<paramref name="key"/> 是 <c>l10n.ui.*</c> 文本键，查不到时返回 <paramref name="fallback"/>。</summary>
+        protected string T(string key, string fallback)
+        {
+            var l10n = L10n;
+            if (l10n == null)
+            {
+                return fallback;
+            }
+
+            var id = new Core.Foundation.Common.Id(key);
+            return l10n.HasText(id) ? l10n.Text(id) : fallback;
+        }
     }
 }

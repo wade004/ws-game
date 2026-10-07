@@ -568,3 +568,10 @@ JSON 字符串验证——本条约定同样适用于 `ISettingsStore` 的设置
 `settings_version` 超出 `int` 范围（如 `2^32 + 2`）时，此前 `(int)versionLong` 截断回绕成小版本号，把一份"超前版本"
 误当旧版本去跑迁移链。现与 `SaveSystem.TryGetInt` 同口径：范围外按文件损坏处理，走既有的"损坏退化为空设置"分支
 （返回空对象，不触发任何迁移，不抛异常）。用例 `SettingsStoreVersionOverflowReproTests`。不改公开签名。
+
+## 判断记录（新游戏清空持久化域：`ISaveSystem.ResetAllSections`，2026-10-07，消费方反馈样板游戏 A 备忘 7）
+
+新游戏需要"把全部持久化域清回从未发生过的默认态"，此前游戏只能在装配完成时先存一份"原始槽"、新游戏再读回来。`ResetAllSections` 复用读档里"段缺失"的既定语义：
+按读档同序对每个已登记段调用一次 `Load(JsonNull)`（声明 `KeepStateWhenSectionMissing` 的段不动），随后回调派生状态重建钩子，整段在 `SuppressDispatch` 内（复位不是业务事件）；
+不读不写存档文件、不发 `save.loaded`。某段抛异常只记诊断、其余段继续，返回 `false`（尽力而为，不回滚）。C# 8 默认接口方法，默认实现返回 `false`；`SaveSystem` 覆盖。
+用例：`SaveSystemResetTests`（5 条，含顺序/保留段/钩子/异常隔离/事件抑制）、`GameplayAssemblySaveWiringTests.ResetAllSections_ClearsProgressionAndInventory_ToNewGameDefaults`（真实装配根）。

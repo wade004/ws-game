@@ -54,13 +54,40 @@ namespace Tests.PresentationUi
             Assert.Equal(
                 new[]
                 {
-                    ItemTooltipBuilder.LabelSlot + "=T:l10n.slot.main_hand",
-                    ItemTooltipBuilder.LabelItemLevel + "=" + ItemLevel,
-                    ItemTooltipBuilder.LabelDamage + "=" + DamageMin + " - " + DamageMax,
-                    ItemTooltipBuilder.LabelSpeed + "=1.5",
-                    ItemTooltipBuilder.LabelRequiredLevel + "=3",
+                    Text(ItemTooltipBuilder.KeySlot) + "=T:l10n.slot.main_hand",
+                    Text(ItemTooltipBuilder.KeyItemLevel) + "=" + ItemLevel,
+                    Text(ItemTooltipBuilder.KeyDamage) + "=" + DamageMin + " - " + DamageMax,
+                    Text(ItemTooltipBuilder.KeySpeed) + "=1.5",
+                    Text(ItemTooltipBuilder.KeyRequiredLevel) + "=3",
                 },
                 content.Rows.Select(r => r.Label + "=" + r.Value).ToArray());
+        }
+
+        /// <summary>P4 备忘 1（红：此前行标签是写死的中文常量，英文界面里混出中文）：行标签经本地化键取文案；取不到（没传文本函数、文本函数返回空串）退回中文常量，
+        /// 既有不带本地化表的调用方不受影响；五个键互不相同，且都不与属性名键冲突。</summary>
+        [Fact]
+        public void Build_RowLabels_UseL10nKeys_AndFallBackToChineseConstantsWhenMissing()
+        {
+            var registry = BuildRegistry();
+            var english = new System.Collections.Generic.Dictionary<Id, string>
+            {
+                [ItemTooltipBuilder.KeySlot] = "Slot",
+                [ItemTooltipBuilder.KeyItemLevel] = "Item level",
+                [ItemTooltipBuilder.KeyDamage] = "Damage",
+                [ItemTooltipBuilder.KeySpeed] = "Speed",
+                [ItemTooltipBuilder.KeyRequiredLevel] = "Requires level",
+            };
+
+            var localized = ItemTooltipBuilder.Build(registry, new Id("item.sword"), key => english.TryGetValue(key, out var v) ? v : string.Empty)!;
+            Assert.Equal(new[] { "Slot", "Item level", "Damage", "Speed", "Requires level" }, localized.Rows.Select(r => r.Label).ToArray());
+
+            var fallback = ItemTooltipBuilder.Build(registry, new Id("item.sword"), null)!;
+            Assert.Equal(
+                new[] { ItemTooltipBuilder.LabelSlot, ItemTooltipBuilder.LabelItemLevel, ItemTooltipBuilder.LabelDamage, ItemTooltipBuilder.LabelSpeed, ItemTooltipBuilder.LabelRequiredLevel },
+                fallback.Rows.Select(r => r.Label).ToArray());
+
+            var keys = new[] { ItemTooltipBuilder.KeySlot, ItemTooltipBuilder.KeyItemLevel, ItemTooltipBuilder.KeyDamage, ItemTooltipBuilder.KeySpeed, ItemTooltipBuilder.KeyRequiredLevel };
+            Assert.Equal(keys.Length, keys.Distinct().Count());
         }
 
         [Fact]

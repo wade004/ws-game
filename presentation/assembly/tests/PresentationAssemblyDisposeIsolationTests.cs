@@ -100,8 +100,8 @@ namespace Tests.Presentation.Assembly
             // 除了"抛出者自己"之外，表现层订阅全部退订（修复前：ViewBinder 之后的每个子系统都没释放）。
             var leaked = tracking.LiveOwnersUnder(PresentationOwnerPrefix).Where(o => o != ViewBinderOwner).Distinct().ToList();
             Assert.True(leaked.Count == 0, "抛异常之后仍未释放的子系统：" + string.Join(", ", leaked));
-            // MapLayerHost 在 SceneRouter 上挂的钩子也被注销（它排在 ViewBinder 之后）。
-            Assert.Equal(postLoadBefore - 1, gameplay.Hooks.CallbackCount(WellKnownHooks.ScenePostLoad));
+            // MapLayerHost 与 MapMusicHost（P4 备忘 2，默认开）在 SceneRouter 上挂的 post_load 钩子也被注销（都排在 ViewBinder 之后）。
+            Assert.Equal(postLoadBefore - 2, gameplay.Hooks.CallbackCount(WellKnownHooks.ScenePostLoad));
         }
 
         [Fact]

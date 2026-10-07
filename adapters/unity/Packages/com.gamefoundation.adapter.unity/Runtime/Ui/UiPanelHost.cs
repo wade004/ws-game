@@ -7,7 +7,7 @@
 // 细节——这些不是数据表的职责范围（08/09 文档均未把"快捷键绑定"列为该表字段）。本类型按
 // "读取该表确认十个面板 id 齐全（诊断用途，缺行时记警告但不阻断——面板本身仍用代码里固定的
 // 十个 UiPanel 枚举值构建，不因数据表缺行而少造）+ 用面板自身的十个视图模型驱动具体展示"这一
-// 折中方式落地"按表登记"，具体开关快捷键固定在本类型（游戏层可通过替换/包装本类型自定义）。
+// 折中方式落地"按表登记"，开关快捷键默认沿用本类型内置的写死键；游戏可在输入绑定数据里声明 input.action.ui_toggle_<面板> 动作改键，或设 LegacyHotkeysEnabled=false 全部关闭（P4 备忘 5）。
 using System;
 using System.Collections.Generic;
 using Adapter.Unity.Ui.Panels;
@@ -92,6 +92,9 @@ namespace Adapter.Unity.Ui
 
             Visuals.L10n ??= presentation.L10n;
 
+            _hotkeys = new UiPanelHotkeys(presentation.InputMap, _legacyHotkeysEnabled);
+            _modalInput = new UiModalInputContext(presentation.InputMap) { Enabled = _modalInputContextEnabled };
+
             // 非缺省皮肤包把主题配色/面板底图/字体装成 UiSkin 覆盖；缺省皮肤不装任何覆盖（逐位不变）。调用方自己装过覆盖时以调用方的为准。
             // 装上之后覆盖归 UiVisuals 持有（ADR-0155），宿主只记"是我让它装的"，销毁时对调用方注入的 Visuals 撤掉，自己建的随 Dispose 撤。
             if (Visuals.InstallSkinOverride(onlyIfFree: true))
@@ -156,7 +159,7 @@ namespace Adapter.Unity.Ui
             QuestLog.Hide();
             _panels[UiPanel.QuestLog] = QuestLog;
 
-            Dialog = CreatePanel<DialogPanel>("Dialog", GameplayGroup);
+            Dialog = CreatePanel<DialogPanel>("Dialog", GameplayGroup, presentation.L10n);
             Dialog.Construct((RectTransform)Dialog.transform, presentation.DialogView, presentation.UiIntents, presentation.L10n);
             Dialog.Hide();
             _panels[UiPanel.Dialog] = Dialog;
@@ -174,7 +177,7 @@ namespace Adapter.Unity.Ui
             // 判断记录：Settings 不挂在 GameplayGroup 下——见 SaveSlots/PauseMenu 同款判断记录，
             // Settings 面板同样需要在"游戏内面板整体隐藏"的主菜单页面下也能被 ShellRoot 独立打开
             // （shell_menu_definition 的 settings 菜单项）。
-            Settings = CreatePanel<SettingsPanel>("Settings", content);
+            Settings = CreatePanel<SettingsPanel>("Settings", content, presentation.L10n);
             Settings.Construct((RectTransform)Settings.transform, presentation.Settings, presentation.UiIntents, SaveSettingsToStore(presentation), getSfxBusVolume, onSfxBusVolumeChanged);
             Settings.Hide();
             _panels[UiPanel.Settings] = Settings;
@@ -191,8 +194,8 @@ namespace Adapter.Unity.Ui
 
             // 拍板 7：Shop 挂在 GameplayGroup 下（同 Inventory/QuestLog 一贯的"游戏内菜单类面板"归属，
             // 不像 SaveSlots/PauseMenu/Settings 需要在主菜单页面下也能单独打开）。
-            Shop = CreatePanel<ShopPanel>("Shop", GameplayGroup);
-            Shop.Construct((RectTransform)Shop.transform, presentation.Shop, presentation.Inventory, presentation.UiIntents);
+            Shop = CreatePanel<ShopPanel>("Shop", GameplayGroup, presentation.L10n);
+            Shop.Construct((RectTransform)Shop.transform, presentation.Shop, presentation.Inventory, presentation.UiIntents, Visuals);
             Shop.Hide();
             _panels[UiPanel.Shop] = Shop;
         }
@@ -208,10 +211,16 @@ namespace Adapter.Unity.Ui
         /// 背景与控件仍然留在画面上，“默认关闭”的面板其实一直可见。修法：面板物体本身做成铺满父节点的拉伸
         /// 节点（与 <see cref="UiWidgets.CreateRoot"/> 同口径），<c>Construct</c> 的 parent 改为面板物体自己，
         /// 各面板背景的锚点/偏移相对于“与原父节点同大”的面板节点，布局不变，显隐随面板物体生效。</summary>
-        private static T CreatePanel<T>(string name, Transform parent) where T : Component
+        private static T CreatePanel<T>(string name, Transform parent, Core.Foundation.Localization.IL10nHost? l10n = null) where T : Component
         {
             var rect = UiWidgets.CreateRoot(name, parent);
-            return rect.gameObject.AddComponent<T>();
+            var panel = rect.gameObject.AddComponent<T>();
+            if (l10n != null && panel is UiPanelBehaviour behaviour)
+            {
+                behaviour.L10n = l10n;      // P4 备忘 1：Construct 之前就位，界面词从构建那一刻起就查表
+            }
+
+            return panel;
         }
 
         public void Toggle(UiPanel panel)
@@ -223,6 +232,8 @@ namespace Adapter.Unity.Ui
 
         private void OnDestroy()
         {
+            _modalInput?.Sync(false);
+
             // 只撤自己让装的皮肤覆盖与自己建的资源入口；调用方注入的 Visuals 由调用方释放。
             if (_installedSkin)
             {
@@ -240,6 +251,67 @@ namespace Adapter.Unity.Ui
             }
         }
 
+        private UiPanelHotkeys? _hotkeys;
+        private UiModalInputContext? _modalInput;
+
+        /// <summary>P4 备忘 5：数据里没声明开关动作的面板，是否仍响应原写死键（I/U/J/K/C/N/L）。默认 true（既有行为不变）；
+        /// 游戏有自己的键位时设 false 全部关闭。<see cref="Initialize"/> 前后都可设。</summary>
+        public bool LegacyHotkeysEnabled
+        {
+            get => _legacyHotkeysEnabled;
+            set
+            {
+                _legacyHotkeysEnabled = value;
+                if (_hotkeys != null)
+                {
+                    _hotkeys.LegacyEnabled = value;
+                }
+            }
+        }
+
+        private bool _legacyHotkeysEnabled = true;
+
+        /// <summary>P4 备忘 8：模态面板（对话/商店/暂停菜单/设置/存档槽）打开期间是否向输入映射压入输入上下文挡掉移动与战斗。默认 true；
+        /// 游戏自己管输入上下文时设 false。</summary>
+        public bool ModalInputContextEnabled
+        {
+            get => _modalInputContextEnabled;
+            set
+            {
+                _modalInputContextEnabled = value;
+                if (_modalInput != null)
+                {
+                    _modalInput.Enabled = value;
+                }
+            }
+        }
+
+        private bool _modalInputContextEnabled = true;
+
+        private bool AnyModalPanelOpen() =>
+            IsOpen(UiPanel.Dialog) || IsOpen(UiPanel.Shop) || IsOpen(UiPanel.PauseMenu) || IsOpen(UiPanel.Settings) || IsOpen(UiPanel.SaveSlots);
+
+        private static bool LegacyKeyPressedThisFrame(UiPanel panel)
+        {
+            var keyboard = Keyboard.current;
+            if (keyboard == null)
+            {
+                return false;
+            }
+
+            switch (panel)
+            {
+                case UiPanel.Inventory: return keyboard.iKey.wasPressedThisFrame;
+                case UiPanel.Equipment: return keyboard.uKey.wasPressedThisFrame;
+                case UiPanel.QuestLog: return keyboard.jKey.wasPressedThisFrame;
+                case UiPanel.SkillBook: return keyboard.kKey.wasPressedThisFrame;
+                case UiPanel.CharacterStats: return keyboard.cKey.wasPressedThisFrame;
+                case UiPanel.Settings: return keyboard.nKey.wasPressedThisFrame;
+                case UiPanel.SaveSlots: return keyboard.lKey.wasPressedThisFrame;
+                default: return false;
+            }
+        }
+
         private void Update()
         {
             if (Visuals != null && Visuals.RetiredPackCount > 0)
@@ -247,17 +319,12 @@ namespace Adapter.Unity.Ui
                 Visuals.ReleaseRetiredPacks();      // ADR-0155：换肤后没有存活部件再引用的旧皮肤包尽快释放
             }
 
-            var keyboard = Keyboard.current;
-            if (keyboard != null)
-            {
-                if (keyboard.iKey.wasPressedThisFrame) Toggle(UiPanel.Inventory);
-                if (keyboard.uKey.wasPressedThisFrame) Toggle(UiPanel.Equipment);
-                if (keyboard.jKey.wasPressedThisFrame) Toggle(UiPanel.QuestLog);
-                if (keyboard.kKey.wasPressedThisFrame) Toggle(UiPanel.SkillBook);
-                if (keyboard.cKey.wasPressedThisFrame) Toggle(UiPanel.CharacterStats);
-                if (keyboard.nKey.wasPressedThisFrame) Toggle(UiPanel.Settings);
-                if (keyboard.lKey.wasPressedThisFrame) Toggle(UiPanel.SaveSlots);
-            }
+            // P4 备忘 5：面板开关热键由输入绑定数据声明（input.action.ui_toggle_<面板>）；数据里没声明的面板沿用下面这套写死键，
+            // 可经 LegacyHotkeysEnabled 全部关闭。判断逻辑在 Presentation.Ui.UiPanelHotkeys（无引擎依赖、有单测）。
+            _hotkeys?.Poll(LegacyKeyPressedThisFrame, Toggle);
+
+            // P4 备忘 8：模态面板打开期间向输入映射压入输入上下文（挡移动/战斗，放行界面动作）。
+            _modalInput?.Sync(AnyModalPanelOpen());
 
             foreach (var kv in _panels)
             {

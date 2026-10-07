@@ -230,7 +230,10 @@ namespace Adapter.Unity.Ui
         public string SlotName(Id slotId) =>
             Registry == null ? EquipmentViewModel.SlotShortName(slotId) : ItemTooltipBuilder.SlotText(Registry, slotId, TextFunc());
 
-        private Func<Id, string>? TextFunc() => L10n == null ? (Func<Id, string>?)null : key => L10n.Text(key);
+        /// <summary>文本函数：取得到真实文案才返回，缺键返回空串（让 <see cref="ItemTooltipBuilder"/> 的"取不到就退回短名/默认词"生效；
+        /// 此前直接转发 <c>L10n.Text</c>，缺键时返回键本身或标记串，退回逻辑永远不触发）。</summary>
+        private Func<Id, string>? TextFunc() =>
+            L10n == null ? (Func<Id, string>?)null : key => L10n.HasText(key) ? L10n.Text(key) : string.Empty;
 
         /// <summary>物品提示框内容（名称、品质、属性行）；数据里没有该模板返回 null。</summary>
         public ItemTooltipContent? TooltipOf(Id template) =>

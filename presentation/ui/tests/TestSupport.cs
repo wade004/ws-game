@@ -467,7 +467,13 @@ namespace Tests.PresentationUi
             return true;
         }
 
-        public bool Close(Id unitId) => true;
+        public readonly List<Id> ClosedUnits = new List<Id>();
+
+        public bool Close(Id unitId)
+        {
+            ClosedUnits.Add(unitId);
+            return true;
+        }
 
         public bool StartStory(Id unitId, Id treeId) => true;
 

@@ -89,6 +89,7 @@ namespace Tests.PresentationUi
                 ("turn_in_quest", i => i.TurnInQuest(Panel, Quest)),
                 ("abandon_quest", i => i.AbandonQuest(Panel, Quest)),
                 ("choose_dialog_option", i => i.ChooseDialogOption(Panel, 0)),
+                ("close_dialog", i => i.CloseDialog(Panel)),
                 ("buy", i => i.Buy(Panel, Vendor, new Id("item.sample_sword"), 1)),
                 ("sell", i => i.Sell(Panel, Vendor, Item, 1)),
                 ("rebind", i => i.Rebind(Panel, "input.action.move_up", "key:up")),

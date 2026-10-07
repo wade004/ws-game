@@ -292,3 +292,10 @@ M4-G 留下的四条限制逐条收口，没有一条留作"已知限制"：
 
 1. **本地绑定保留**：`BindLocalInput` 是"这套输入属于哪个行动者 id"的角色声明，不是对一次实体生命周期的引用。地图切换会清场（`entity.destroyed` → `RemoveActor`），游戏随后用同一个 id 把玩家加回世界；此前 `RemoveActor` 顺手把 `_localActor` 置空，重新加回的玩家再也收不到按钮边沿。现保留绑定，缓冲对象照旧释放。用例见 `InputBufferIntegrationTests.BindLocalInput_SurvivesActorDestroyAndRecreate_EdgesStillReachTheBuffer`。
 2. **二维轴多绑定**：`EvaluateAxis2D` 按列出顺序逐条求值，第一条求值非零的 `composite2d`/`pad_stick` 绑定胜出，全零返回零；摇杆绑定先按本动作的死区/曲线/平滑处理再判断非零。只有一条轴型绑定时与此前逐位相同；同一动作两条摇杆绑定时，平滑状态只随被求值到的那条推进。用例 `AxisDeviceMergeTests`。
+
+## 判断记录（输入上下文栈，2026-10-07，消费方反馈样板游戏 A 备忘 8）
+
+模态界面期间挡掉移动与战斗的通路：`IInputMapHost.PushInputContext(contextId, allowedActions)` / `PopInputContext(contextId)` / `ActiveInputContext`（C# 8 默认接口成员，ABI 只新增；`InputMapHost` 覆盖）。
+按**动作**挡而不是按物理键挡：栈顶上下文放行表之外的动作视为未激活（按钮不激活、不触发 `InputActionTriggeredEvent`、不产生边沿；轴输出零）；栈顶独占，弹出后下一层恢复；
+同 id 重复压入只更新放行表；允许乱序弹出。物理按键状态照常跟踪：压入时按住的键给边沿接收端补"抬起"；弹出时仍按住的键只恢复"持有"、不补"按下"（关界面不会凭空打出一刀）。
+放行表里没声明过的动作名记诊断并忽略。用例：`tests/InputContextStackTests.cs`（7 条）。界面侧用法见 `presentation/ui` 的 `UiModalInputContext`。

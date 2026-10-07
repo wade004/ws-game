@@ -321,6 +321,17 @@ namespace Tests.PresentationUi
             Assert.Empty(dialog.AdvancedBranchIndices);
         }
 
+        /// <summary>P4 备忘 1：参考对话面板的"离开"出口——<see cref="UiIntents.CloseDialog()"/> 关闭玩家当前的对话会话（红：此前没有这个意图）。</summary>
+        [Fact]
+        public void CloseDialog_ClosesThePlayersSession()
+        {
+            var intents = Build(out _, out _, out _, out var dialog, out _, out _, out _, out _, out _);
+
+            Assert.True(intents.CloseDialog());
+
+            Assert.Single(dialog.ClosedUnits);
+        }
+
         /// <summary>消费方反馈（游戏接入方第十五批，阻塞，框架缺陷）根治：剧情会话
         /// （<see cref="IDialogHost.GetStoryView"/> 非空）里 <see cref="UiIntents.ChooseDialogOption"/>
         /// 此前恒转发 <see cref="IDialogHost.ChooseOption"/>——<see cref="IDialogHost.StartStory"/>

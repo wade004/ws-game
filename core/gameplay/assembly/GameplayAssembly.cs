@@ -582,6 +582,30 @@ namespace Core.Gameplay.Assembly
                 saveSystem.Save(new SaveRequest(resolvedAutosaveSlotId, resolvedAutosaveTimestampProvider()));
             }
 
+            // 判断记录（P4 备忘 4，样板游戏 A 反馈）：自动存档的另两个触发点——地图切换完成（scene.load_finished）与任务进入完成节点
+            // （quest.completed / quest.turned_in，只认玩家单位）——此前没有框架消费者，游戏只能自己订阅事件、自己在 tick 末请求存档。
+            // 现在由本装配根按 ISaveSystem.ShouldAutoSave 的策略位（SaveSystemOptions.AutoSave.OnMapSwitch / OnQuestComplete，游戏在
+            // 构造存档系统时声明）接线：策略位为 false 时事件订阅仍在、但什么也不记；为 true 时只在事件处理里"记一笔待存"，真正写盘延到
+            // 下一个固定步的触发评估阶段（TickPhase.TriggerEvaluation，见 AutosaveScheduler）——事件处理途中世界状态可能只改了一半
+            // （任务奖励还没发完、地图实体还没建完），推迟到固定步里存的是稳定态；同一步内多个触发合并成一次写盘。
+            // 与存档点触发（RequestAutosave）一样不经手动存档门控；两者写同一个自动存档槽。
+            _autosaveScheduler = new AutosaveScheduler(saveSystem, resolvedAutosaveSlotId, resolvedAutosaveTimestampProvider);
+            bus.Subscribe(SceneRouterEventKeys.LoadFinished, _ => _autosaveScheduler.Mark(AutoSaveTrigger.MapSwitch));
+            bus.Subscribe(QuestEventKeys.Completed, evt =>
+            {
+                if (evt is QuestCompletedEvent completed && IsPlayerUnit(completed.UnitId))
+                {
+                    _autosaveScheduler.Mark(AutoSaveTrigger.QuestComplete);
+                }
+            });
+            bus.Subscribe(QuestEventKeys.TurnedIn, evt =>
+            {
+                if (evt is QuestTurnedInEvent turnedIn && IsPlayerUnit(turnedIn.UnitId))
+                {
+                    _autosaveScheduler.Mark(AutoSaveTrigger.QuestComplete);
+                }
+            });
+
             // ---------------------------------------------------------
             // 1) WorldState：只依赖 IEventBus，不依赖任何 L0～L3 宿主，可以在 CarriersAssembly 之前
             //    先造好——直接作为 IWorldFlags 注入 CarriersAssembly（依赖倒置回接第一处）。
@@ -1305,6 +1329,9 @@ namespace Core.Gameplay.Assembly
             // 见 ADR-0042 决策 1"同一模块一个来源"）。
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new LootInteractIntentTickHandler(Loot, lootDiagnostics));
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new EconomySpawnUpdateTickHandler(Economy, Spawn));
+
+            // P4 备忘 4：自动存档的地图切换/任务完成触发在固定步的触发评估阶段末尾落盘（见 _autosaveScheduler 判断记录）。
+            world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new AutosaveTickHandler(_autosaveScheduler));
 
             // ---------------------------------------------------------
             // 18) DeathPolicyHost（W2 收边补齐，DECISIONS 拍板 3）：death 是一个新 L4 模块，本步
@@ -2373,6 +2400,65 @@ namespace Core.Gameplay.Assembly
 
             public ExprValue Query(string key, IReadOnlyList<ExprValue> args) =>
                 _real?.Query(key, args) ?? ExprValue.OfBool(false);
+        }
+
+        private AutosaveScheduler _autosaveScheduler = null!;
+
+        private bool IsPlayerUnit(Id unitId)
+        {
+            var player = PlayerUnitProvider();
+            return unitId.Equals(player);
+        }
+
+        /// <summary>P4 备忘 4：立即写掉本固定步之外已经记下的待存自动存档（正常由固定步触发评估阶段自动调用；没有固定步驱动的宿主/测试
+        /// 可以手动调用）。没有待存项或对应策略位关闭时什么也不做；返回是否真的写了盘。</summary>
+        public bool FlushPendingAutosave() => _autosaveScheduler.Flush();
+
+        /// <summary>
+        /// P4 备忘 4：把"地图切换完成/任务完成"这两个自动存档触发点合并成固定步内至多一次写盘。<see cref="Mark"/> 在事件处理里调用，
+        /// 只在对应策略位（<see cref="ISaveSystem.ShouldAutoSave"/>）为真时记一笔；<see cref="Flush"/> 在固定步里调用，真正写盘。
+        /// </summary>
+        private sealed class AutosaveScheduler
+        {
+            private readonly ISaveSystem _saveSystem;
+            private readonly Id _slotId;
+            private readonly Func<string> _timestamp;
+            private bool _pending;
+
+            public AutosaveScheduler(ISaveSystem saveSystem, Id slotId, Func<string> timestamp)
+            {
+                _saveSystem = saveSystem;
+                _slotId = slotId;
+                _timestamp = timestamp;
+            }
+
+            public void Mark(AutoSaveTrigger trigger)
+            {
+                if (_saveSystem.ShouldAutoSave(trigger))
+                {
+                    _pending = true;
+                }
+            }
+
+            public bool Flush()
+            {
+                if (!_pending)
+                {
+                    return false;
+                }
+
+                _pending = false;
+                return _saveSystem.Save(new SaveRequest(_slotId, _timestamp())).Success;
+            }
+        }
+
+        private sealed class AutosaveTickHandler : ITickPhaseHandler
+        {
+            private readonly AutosaveScheduler _scheduler;
+
+            public AutosaveTickHandler(AutosaveScheduler scheduler) => _scheduler = scheduler;
+
+            public void Execute(SimStep step, IWorldSim world) => _scheduler.Flush();
         }
 
         /// <summary>

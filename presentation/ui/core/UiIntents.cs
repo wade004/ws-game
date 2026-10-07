@@ -272,6 +272,16 @@ namespace Presentation.Ui
             return ChooseDialogOption(index);
         }
 
+        /// <summary>P4 备忘 1：关闭玩家当前的对话会话（"离开"出口）；没有会话返回 <c>false</c>。此前参考对话面板只有选项按钮，没有任何离开对话的出口。</summary>
+        public bool CloseDialog() => _dialog.Close(_playerId);
+
+        /// <summary>P4 备忘 1：先发布 <c>ui.action_invoked{panelId, actionName: "close_dialog"}</c>，再转发 <see cref="CloseDialog()"/>。</summary>
+        public bool CloseDialog(Id panelId)
+        {
+            PublishActionInvoked(panelId, "close_dialog");
+            return CloseDialog();
+        }
+
         public PurchaseResult Buy(Id vendorId, Id itemId, int count) => _economy.Buy(_playerId, vendorId, itemId, count);
 
         /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "buy"}</c>，
