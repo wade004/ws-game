@@ -534,3 +534,7 @@ SceneRouter`（新增 `Hooks` 只读属性，见 `core/foundation/scene_router/R
 
 3. **自动存档的地图切换/任务完成触发（2026-10-07，消费方反馈样板游戏 A 备忘 4）**：装配根订阅 `scene.load_finished`、`quest.completed`、`quest.turned_in`（只认玩家单位），按 `SaveSystemOptions.AutoSave.OnMapSwitch`/`OnQuestComplete`（`ISaveSystem.ShouldAutoSave`）决定是否记一笔待存；真正写盘在下一个固定步的触发评估阶段，同一步内多个触发合并成一次，写同一个自动存档槽。`GameplayAssembly.FlushPendingAutosave()` 供没有固定步驱动的宿主手动冲刷。
    行为变化：`OnQuestComplete` 默认 true（沿用 10 第 6 节表格默认值），此前无消费者所以没有实际效果，现在任务完成/交付会写自动存档槽；`OnMapSwitch` 默认 false。用例：`tests/GameplayAssemblySaveWiringTests.cs`。
+
+4. **任务击杀归属缺省走召唤者（2026-10-08，样板游戏 B 缺口，ADR-0164 决策 7）**：`questOwnerResolver` 未传时，`QuestHost.ownerResolver`
+   缺省为 `Carriers.Summons.GetOwner`（召唤物击杀算召唤者的击杀）；此前缺省恒返回空，召唤物击杀不给玩家记任务击杀数。传入解析器时完全以调用方为准。
+   用例 `QuestOwnerResolver_DefaultUsesSummonOwner_CreditsRegisteredSummonKill`（先红后绿）。

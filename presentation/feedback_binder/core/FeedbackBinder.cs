@@ -537,8 +537,11 @@ namespace Presentation.FeedbackBinder.Core
                 return;
             }
 
-            var selfId = ExtractId(evt, "sourceId", "casterId", "unitId") ?? RulesExprHostFactory.NoneId;
-            var targetId = ExtractId(evt, "targetId");
+            // 判断记录（样板游戏 B 缺口，ADR-0164）：召唤类事件只带 entityId（被召唤的实体）与 ownerId（召唤者），
+            // 此前两者都不在取值链里，summon.created 上的 play_vfx(attach=source/target) 一律因"没有 sourceId/targetId"被跳过。
+            // 现在 self 链末尾补 ownerId、target 链补 entityId；放在链尾，既有事件（已有 sourceId/targetId）的取值不变。
+            var selfId = ExtractId(evt, "sourceId", "casterId", "unitId", "ownerId") ?? RulesExprHostFactory.NoneId;
+            var targetId = ExtractId(evt, "targetId", "entityId");
             var host = _exprHosts.CreateFor(selfId, targetId, evt);
 
             // PR130-04 根治（取代此前"每条规则各自调用一次 WaitForHitFrame"的做法）：本次 OnEvent 命中

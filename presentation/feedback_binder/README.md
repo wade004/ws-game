@@ -324,6 +324,9 @@
    - **标记链路**：rig（`IAnimMarkerEmitter`）→ `CharacterRigHitFrameSource`（同时是 `IAnimMarkerSource`，与命中帧同步策略无关）→ `AnimMarkerDirector`。同名重复标记在关键帧索引里以"名#序号"登记、触发时去后缀（`AnimMarkerNames.RepeatKey/StripRepeat`）；模型事件 `anim_event.fx.<id>` 标准化为 `fx:<id>`。`footstep` 取手感字段 `sfx_footstep_tier`（角色主导，0 = 关）与材质经 `SfxLayerIndex` 选行；`trail_start/trail_end` 需 `trail_enabled` 且 `trail_ref` 齐备才播特效（锚点挂接取 `anchor.hand_main`，世界挂接取开始时刻位置），`afterimage_enabled` 同步开关残影；`fx:<id>` 在单位位置播；`impact` 经 `IAnimMarkerGate` 放行推迟的闪白（`flash.sync = impact_marker`，超时没有标记照常闪）。
    - **流水线侧不变**：批内取最大合并与最小间隔限频保持；`UserIntensity` 在读到保留前缀 `feel.intensity.` 的名字时视为 1（出口统一乘，不重复乘）。变体新增 `camera.zoom_punch` 与 `rumble`（`IFeedbackSink` 新增缺省空实现的 `Rumble` 与带缩放脉冲的重载，ABI 只加法），`CompositeFeedbackSink` 转发。
    - 复现/不变量：`tests/ImpactAudioVisualTests.cs`（含距离衰减三种写法与旧写法提示）、`tests/AnimMarkerDirectorTests.cs`（脚步档位/材质回落/档位 0、拖尾开关与残影、`fx:`、`impact` 门放行与超时）、`tests/CharacterRigHitFrameSourceTests.cs` 两例标记聚合；`presentation/assembly/tests/DefaultImpactRuleWiringTests.cs`。
+28. **实体 id 取值链补召唤事件字段（2026-10-08，样板游戏 B 缺口，ADR-0164 决策 8）**：self 取值链 `sourceId`/`casterId`/`unitId` 末尾补 `ownerId`，
+   target 取值链 `targetId` 末尾补 `entityId`，使 `summon.created` 上的 `play_vfx`(attach=source/target) 可解析（召唤者/被召唤实体）；链尾补充，既有事件取值不变。
+   已知边界：升级事件在数值层、不是表达式可读事件，取不到单位 id（ADR-0164 限制 5）。用例 `FeedbackBinderSummonIdFieldTests`（先红后绿）。
 
 ## 不负责什么
 

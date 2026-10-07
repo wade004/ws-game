@@ -946,10 +946,13 @@ namespace Core.Gameplay.Assembly
             // ownerResolver 为 null 时静默跳过归属判定、dayProvider 为 null 时恒退化为 0，见该类型
             // 判断记录），任何游戏都无法在不绕开本装配根、自己重新拼一遍 QuestHost 的前提下接上这
             // 两个回调。改为直接转发调用方经本方法新增的 questOwnerResolver/questDayProvider 可选
-            // 构造参数传入的值——未传时仍是 null，行为与此前完全一致（不破坏默认路径）。
+            // 构造参数传入的值。样板游戏 B 缺口（ADR-0164）：未传时不再是 null，改为默认用 Carriers.Summons
+            // 的主人表（召唤物击杀归主人，与经验入账 CreatureDeathXpListener、货币入账
+            // CreatureDeathLootListener 同一口径，ADR-0033 决策 3）；此前只有这两处认主人，击杀类任务目标
+            // 对召唤物打死的目标不计进度。显式传入的委托仍然优先、完全替换默认。
             Quest = new QuestHost(
                 questDefinitions, bus, ExprHostFactory, Reward, Carriers.Inventory, Carriers.Units,
-                questOptions, ownerResolver: questOwnerResolver,
+                questOptions, ownerResolver: questOwnerResolver ?? (killerId => Carriers.Summons.GetOwner(killerId)),
                 gobjTemplateResolver: id => world.GetEntity(id)?.TemplateId, dayProvider: questDayProvider,
                 exprDiagnostics: null);
             deferredQuestGroup.Bind(new QuestExprGroupProvider(Quest, PlayerUnitProvider));

@@ -249,6 +249,46 @@ namespace Tests.Gameplay.Assembly
             Assert.Equal(QuestState.Active, questProgress.State);
         }
 
+        /// <summary>
+        /// 样板游戏 B 缺口（ADR-0164）：不传 <c>questOwnerResolver</c> 时，装配层默认用内部召唤宿主的主人表
+        /// （<c>Summons.GetOwner</c>）做击杀归属——与经验入账、货币入账（ADR-0033 决策 3"召唤物击杀归主人"）
+        /// 同一口径。修复前默认恒为 <c>null</c>，召唤物打死的击杀类任务目标不计入主人的任务进度。
+        /// </summary>
+        [Fact]
+        public void QuestOwnerResolver_DefaultUsesSummonOwner_CreditsRegisteredSummonKill()
+        {
+            var tierId = new Id("creature.tier.owner_day_vendor_normal");
+            var petTemplateId = new Id("creature.owner_day_vendor_pet");
+            var source = BuildBaseDataSource()
+                .Add("quest.def", Envelope("quest.def", KillQuestRows))
+                .Add("fac.faction", Envelope("fac.faction",
+                    "[{\"id\": \"" + PlayerFactionId + "\", \"name_key\": \"l10n.fac.owner_day_vendor_player.name\", \"default_reaction\": \"hostile\"}]"))
+                .Add("fac.reaction_matrix", Envelope("fac.reaction_matrix", "[]"))
+                .Add("creature.tier_definition", Envelope("creature.tier_definition",
+                    "[{\"id\": \"" + tierId + "\", \"name_key\": \"l10n.creature.tier.owner_day_vendor_normal.name\", \"stat_multiplier\": 1}]"))
+                .Add("creature.template", Envelope("creature.template",
+                    "[{\"id\": \"" + petTemplateId + "\", \"name_key\": \"l10n.creature.owner_day_vendor_pet.name\", \"level\": 1, " +
+                    "\"tier\": \"" + tierId + "\", \"base_stats\": {\"stat.max_health\": 50}, \"faction_id\": \"" + PlayerFactionId + "\", " +
+                    "\"display_ref\": \"display.owner_day_vendor_pet\"}]"));
+
+            var fx = Build(source);
+            var questId = new Id("quest.owner_day_vendor_kill_sample");
+            Assert.True(fx.Gameplay.Quest.Accept(PlayerId, questId));
+
+            var petId = fx.Gameplay.Carriers.Summons.Summon(PlayerId, petTemplateId, new Vec2(1, 0));
+            Assert.Equal(PlayerId, fx.Gameplay.Carriers.Summons.GetOwner(petId));
+
+            var victim = new PlayerUnit(new Id("unit.owner_day_vendor_victim"), MapId, PlayerFactionId, ArchetypeSample)
+            {
+                TemplateId = KillTargetTemplateId,
+            };
+            fx.World.AddEntity(victim);
+            fx.Bus.PublishImmediate(new UnitDiedEvent(victim.EntityId, petId, MapId, new Vec2(0, 0)));
+
+            var questProgress = System.Linq.Enumerable.Single(fx.Gameplay.Quest.GetLog(PlayerId), p => p.QuestId.Equals(questId));
+            Assert.Equal(QuestState.ObjectivesComplete, questProgress.State);
+        }
+
         // -----------------------------------------------------------------
         // questDayProvider：每日任务的"当天不可再接"应当按转发的天数来源判定。
         // -----------------------------------------------------------------
