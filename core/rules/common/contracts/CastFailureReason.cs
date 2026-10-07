@@ -145,5 +145,12 @@ namespace Core.Rules.Common
         /// 的只读查询同步纳入本项（<see cref="Core.Rules.Skill.SkillReadinessBlockers.ActionLocked"/>）。
         /// </summary>
         ActionLocked,
+
+        /// <summary>
+        /// 样板游戏 B 反馈（目标选择式 RPG，ADR-0164）：技能声明了 <c>skill.def.facing_arc</c>（施法者朝向要求），而显式/解析出的目标不在施法者
+        /// 朝向的扇形之内（朝向与到目标方向的夹角超过 <c>facing_arc / 2</c>）。发生在步骤 7（射程之后、视线之前的同一步，
+        /// 没有声明 <c>facing_arc</c> 的技能永不触发）。追加在枚举末尾，不改既有成员的数值。
+        /// </summary>
+        NotFacing,
     }
 }

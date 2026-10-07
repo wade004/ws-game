@@ -125,6 +125,13 @@ namespace Core.Carriers.Item
             // 判断记录）。
             var statInfo = ItemBudgetCurve.BuildStatBudgetInfo(view);
 
+            // 样板游戏 B 反馈（2026-10-08）：带词缀的品质（affix_count>0）要给可抽词缀预留份额（见
+            // ItemTemplateAffixShareExceedsBudgetRule），模板自身消耗至多只能到"上限 - 预留"；利用率分母
+            // 因此取"上限 - 预留"，否则"自身消耗 <= 上限 x (1 - 预留份额)"与"利用率 >= 70%"在预留份额 >= 30% 时
+            // 互相矛盾（起步包的稀有/史诗品质恰好如此），任何稀有装备都会二选一地报错或报警。
+            var affixCounts = AffixReserve.BuildAffixCounts(view);
+            var affixesByQuality = AffixReserve.BuildCandidatesByQuality(view);
+
             foreach (var record in templates)
             {
                 if (!record.TryGetArray("stats", out var stats) || stats.Count == 0)
@@ -153,13 +160,16 @@ namespace Core.Carriers.Item
                     continue;
                 }
 
-                if (budget > 0 && consumed / budget < _utilizationWarningThreshold)
+                var reserveShare = AffixReserve.MaxShare(record, quality, affixesByQuality, affixCounts);
+                var available = budget * (1.0 - reserveShare);
+                if (available > 0 && consumed / available < _utilizationWarningThreshold)
                 {
                     yield return new ValidationIssue(
                         ValidationSeverity.Warning, "item.template", CheckUtilizationLow,
-                        $"预算利用率 {(consumed / budget):P1} 低于阈值 {_utilizationWarningThreshold:P0}" +
-                        $"（消耗 {consumed:0.###} / 上限 {budget:0.###}，item_level={itemLevel}, quality={quality}, " +
-                        $"slot={slot}）：抓漏填，可能是模板忘记补全属性词条",
+                        $"预算利用率 {(consumed / available):P1} 低于阈值 {_utilizationWarningThreshold:P0}" +
+                        $"（消耗 {consumed:0.###} / 可用上限 {available:0.###}，item_level={itemLevel}, quality={quality}, " +
+                        $"slot={slot}" + (reserveShare > 0 ? $"，已扣除可抽词缀预留份额 {reserveShare:0.###}" : "") +
+                        "）：抓漏填，可能是模板忘记补全属性词条",
                         recordKey: record.Key, field: "stats");
                 }
             }
@@ -729,8 +739,6 @@ namespace Core.Carriers.Item
         private const double Epsilon = 1e-9;
 
         private static readonly JsonArray EmptyStats = new JsonArray();
-        private static readonly List<(string Key, double BudgetShare)> EmptyCandidates =
-            new List<(string, double)>();
 
         private readonly Id _budgetCurveId;
 
@@ -766,13 +774,14 @@ namespace Core.Carriers.Item
                 : ItemBudgetCurve.DefaultExponent;
 
             var qualityMultipliers = new Dictionary<string, double>();
-            var affixCounts = new Dictionary<string, int?>();
             foreach (var q in view.GetAll("item.quality_definition"))
             {
                 qualityMultipliers[q.Key] = q.TryGetNumber("budget_multiplier", out var m) ? m : 1.0;
-                // 判断记录：affix_count 未登记视为"不限"（null），不是 0——见类型判断记录"语义"一段。
-                affixCounts[q.Key] = q.TryGetInt("affix_count", out var ac) ? (int?)ac : null;
             }
+
+            // 判断记录：affix_count 未登记视为"不限"（null），不是 0——见类型判断记录"语义"一段；
+            // 候选词缀按品质池分桶、份额降序预排序，与利用率警告共用 AffixReserve。
+            var affixCounts = AffixReserve.BuildAffixCounts(view);
 
             var slotCoefficients = new Dictionary<string, double>();
             foreach (var s in view.GetAll("item.slot_definition"))
@@ -782,34 +791,7 @@ namespace Core.Carriers.Item
 
             var statInfo = ItemBudgetCurve.BuildStatBudgetInfo(view);
 
-            // 按品质池预构建候选词缀（budget_share 降序、同份额按 Key 升序稳定排序），见类型判断记录
-            // "候选词缀预排序、按品质分桶"。
-            var affixesByQuality = new Dictionary<string, List<(string Key, double BudgetShare)>>();
-            foreach (var affix in view.GetAll("item.affix"))
-            {
-                if (!affix.TryGetId("quality_pool", out var pool))
-                {
-                    continue;
-                }
-
-                var share = affix.TryGetNumber("budget_share", out var bs) ? bs : 0.0;
-                if (!affixesByQuality.TryGetValue(pool.Value, out var list))
-                {
-                    list = new List<(string, double)>();
-                    affixesByQuality[pool.Value] = list;
-                }
-
-                list.Add((affix.Key, share));
-            }
-
-            foreach (var list in affixesByQuality.Values)
-            {
-                list.Sort((a, b) =>
-                {
-                    var cmp = b.BudgetShare.CompareTo(a.BudgetShare); // 降序
-                    return cmp != 0 ? cmp : string.CompareOrdinal(a.Key, b.Key);
-                });
-            }
+            var affixesByQuality = AffixReserve.BuildCandidatesByQuality(view);
 
             foreach (var record in templates)
             {
@@ -833,29 +815,7 @@ namespace Core.Carriers.Item
                 var stats = record.TryGetArray("stats", out var statsArr) ? statsArr : EmptyStats;
                 var consumed = ItemBudgetCurve.ComputeConsumed(stats, statInfo, (int)itemLevel, exponent);
 
-                var hasWhitelist = record.TryGetIdList("affixes", out var whitelist) && whitelist.Count > 0;
-                var candidates = affixesByQuality.TryGetValue(quality, out var poolCandidates)
-                    ? poolCandidates
-                    : EmptyCandidates;
-                var affixCount = affixCounts.TryGetValue(quality, out var acForQuality) ? acForQuality : null;
-
-                var maxShare = 0.0;
-                var taken = 0;
-                foreach (var candidate in candidates)
-                {
-                    if (hasWhitelist && !ContainsKey(whitelist, candidate.Key))
-                    {
-                        continue;
-                    }
-
-                    if (affixCount.HasValue && taken >= affixCount.Value)
-                    {
-                        break;
-                    }
-
-                    maxShare += candidate.BudgetShare;
-                    taken++;
-                }
+                var maxShare = AffixReserve.MaxShare(record, quality, affixesByQuality, affixCounts);
 
                 var total = consumed + maxShare * budget;
                 if (total > budget + Epsilon)
@@ -869,8 +829,93 @@ namespace Core.Carriers.Item
                 }
             }
         }
+    }
 
-        private static bool ContainsKey(IReadOnlyList<Id> list, string key)
+    /// <summary>
+    /// 带词缀品质给"可抽词缀"预留的预算份额（样板游戏 B 反馈，2026-10-08）：
+    /// <see cref="ItemTemplateAffixShareExceedsBudgetRule"/> 要求"模板自身消耗 + 可抽词缀最大份额 × 上限 &lt;= 上限"，
+    /// <see cref="ItemBudgetValidationRule"/> 的利用率警告用同一份预留值扣减分母，两条规则共用本类，口径保持一致。
+    /// 候选词缀 = 该品质池里的词缀（模板登记了非空 <c>affixes</c> 白名单时只取白名单内的），按 budget_share 降序取至
+    /// <c>affix_count</c> 条（未登记视为不限）。
+    /// </summary>
+    internal static class AffixReserve
+    {
+        private static readonly List<(string Key, double BudgetShare)> EmptyCandidates = new List<(string, double)>();
+
+        internal static Dictionary<string, int?> BuildAffixCounts(IDataRegistryView view)
+        {
+            var counts = new Dictionary<string, int?>();
+            foreach (var q in view.GetAll("item.quality_definition"))
+            {
+                counts[q.Key] = q.TryGetInt("affix_count", out var ac) ? (int?)ac : null;
+            }
+
+            return counts;
+        }
+
+        internal static Dictionary<string, List<(string Key, double BudgetShare)>> BuildCandidatesByQuality(IDataRegistryView view)
+        {
+            var byQuality = new Dictionary<string, List<(string Key, double BudgetShare)>>();
+            foreach (var affix in view.GetAll("item.affix"))
+            {
+                if (!affix.TryGetId("quality_pool", out var pool))
+                {
+                    continue;
+                }
+
+                var share = affix.TryGetNumber("budget_share", out var bs) ? bs : 0.0;
+                if (!byQuality.TryGetValue(pool.Value, out var list))
+                {
+                    list = new List<(string, double)>();
+                    byQuality[pool.Value] = list;
+                }
+
+                list.Add((affix.Key, share));
+            }
+
+            foreach (var list in byQuality.Values)
+            {
+                list.Sort((x, y) =>
+                {
+                    var cmp = y.BudgetShare.CompareTo(x.BudgetShare); // 降序
+                    return cmp != 0 ? cmp : string.CompareOrdinal(x.Key, y.Key);
+                });
+            }
+
+            return byQuality;
+        }
+
+        internal static double MaxShare(
+            DataRecord record, string quality,
+            Dictionary<string, List<(string Key, double BudgetShare)>> candidatesByQuality,
+            Dictionary<string, int?> affixCounts)
+        {
+            var hasWhitelist = record.TryGetIdList("affixes", out var whitelist) && whitelist.Count > 0;
+            var candidates = candidatesByQuality.TryGetValue(quality, out var pool) ? pool : EmptyCandidates;
+            var affixCount = affixCounts.TryGetValue(quality, out var count) ? count : null;
+
+            var maxShare = 0.0;
+            var taken = 0;
+            foreach (var candidate in candidates)
+            {
+                if (hasWhitelist && !Contains(whitelist, candidate.Key))
+                {
+                    continue;
+                }
+
+                if (affixCount.HasValue && taken >= affixCount.Value)
+                {
+                    break;
+                }
+
+                maxShare += candidate.BudgetShare;
+                taken++;
+            }
+
+            return maxShare;
+        }
+
+        private static bool Contains(IReadOnlyList<Id> list, string key)
         {
             for (var i = 0; i < list.Count; i++)
             {

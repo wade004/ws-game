@@ -475,11 +475,18 @@ namespace Core.Rules.Skill
             var feelRef = record.TryGetString("feel_ref", out var feelRefText) && !string.IsNullOrEmpty(feelRefText) ? feelRefText : null;
             var ignoresInvulnerability = record.TryGetBool("ignores_invulnerability", out var ignoresInvulnerabilityValue) && ignoresInvulnerabilityValue;
 
-            return new SkillDef(
+            var def = new SkillDef(
                 id, school, isPassive, range, tags, castTime, channelTime, cost,
                 cooldownCategory, cooldownDuration, chargesMax, chargesRecharge,
                 respectsGcd, targetShapeRef, effects, interruptFlags, actionCost, allowGroundTarget, useCondition,
                 nameKey, timeline, feelRef, ignoresInvulnerability);
+            // 样板游戏 B 反馈（ADR-0164）：可选朝向要求，缺省 0 = 无要求。
+            if (record.TryGetNumber("facing_arc", out var facingArc))
+            {
+                def.FacingArcDegrees = facingArc;
+            }
+
+            return def;
         }
 
         internal static IReadOnlyList<EffectRef> ParseEffectRefs(JsonArray array)

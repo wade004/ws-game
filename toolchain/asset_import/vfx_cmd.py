@@ -67,6 +67,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="混合模式（alpha/additive），省略时不写该字段（运行时按 alpha 解释），见 ADR-0074",
     )
+    parser.add_argument(
+        "--upright",
+        action="store_true",
+        help="vfx.def.upright=true：序列帧特效转到与公告牌相机平行（斜透视 2.5D 下'立着'的特效，如火球/冰锥；"
+        "贴地的光环/地面标记不要加）。ADR-0164；省略时不写该字段（默认贴地平放）",
+    )
     parser.add_argument("--assets-root", default=None, help="资产根目录，默认仓库 assets/")
     parser.add_argument("--data-root", default=None, help="数据根目录，默认仓库 data/")
     parser.add_argument("--dry-run", action="store_true", help="只打印计划，不写任何文件")
@@ -145,6 +151,9 @@ def run(args: argparse.Namespace) -> int:
     # 就会静默掉字段，样例导入幂等性门禁会翻红。省略 --blend-mode 时不写该字段（等价 alpha）。
     if args.blend_mode is not None:
         row["blend_mode"] = args.blend_mode
+    # 同一条判断记录：upright（ADR-0164）也由本子命令写出，重导入不会丢字段；省略 --upright 不写该字段。
+    if args.upright:
+        row["upright"] = True
 
     vfx_def_path = data_root / args.dataset / "vfx" / "vfx.def.json"
 

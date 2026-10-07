@@ -1088,6 +1088,8 @@ namespace Core.Rules.Skill
                 new FieldSchema("feel_ref", FieldKind.Id, required: false,
                         description: "技能行的手感引用（feel.action 行 id，M5-S2a）：进入手感解析第 6 层（当前动作）；时间线技能与 timeline.feel_ref 等价（同时声明且不同为错误），没有时间线的技能命中时受击裁决据此重算攻击方手感；缺省保持按武器")
                     .WithSoftReference(table: "feel.action"),
+                new FieldSchema("facing_arc", FieldKind.Number, required: false,
+                    description: "朝向要求的扇形全角（度，0 < 值 ≤ 360）：声明后施法管线步骤 7 要求目标在施法者当前朝向的扇形内（夹角 ≤ 全角/2），否则失败原因 NotFacing；缺省不要求；不得与 timeline 同用（ADR-0164）"),
                 new FieldSchema("ignores_invulnerability", FieldKind.Bool, required: false,
                     description: "是否无视无敌窗口（M5-S2a）：真时本技能的伤害类结算不经结算第 0 步的无敌前置检查（环境伤害、斩杀等），缺省 false"),
                 // 修订（2026-09-14，ADR-0031 决策 10；06 第 3.1 节 2026-09-14 修订段）：字段名

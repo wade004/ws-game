@@ -258,5 +258,48 @@ namespace Tests.PresentationRender
 
             Assert.Single(diagnostics.Warnings);
         }
+
+        [Fact]
+        public void CameraYawProvider_Null_SortAndFacingUnchanged()
+        {
+            var host = new RenderConventionHost(new RenderOptions { FacingAngleOffsetRadians = 0.5 });
+            Assert.Equal(21.5, host.ComputeSortY(new Vec2(10, 20), 1.5));
+            Assert.Equal(1.5, host.ApplyFacingConvention(1.0), 12);
+        }
+
+        [Fact]
+        public void CameraYawProvider_ZeroYaw_IsIdenticalToNoProvider()
+        {
+            var host = new RenderConventionHost(new RenderOptions { FacingAngleOffsetRadians = 0.5, CameraYawRadiansProvider = () => 0.0 });
+            Assert.Equal(21.5, host.ComputeSortY(new Vec2(10, 20), 1.5), 12);
+            Assert.Equal(1.5, host.ApplyFacingConvention(1.0), 12);
+        }
+
+        [Fact]
+        public void CameraYawProvider_FacingIsRelativeToCamera_AndTracksTheProviderEveryCall()
+        {
+            var yaw = 0.0;
+            var host = new RenderConventionHost(new RenderOptions { CameraYawRadiansProvider = () => yaw });
+            // 实体朝世界 +Y（π/2）：镜头偏航 π/2 后，它在画面上朝右（相对角 0）；偏航 π 后朝画面下方（相对角 -π/2）。
+            yaw = Math.PI / 2;
+            Assert.Equal(0.0, host.ApplyFacingConvention(Math.PI / 2), 12);
+            yaw = Math.PI;
+            Assert.Equal(-Math.PI / 2, host.ApplyFacingConvention(Math.PI / 2), 12);
+        }
+
+        [Fact]
+        public void CameraYawProvider_SortDepthIsProjectionOnScreenUp()
+        {
+            var yaw = 0.0;
+            var host = new RenderConventionHost(new RenderOptions { CameraYawRadiansProvider = () => yaw });
+            var near = new Vec2(0, 0);
+            var far = new Vec2(0, 10);   // 偏航 0：+Y 更远
+            Assert.True(host.ComputeSortY(far, 0) > host.ComputeSortY(near, 0));
+            yaw = Math.PI;               // 镜头转到背面：+Y 变成更近，深度次序反过来（不是世界 Y 的次序）
+            Assert.True(host.ComputeSortY(far, 0) < host.ComputeSortY(near, 0));
+            yaw = Math.PI / 2;           // 偏航 90 度：屏幕上方 = -X，深度 = -x
+            Assert.Equal(-7.0, host.ComputeSortY(new Vec2(7, 3), 0), 12);
+            Assert.Equal(-7.0 + 2.0, host.ComputeSortY(new Vec2(7, 3), 2.0), 12);
+        }
     }
 }

@@ -258,16 +258,25 @@ namespace Presentation.VfxSfx.Core
             }
 
             var emitParams = parameters ?? EmptyParams;
-            if (def.SortOrder != 0)
+            if (def.SortOrder != 0 || def.Upright)
             {
-                // vfx.def.sort_order 非 0：以保留键并入 parameters（拷贝一份，不改调用方传入的字典），渲染实现按需解释
+                // vfx.def.sort_order 非 0 / upright 为真：以保留键并入 parameters（拷贝一份，不改调用方传入的字典），渲染实现按需解释
                 var merged = new Dictionary<string, double>();
                 foreach (var kv in emitParams)
                 {
                     merged[kv.Key] = kv.Value;
                 }
 
-                merged[VfxDef.SortOrderParameterKey] = def.SortOrder;
+                if (def.SortOrder != 0)
+                {
+                    merged[VfxDef.SortOrderParameterKey] = def.SortOrder;
+                }
+
+                if (def.Upright)
+                {
+                    merged[VfxDef.UprightParameterKey] = 1;
+                }
+
                 emitParams = merged;
             }
 

@@ -720,6 +720,36 @@ namespace Core.Rules.Skill
                 }
             }
 
+            // 样板游戏 B 反馈（ADR-0164）：朝向要求。步骤 7 的第三项检查（射程、视线之后）：声明了 facing_arc 的技能，每个目标（施法者自身除外）
+            // 都必须落在施法者当前朝向的扇形内；重叠位置（距离近乎 0）视为满足，避免贴脸时朝向抖动误拒。未声明（0）整段不执行，与改动前逐位一致。
+            // 判断记录：只在开始施法时检查一次，读条期间转身不取消施法（与射程同口径：读条中目标走出射程由读条结束时的重验证处理，朝向不重验）。
+            if (def.FacingArcDegrees > 0)
+            {
+                var facingPos = _units.GetPosition(casterId);
+                var facing = _units.GetFacing(casterId);
+                var halfArc = def.FacingArcDegrees * Math.PI / 360.0;
+                foreach (var targetId in resolvedTargets)
+                {
+                    if (targetId.Equals(casterId))
+                    {
+                        continue;
+                    }
+
+                    var d = _units.GetPosition(targetId) - facingPos;
+                    if (d.X * d.X + d.Y * d.Y < 1e-6)
+                    {
+                        continue;
+                    }
+
+                    var delta = Math.Atan2(d.Y, d.X) - facing;
+                    delta = Math.Abs(Math.Atan2(Math.Sin(delta), Math.Cos(delta)));
+                    if (delta > halfArc + 1e-9)
+                    {
+                        return Fail(casterId, skillId, CastFailureReason.NotFacing, presetCastInstanceId);
+                    }
+                }
+            }
+
             // RC-04 收边勘误：行动点消耗（离散模式补充，06 第 3.1 节 action_cost）原来插在步骤 5
             // 与步骤 6 之间——TryConsumeActionPoints 是"检查是否够 + 原子扣除"合一的委托（不同于
             // 上面的资源检查：Power 类资源在这一步只探测余量，真正扣除延后到步骤 9 的

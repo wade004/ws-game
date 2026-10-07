@@ -486,3 +486,5 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     **没有降级/不处理的情形**：回调晚于卸载到达时该次加载的资源缓存不由本类型回收（`IResourceLoader.Unload` 的调用时机属于加载器与
     场景路由，不在本类型职责内）。复现与不变量用例见 `tests/MapLayerHostTests.cs`（手动放行加载器 `ManualMapLayersLoader` 把"回调晚于切图"
     的窗口钉住，期望只有一条：任何时刻存活的层只属于当前地图、至多一整套）。
+
+34. **相机偏航提供器 `RenderOptions.CameraYawRadiansProvider`（2026-10-08，样板游戏 B 缺口，[ADR-0164](../../architecture/adr/0164-样板游戏B缺口-斜透视公告牌与朝向弧.md)）**：斜透视相机绕竖轴转动后，"屏幕上更靠下的先画"与"精灵朝向跟随相机"都要把偏航算进去。提供该委托时 `RenderConventionHost.ComputeSortY` 沿屏幕上方向投影（`-x·sin(yaw) + y·cos(yaw) + 偏移`），`ApplyFacingConvention` 的结果减去偏航；不提供时两处与此前逐位一致（默认路径零变化）。约定与 `ICameraOrientation.YawRadians` 相同（相机右方向 = (cos yaw, sin yaw)）。复现与不变量：`tests/RenderConventionHostTests.cs` 新增四条（无提供器逐位不变、偏航 0 与无提供器等价、朝向相对相机且每次调用都重读提供器、排序键为屏幕上方向的投影）。**已知边界**：只改排序键与朝向换算，不改世界坐标；公告牌旋转在引擎适配层（见适配层 README），提供器由游戏自己在每帧把相机偏航送进来。

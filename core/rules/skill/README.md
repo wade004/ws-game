@@ -1867,3 +1867,11 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 1. **标签 `skill.tag.guard`**：技能行带该标签且声明了 `timeline.active_until_release`，按住维持期间（`IsSustained` 为真）算在格挡；`SkillHost.GuardStateQuery`（`IGuardStateQuery`）返回"时间线 `guard_start`～`guard_end` 窗口，或带标签的维持动作"，`GuardState.ElapsedTicks` 对维持动作取已累计的维持 tick 数（顿帧期间不增长），弹反窗口 `guard_parry_window_ms` 因此从按住进入维持那一刻起算。`RulesFeelAssembly` 把它接给受击裁决宿主的 `Guard`。没有带标签的技能时与此前逐位一致。
 2. **复现与不变量**：`core/gameplay/assembly/tests/GuardSustainAssemblyTests.cs`——按住带标签的维持动作后正面命中伤害 = 未格挡伤害 × `guard_damage_scale`、松键后恢复；没有标签的维持动作不算格挡。
 3. **已知边界**：前摇与判定相走完之前（尚未进入维持）不算格挡；要在前摇里就格挡的动作用 `guard_start` 标记。
+
+## 判断记录（技能朝向弧 `facing_arc`，2026-10-08，样板游戏 B 缺口，[ADR-0164](../../../architecture/adr/0164-样板游戏B缺口-斜透视公告牌与朝向弧.md)）
+
+1. **放在施法管线步骤 7（射程与视线之后、行动点之前）**：显式目标施法在步骤 6 只走链条过滤，不检查面向；目标选择式游戏的"目标在身后不能施放"需要统一的失败原因，所以在步骤 7 对每个解析出的非自身目标做一次夹角检查，不通过返回新增的 `CastFailureReason.NotFacing`（追加在枚举末尾）。与目标重合（距离平方 < 1e-6）视为在弧内。
+2. **只在起手检查，读条途中不复查**：沿用射程/视线的既有口径（起手校验、读条中不复校）；目标在读条途中绕到身后不会打断。要在读条中途失败的内容请用 `interrupt_flags`。
+3. **与 `timeline` 互斥**：时间轴技能不走步骤 6/7，声明了也不会生效，所以校验期直接报错（`facing_arc_timeline_conflict`）；取值须在 (0, 360]（`facing_arc_range`）。
+4. **复现与不变量**：`tests/CastFacingArcTests.cs`——身后目标被拒且不扣资源不起冷却、没声明时永不拒绝、45°/46° 边界（弧 90°）、±π 折返、目标重合、取值越界三组（0、-30、361）校验错误、有效声明通过与 timeline 冲突的校验错误。
+5. **已知边界**：只对显式解析出的目标生效；无目标施法（地面点、自身）不检查；"面向"取自单位位置宿主的朝向，游戏需要自己在输入侧把朝向写进去（目标选择式样板的做法见该样板的 decisions）。

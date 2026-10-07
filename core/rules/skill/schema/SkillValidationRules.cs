@@ -222,6 +222,43 @@ namespace Core.Rules.Skill
         }
     }
 
+    /// <summary>
+    /// 朝向要求校验（ADR-0164）：<c>facing_arc</c> 必须在 (0, 360] 度内（<c>facing_arc_range</c>）；声明了 <c>timeline</c> 的技能走时间线路径，
+    /// 该路径不经步骤 7 的朝向检查，同时声明属于必然被静默忽略的写法，按错误拦下（<c>facing_arc_timeline_conflict</c>）。
+    /// </summary>
+    public sealed class FacingArcRule : IValidationRule
+    {
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            if (!view.Tables.Contains("skill.def"))
+            {
+                yield break;
+            }
+
+            foreach (var record in view.GetAll("skill.def"))
+            {
+                if (!record.TryGetNumber("facing_arc", out var arc))
+                {
+                    continue;
+                }
+
+                if (arc <= 0 || arc > 360)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Error, "skill.def", "facing_arc_range",
+                        "facing_arc 必须在 (0, 360] 度内", recordKey: record.Key, field: "facing_arc");
+                }
+
+                if (record.TryGetObject("timeline", out _))
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Error, "skill.def", "facing_arc_timeline_conflict",
+                        "声明了 timeline 的技能不经步骤 7 的朝向检查，facing_arc 会被忽略；二者不得同用", recordKey: record.Key, field: "facing_arc");
+                }
+            }
+        }
+    }
+
     /// <summary>被动技能不得声明 <c>cast_time</c>（见 06 第 3.1 节 <c>kind</c> 字段说明"被动技能……
     /// 不可主动施放"）。</summary>
     public sealed class PassiveSkillNoCastTimeRule : IValidationRule

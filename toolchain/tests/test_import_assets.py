@@ -1522,6 +1522,26 @@ class VfxCommandTest(ImportAssetsTestBase):
         row = vfx_def["rows"][0]
         self.assertNotIn("lifetime", row)
 
+    def test_vfx_upright_flag_writes_field_and_survives_reimport(self) -> None:
+        """ADR-0164：--upright 写出 vfx.def.upright=true；省略时不写该字段；重导入（merge_write_row 整行覆盖）不丢字段。"""
+        case_dir = self.new_case_dir("vfx_upright")
+        assets_root, data_root = self.roots(case_dir)
+        frames_dir = case_dir / "fire_frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(2):
+            make_layer_image((10, 10), color=(255, 120, 0, 255)).save(frames_dir / f"frame_{i:04d}.png")
+
+        def run_import(extra: list) -> dict:
+            code, output = run_cli(["vfx", str(frames_dir), "--dataset", "_test", "--id", "vfx.upright_test", "--fps", "10",
+                                    *extra, "--assets-root", str(assets_root), "--data-root", str(data_root)])
+            self.assertEqual(0, code, msg=output)
+            doc = json.loads((data_root / "_test" / "vfx" / "vfx.def.json").read_text(encoding="utf-8"))
+            return doc["rows"][0]
+
+        self.assertNotIn("upright", run_import([]))
+        self.assertIs(True, run_import(["--upright"])["upright"])
+        self.assertIs(True, run_import(["--upright"])["upright"])
+
     def test_vfx_loop_with_explicit_lifetime_keeps_it(self) -> None:
         """新增用例：--loop 且显式给了 --lifetime 时，仍应写入该 lifetime（不因 --loop 丢弃显式值）。"""
         case_dir = self.new_case_dir("vfx_loop_explicit_lifetime")

@@ -35,6 +35,14 @@ namespace Presentation.VfxSfx.Contracts
         /// <summary>保留的 <c>parameters</c> 键：绘制序偏移，见 <see cref="SortOrder"/>。</summary>
         public const string SortOrderParameterKey = "sort_order";
 
+        /// <summary>样板游戏 B 反馈（ADR-0164，2.5D）：特效是否"站立"（<c>vfx.def.upright</c>，缺省 false）。真时 <see cref="Presentation.VfxSfx.Core.VfxPlayer.Spawn"/>
+        /// 以保留参数键 <see cref="UprightParameterKey"/>（值 1）并入 <c>parameters</c>；渲染实现在启用了广告牌的相机下把它摆成与相机平行的直立面片
+        /// （命中火花、火球、治疗光），否则（缺省）仍躺在地面（贴地预警圈、冲击波环）。固定正交俯视的游戏不受影响。</summary>
+        public bool Upright { get; }
+
+        /// <summary>保留的 <c>parameters</c> 键：站立特效，见 <see cref="Upright"/>。</summary>
+        public const string UprightParameterKey = "upright";
+
         public VfxDef(Id id, string category, VfxAttachMode attachMode, double? lifetime, Id resourceRef)
             : this(id, category, attachMode, lifetime, resourceRef, VfxBlendMode.Alpha)
         {
@@ -50,7 +58,14 @@ namespace Presentation.VfxSfx.Contracts
         /// <summary>消费方反馈 2026-10-07（样板游戏 A 首领碎地预警圈被地面盖住）新增重载：携带
         /// <see cref="SortOrder"/>。既有 6 参构造函数保留、签名不变（ABI 只加法），转发到本重载并固定传 0。</summary>
         public VfxDef(Id id, string category, VfxAttachMode attachMode, double? lifetime, Id resourceRef, VfxBlendMode blendMode, int sortOrder)
+            : this(id, category, attachMode, lifetime, resourceRef, blendMode, sortOrder, false)
         {
+        }
+
+        /// <summary>样板游戏 B 反馈（ADR-0164）新增重载：携带 <see cref="Upright"/>。既有 7 参构造函数保留、签名不变（ABI 只加法），转发到本重载并固定传 false。</summary>
+        public VfxDef(Id id, string category, VfxAttachMode attachMode, double? lifetime, Id resourceRef, VfxBlendMode blendMode, int sortOrder, bool upright)
+        {
+            Upright = upright;
             Id = id;
             Category = category ?? throw new System.ArgumentNullException(nameof(category));
             AttachMode = attachMode;
@@ -72,7 +87,8 @@ namespace Presentation.VfxSfx.Contracts
             var resourceRef = record.GetId("resource_ref");
             var blendMode = record.TryGetString("blend_mode", out var blendModeVal) ? ParseBlendMode(record, blendModeVal) : VfxBlendMode.Alpha;
             var sortOrder = record.TryGetInt("sort_order", out var sortOrderVal) ? checked((int)sortOrderVal) : 0;
-            return new VfxDef(id, category, attachMode, lifetime, resourceRef, blendMode, sortOrder);
+            var upright = record.TryGetBool("upright", out var uprightVal) && uprightVal;
+            return new VfxDef(id, category, attachMode, lifetime, resourceRef, blendMode, sortOrder, upright);
         }
 
         private static VfxAttachMode ParseAttachMode(DataRecord record, string value) => value switch

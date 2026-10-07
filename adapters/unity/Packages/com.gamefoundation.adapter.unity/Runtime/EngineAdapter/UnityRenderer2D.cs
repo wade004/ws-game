@@ -105,6 +105,9 @@ namespace Adapter.Unity.EngineAdapter
             public GameObject Root = null!;
             public SortingGroup SortingGroup = null!;
             public Transform LayersRoot = null!;
+
+            /// <summary>样板游戏 B 反馈（ADR-0164）：最近一次 <see cref="SetTransform"/> 收到的抬高（世界单位）；广告牌模式下沿相机上轴抬高 LayersRoot 用。</summary>
+            public float HeightUnits;
             public List<SpriteRenderer> LayerRenderers = new List<SpriteRenderer>();
 
             /// <summary>ADR-0072 决策 2 新增：与 <see cref="LayerRenderers"/> 一一对应的层名（从
@@ -233,6 +236,78 @@ namespace Adapter.Unity.EngineAdapter
         /// 夹具）时退化为 <see cref="DefaultTieBreakComparer"/>（按 <see cref="Id"/> 升序，不退化为
         /// "不处理"）。</summary>
         public IComparer<(Id Id, double SortY)>? TieBreakComparer { get; set; }
+
+        private Camera? _billboardCamera;
+        private readonly HashSet<int> _uprightEffectHandles = new HashSet<int>();
+
+        /// <summary>
+        /// 样板游戏 B 反馈（ADR-0164，2.5D 直立广告牌）：非 null 时，精灵的整身渲染根（<see cref="GetLayersRoot"/>）摆成与该相机平行的直立面片——
+        /// 脚底枢轴仍在单位的地面点上，<c>SetTransform</c> 的抬高沿相机上轴抬；阴影挂在单位根下，仍躺在地面；声明了 <c>vfx.def.upright</c> 的序列帧特效同样朝向该相机。
+        /// 相机（偏航、俯仰）每帧变化后调用 <see cref="ApplyBillboards"/> 重新对齐（<c>SetTransform</c> 自身也会按当前相机姿态摆一次）。
+        /// 缺省 null = 精灵躺在世界平面上（与改动前逐位一致，固定正交俯视的游戏不受影响）。
+        /// </summary>
+        public Camera? BillboardCamera
+        {
+            get => _billboardCamera;
+            set
+            {
+                _billboardCamera = value;
+                if (value == null)
+                {
+                    // 关掉广告牌：把渲染根还原成躺平（SetTransform 的缺省路径只写本地 Y，不管旋转）
+                    foreach (var instance in _sprites.Values)
+                    {
+                        if (instance.LayersRoot != null)
+                        {
+                            instance.LayersRoot.localRotation = Quaternion.identity;
+                        }
+                    }
+                }
+
+                ApplyBillboards();
+            }
+        }
+
+        /// <summary>
+        /// 按 <see cref="BillboardCamera"/> 的当前姿态重摆全部精灵的渲染根与站立特效（未设置相机时把它们还原到躺平的缺省摆法）。相机推进之后、画面渲染之前调用一次。
+        /// 只写引擎侧物体，不碰逻辑。
+        /// </summary>
+        public void ApplyBillboards()
+        {
+            foreach (var instance in _sprites.Values)
+            {
+                PlaceLayersRoot(instance);
+            }
+
+            foreach (var pair in _sequencePlayers)
+            {
+                if (pair.Value != null && _uprightEffectHandles.Contains(pair.Key))
+                {
+                    pair.Value.transform.rotation = _billboardCamera != null ? _billboardCamera.transform.rotation : Quaternion.identity;
+                }
+            }
+        }
+
+        private void PlaceLayersRoot(SpriteInstance instance)
+        {
+            var layers = instance.LayersRoot;
+            if (layers == null)
+            {
+                return;
+            }
+
+            if (_billboardCamera == null)
+            {
+                var local = layers.localPosition;
+                layers.localPosition = new Vector3(local.x, instance.HeightUnits, local.z);
+                return;
+            }
+
+            var camTransform = _billboardCamera.transform;
+            var rootTransform = instance.Root.transform;
+            layers.rotation = camTransform.rotation * Quaternion.Euler(0f, 0f, rootTransform.eulerAngles.z);
+            layers.position = rootTransform.position + camTransform.up * (instance.HeightUnits * Mathf.Abs(rootTransform.lossyScale.y));
+        }
 
         public UnityRenderer2D(Transform root, UnityResourceLoader resourceLoader)
         {
@@ -408,8 +483,8 @@ namespace Adapter.Unity.EngineAdapter
             // height：纵向绘制偏移，只平移 LayersRoot（不平移影子、不参与 sortY 排序，见
             // ADR-0016 决策 2、09 第 3.4 节）；像素值经 PixelsPerUnit 换算成世界单位。
             var worldHeightOffset = (float)(height / Math.Max(PixelsPerUnit, 0.0001));
-            var layersLocal = instance.LayersRoot.localPosition;
-            instance.LayersRoot.localPosition = new Vector3(layersLocal.x, worldHeightOffset, layersLocal.z);
+            instance.HeightUnits = worldHeightOffset;
+            PlaceLayersRoot(instance);
 
             var oldTieBreakGroupKey = instance.TieBreakGroupKey;
             var flipChanged = instance.FlipX != flipX;
@@ -1021,6 +1096,18 @@ namespace Adapter.Unity.EngineAdapter
                 }
 
                 player.gameObject.SetActive(true);
+                // vfx.def.upright 经保留键 "upright" 传入：启用了广告牌相机时站立（朝向该相机），否则躺平（池复用，每次显式落地）
+                var upright = parameters.TryGetValue(global::Presentation.VfxSfx.Contracts.VfxDef.UprightParameterKey, out var uprightValue) && uprightValue != 0;
+                if (upright)
+                {
+                    _uprightEffectHandles.Add(handle);
+                }
+                else
+                {
+                    _uprightEffectHandles.Remove(handle);
+                }
+
+                player.transform.rotation = upright && _billboardCamera != null ? _billboardCamera.transform.rotation : Quaternion.identity;
                 // vfx.def.sort_order 经保留键 "sort_order" 传入；缺省 0（池复用，每次显式落地）
                 player.SetSortingOrder(parameters.TryGetValue("sort_order", out var sortOrder) ? (int)sortOrder : 0);
                 player.Play(frames, durations, effect.Loop, blendMode);

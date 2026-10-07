@@ -1067,3 +1067,11 @@ QualityId, AffixIds)` 与框架 `StandardPlayer.EquippedInstances`（槽位→�
 - **拒绝路径**：实例不在使用者背包（含别人的实例 id）、模板无 `on_use`、`skill_ref` 缺失或指向未登记技能、施法被拒，一律只记诊断，不扣物品、不改状态。
 - **没做**：不在物品上做冷却（用技能冷却）；不做"使用前选目标"（技能目标链决定）；不新增事件（施法事件已足够表现层绑定音效/飘字）。
 - **测试**：`core/carriers/assembly/tests/P3_UseItemIntentTests.cs`——复现用例 `UseItem_Intent_RunsOnUseSkill_AndConsumesExactlyOne`（修前生命值与药水数量全程不变）；不变量 `UseItem_WhileSkillOnCooldown_DoesNotConsume_AndWorksAfterCooldown`、`UseItem_WithoutOnUse_OrForeignInstance_HasNoEffect`、`UseItem_ConsumeFalse_RunsSkillButKeepsItem`。
+
+## 判断记录（装备预算利用率警告扣除词缀预留份额，2026-10-08，样板游戏 B，[ADR-0164](../../../architecture/adr/0164-样板游戏B缺口-斜透视公告牌与朝向弧.md) 决策 5）
+
+- **症状**：内容起步包的稀有/史诗品质带可抽词缀（预留份额 0.3）。词缀份额规则要求"模板自身消耗 + 预留 × 上限 <= 上限"（自身消耗至多 70%），利用率警告又要求自身消耗至少 70%，窗口宽度为零：任何不带词缀的稀有装备要么报错（`item_template_affix_share_exceeds_budget`）要么报警（`item_budget_utilization_low`）。
+- **根因**：两条规则各自核算，预留份额只进了前者。
+- **决策**：利用率分母 = 预算上限 ×（1 − 预留份额）；预留份额由两条规则共用的内部类 `AffixReserve` 计算（按品质池、模板词缀白名单与 `affix_count` 取降序前几条），不带词缀的品质预留为 0，行为不变。警告消息写明已扣除的预留份额。
+- **测试**：`tests/ItemValidationRulesTests.cs`——复现 `BudgetRule_UtilizationWithAffixReserve_FullyUsedAvailableBudget_NoWarning`（修前：自身消耗 8、预留 0.5、上限 20 时被报 40% 利用率警告，且同一模板词缀份额规则满意）；不变量 `BudgetRule_UtilizationWithAffixReserve_BelowAvailableBudget_StillWarnsAgainstAvailable`（真正填不满可用上限时仍然警告）；既有无词缀品质的利用率用例全部不变。
+- **已知边界**：预留份额口径只含白名单与 `affix_count`，不含词缀的等级过滤等其它抽取条件。

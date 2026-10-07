@@ -94,6 +94,13 @@ namespace Core.Rules.Skill
         /// </summary>
         public bool IgnoresInvulnerability { get; private set; }
 
+        /// <summary>
+        /// 朝向要求的扇形全角（度，<c>skill.def.facing_arc</c>，样板游戏 B 反馈 / ADR-0164）：大于 0 时，施法管线步骤 7 要求每个目标都在施法者当前朝向
+        /// 的扇形之内（朝向与到目标方向的夹角 ≤ 全角的一半），否则 <see cref="Core.Rules.Common.CastFailureReason.NotFacing"/>。0 = 无朝向要求（缺省，
+        /// 与本字段落地之前逐位一致）。
+        /// </summary>
+        public double FacingArcDegrees { get; internal set; }
+
         public bool HasCharges => ChargesMax.HasValue;
 
         public SkillDef(

@@ -100,6 +100,24 @@ namespace Tests.Presentation.VfxSfx
         }
 
         [Fact]
+        public void Spawn_UprightVfx_AddsReservedParameter_AndPlainVfxDoesNot()
+        {
+            var renderer = new StubRenderer2D();
+            var spark = new Id("vfx.upright_spark");
+            var catalog = new Dictionary<Id, VfxDef>(BuildCatalog())
+            {
+                [spark] = new VfxDef(spark, "impact", VfxAttachMode.World, 0.5, new Id("res.spark"), VfxBlendMode.Additive, 0, true),
+            };
+            var player = new VfxPlayer(renderer, new StubCamera(), catalog);
+
+            var upright = player.Spawn(spark, VfxAttach.World(new Vec2(1, 1)), null);
+            var plain = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+
+            Assert.Equal(1.0, renderer.ParticleParameters[upright!.Value.Value][VfxDef.UprightParameterKey]);
+            Assert.False(renderer.ParticleParameters[plain!.Value.Value].ContainsKey(VfxDef.UprightParameterKey));
+        }
+
+        [Fact]
         public void Spawn_Anchor_UsesAnchorResolverWorldPosition()
         {
             var renderer = new StubRenderer2D();

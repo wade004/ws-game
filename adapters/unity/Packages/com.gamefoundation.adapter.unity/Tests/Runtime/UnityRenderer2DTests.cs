@@ -349,5 +349,50 @@ namespace Adapter.Unity.Tests.Runtime
             var layersRoot = root.Find("LayersRoot")!;
             Assert.AreNotEqual(0f, layersRoot.localPosition.y, "对照：LayersRoot（角色本体）确实按 height 平移了，证明上面的零位移不是巧合");
         }
+
+        [Test]
+        public void Billboard_NoCamera_LayersRootStaysFlatAndLocalHeight()
+        {
+            // 缺省（未设置广告牌相机）：行为与改动前逐位一致——渲染根不旋转，只有本地 Y 抬高。
+            var handle = _renderer.CreateSpriteInstance(new Id("sprite.creature.sample_wolf"));
+            _renderer.SetTransform(handle, new Vec2(3, 4), height: 64.0, sortY: 4, layer: 0, rotation: 0, scale: 1, flipX: false);
+
+            var layersRoot = _renderer.GetLayersRoot(handle)!;
+            Assert.AreEqual(Quaternion.identity, layersRoot.localRotation);
+            Assert.AreEqual(64.0 / _renderer.PixelsPerUnit, layersRoot.localPosition.y, 0.001f);
+        }
+
+        [Test]
+        public void Billboard_WithCamera_LayersRootIsParallelToCameraAndLiftedAlongCameraUp()
+        {
+            // ADR-0164：广告牌相机下，渲染根与相机平行（旋转 = 相机旋转），脚底枢轴落在单位的地面点上，抬高沿相机上轴；影子仍在单位根下躺平。
+            var camGo = new GameObject("BillboardCam");
+            var cam = camGo.AddComponent<Camera>();
+            camGo.transform.rotation = Quaternion.Euler(-50f, 0f, 30f);
+            camGo.transform.position = new Vector3(0, -10, -10);
+            var handle = _renderer.CreateSpriteInstance(new Id("sprite.creature.sample_wolf"));
+            _renderer.SetShadow(handle, ShadowMode.Blob);
+            _renderer.BillboardCamera = cam;
+
+            _renderer.SetTransform(handle, new Vec2(3, 4), height: 64.0, sortY: 4, layer: 0, rotation: 0, scale: 1, flipX: false);
+
+            var root = _rootGo.transform.GetChild(0);
+            var layersRoot = _renderer.GetLayersRoot(handle)!;
+            var lift = 64.0f / _renderer.PixelsPerUnit;
+            Assert.AreEqual(0f, Quaternion.Angle(camGo.transform.rotation, layersRoot.rotation), 0.01f);
+            var expected = root.position + camGo.transform.up * lift;
+            Assert.AreEqual(0f, Vector3.Distance(expected, layersRoot.position), 0.001f);
+            Assert.AreEqual(Vector3.zero, root.Find("Shadow")!.localPosition);
+
+            // 相机再转（偏航 90 度），ApplyBillboards 之后渲染根跟着转，不需要等下一次 SetTransform。
+            camGo.transform.rotation = Quaternion.Euler(-50f, 0f, 120f);
+            _renderer.ApplyBillboards();
+            Assert.AreEqual(0f, Quaternion.Angle(camGo.transform.rotation, layersRoot.rotation), 0.01f);
+
+            // 关掉广告牌：还原成躺平。
+            _renderer.BillboardCamera = null;
+            Assert.AreEqual(Quaternion.identity, layersRoot.localRotation);
+            Object.DestroyImmediate(camGo);
+        }
     }
 }

@@ -33,6 +33,8 @@ namespace Presentation.VfxSfx.Schema
                     .WithAllowedRefCategories("vfx"),
                 new FieldSchema("blend_mode", FieldKind.Enum, required: false, enumValues: BlendModes,
                     description: "混合模式（alpha/additive），缺省 alpha（与改动前逐字一致的既有行为），见 ADR-0074"),
+                new FieldSchema("upright", FieldKind.Bool, required: false,
+                    description: "特效是否站立（ADR-0164，2.5D）：真 = 在启用了广告牌的相机下摆成与相机平行的直立面片（命中火花、火球、治疗光）；缺省 false = 躺在地面（贴地预警圈、冲击波环）；固定正交俯视的游戏不受影响"),
                 new FieldSchema("sort_order", FieldKind.Int, required: false,
                     description: "绘制序偏移，缺省 0（与改动前逐字一致）；0 与地图地面层并列（先后由引擎决定），正值保证画在地图地面层之上，用于贴地的范围预警圈等必须可见的地面特效"),
             },

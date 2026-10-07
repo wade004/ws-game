@@ -218,6 +218,7 @@ namespace Core.Rules.Assembly
             registry.RegisterValidationRule(new MaxEffectsPerSkillRule(skillOptions?.MaxEffectsPerSkill ?? 8));
             registry.RegisterValidationRule(new StackCategoryConflictRule());
             registry.RegisterValidationRule(new CastTimeChannelTimeExclusiveRule());
+            registry.RegisterValidationRule(new FacingArcRule());
             registry.RegisterValidationRule(new PassiveSkillNoCastTimeRule());
             registry.RegisterValidationRule(new ChargesRechargeTimeZeroWarningRule());
             registry.RegisterValidationRule(new ChargesMaxAtLeastOneRule());

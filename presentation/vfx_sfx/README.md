@@ -425,3 +425,5 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
 
 32. **背景音乐播放器与按地图切曲（2026-10-07，消费方反馈样板游戏 A 备忘 2）**：`IMusicPlayer`/`MusicPlayer`——`Play(trackRef)` 在资源未加载时先 `LoadAsync(Audio)`、加载完成后再 `IAudio.PlayMusic`（ADR-0016 决策 6：`IAudio` 实现不隐式加载，首次引用方负责加载；音乐此前没有对应播放器，漏了就静音）；最新请求为准，同曲幂等，加载失败记诊断不重试。
     `MapMusicHost`——场景加载完成时读 `world.map.music_ref` 经播放器播放；地图没有 `music_ref` 时不动当前音乐；`PresentationAssemblyOptions.MapMusicEnabled`（默认 true）关闭后不构造。`PresentationAssembly.Music`/`MapMusic`。用例：`tests/MusicPlayerTests.cs`（10 条）。
+
+33. **`vfx.def.upright`：序列帧特效转到与相机平行（2026-10-08，样板游戏 B 缺口，[ADR-0164](../../architecture/adr/0164-样板游戏B缺口-斜透视公告牌与朝向弧.md)）**：新增可选布尔字段 `upright`（默认假）。为真时 `VfxPlayer.Spawn` 在发射参数里并入 `upright=1`，由引擎适配层把序列帧播放器转到与公告牌相机平行（火球、冰锥这类"立着"的特效）；默认假保持贴地平放（光环、地面标记）。`VfxDef` 新增八参数构造重载（七参数旧构造转发、`Upright=false`）。复现与不变量：`tests/VfxPlayerTests.cs`（并入参数、默认不并入）、`tests/VfxSfxFromRecordTests.cs`（字段解析）。**已知边界**：没有公告牌相机时该参数被忽略（平放行为不变）。

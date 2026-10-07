@@ -70,5 +70,15 @@ namespace Presentation.Render
         /// <see cref="DirectionIndexRemap"/>，但不需要随方向档位数（4/8/16）各配一张表。默认 <c>0</c>
         /// （不偏移，行为与改动前逐字节一致）。</summary>
         public double FacingAngleOffsetRadians { get; set; }
+
+        /// <summary>
+        /// 样板游戏 B 反馈（ADR-0164，2.5D 环绕镜头）：镜头偏航提供者（弧度，约定同 <c>ICameraOrientation.YawRadians</c>：绕世界竖轴逆时针，
+        /// 相机右轴 = (cos yaw, sin yaw)，屏幕上方在世界平面上的投影 = (-sin yaw, cos yaw)）。非 null 时：
+        /// <see cref="IRenderConventionHost.ApplyFacingConvention"/> 在"镜像、加偏移"之后再减去当前偏航——实体相对镜头的朝向随镜头转动，
+        /// 方向美术（正面/侧面/背面）因此跟着镜头换；<see cref="IRenderConventionHost.ComputeSortY"/> 取"沿屏幕上方的深度"
+        /// （<c>-x·sin yaw + y·cos yaw + 偏移</c>）而不是世界 Y——镜头转到背面时近处的物体仍盖住远处的。
+        /// 默认 null（固定镜头，两处与改动前逐字节一致）。提供者每次调用读一次，不缓存；游戏层通常传 <c>() =&gt; camera.YawRadians</c>。
+        /// </summary>
+        public System.Func<double>? CameraYawRadiansProvider { get; set; }
     }
 }

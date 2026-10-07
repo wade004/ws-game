@@ -43,6 +43,9 @@ namespace Tests.Presentation.Assembly
             // 手感设计/02 第 5 节固定的字段名与单位：字段名自带 _deg 后缀、值是度（与档案字段 turn_assist_deg 同一约定，
             // 动作数据里"最大角度"按度书写便于策划阅读），不是以弧度存储的角度值，故不登记 Radian。
             "skill.def.timeline.target_assist.max_angle_deg",
+            // ADR-0164：朝向弧 facing_arc 是"弧的总宽度"，单位度（取值范围 (0, 360]，策划按度书写；与上一条同一约定），
+            // 不是以弧度存储的角度值，故不登记 Radian。
+            "skill.def.facing_arc",
         };
 
         [Fact]

@@ -891,5 +891,42 @@ namespace Tests.Carriers.Item
 
             Assert.Contains(report.Issues, i => i.Check == AlwaysReportsSentinelRule.Check);
         }
+
+        // -----------------------------------------------------------------
+        // 样板游戏 B 反馈（2026-10-08，ADR-0164 决策 5）：带词缀品质的利用率分母扣除词缀预留份额。
+        // 同一组手算基线：item_level=1 → 预算上限 20；唯一候选词缀 budget_share=0.5、affix_count=1 ⇒ 预留 0.5，
+        // 模板自身消耗至多 10（词缀份额规则的上限）。没有这条扣减时"自身消耗 <= 10"与"利用率 >= 70%（>= 14）"互相矛盾。
+        // -----------------------------------------------------------------
+
+        private const string HalfShareAffixJson =
+            "[{\"id\": \"item.affix.a\", \"name_key\": \"l10n.item.affix.a\", \"budget_share\": 0.5," +
+            " \"quality_pool\": \"item.quality.common\", \"weight\": 1," +
+            " \"stat_mix\": [{\"stat\": \"stat.strength\", \"ratio\": 1}]}]";
+
+        [Fact]
+        public void BudgetRule_UtilizationWithAffixReserve_FullyUsedAvailableBudget_NoWarning()
+        {
+            // consumed=8：不扣预留时 8/20=0.4 会警告；扣预留后可用上限 10，8/10=0.8 >= 0.7 ⇒ 不警告，
+            // 且词缀份额规则同时不报错（8 + 0.5×20 = 18 <= 20）——两条规则对同一模板同时满意。
+            var templateJson = TemplateWithStatsAndOptionalAffixes("item.sample_reserve_ok", 8);
+            var view = BuildTemplateAffixShareView(templateJson, HalfShareAffixJson, QualityWithAffixCountOneJson);
+
+            Assert.Empty(new ItemBudgetValidationRule(new Id("item.budget.default")).Validate(view).ToList());
+            Assert.Empty(new ItemTemplateAffixShareExceedsBudgetRule(new Id("item.budget.default")).Validate(view).ToList());
+        }
+
+        [Fact]
+        public void BudgetRule_UtilizationWithAffixReserve_BelowAvailableBudget_StillWarnsAgainstAvailable()
+        {
+            // consumed=5：可用上限 10，5/10=0.5 < 0.7 ⇒ 仍然警告（分母是扣除预留后的可用上限，消息里写明预留份额）。
+            var templateJson = TemplateWithStatsAndOptionalAffixes("item.sample_reserve_low", 5);
+            var view = BuildTemplateAffixShareView(templateJson, HalfShareAffixJson, QualityWithAffixCountOneJson);
+
+            var issue = Assert.Single(new ItemBudgetValidationRule(new Id("item.budget.default")).Validate(view).ToList());
+
+            Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+            Assert.Equal(ItemBudgetValidationRule.CheckUtilizationLow, issue.Check);
+            Assert.Contains("预留份额", issue.Message);
+        }
     }
 }

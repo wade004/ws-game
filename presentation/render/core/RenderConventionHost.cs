@@ -39,7 +39,18 @@ namespace Presentation.Render
             _diagnostics = diagnostics;
         }
 
-        public double ComputeSortY(Vec2 logicalPos, double sortOffset) => logicalPos.Y + sortOffset;
+        public double ComputeSortY(Vec2 logicalPos, double sortOffset)
+        {
+            var provider = _options.CameraYawRadiansProvider;
+            if (provider == null)
+            {
+                return logicalPos.Y + sortOffset;
+            }
+
+            // ADR-0164：环绕镜头下的深度 = 世界位置在"屏幕上方"方向 (-sin yaw, cos yaw) 上的投影（yaw = 0 时恰为 Y）。
+            var yaw = provider();
+            return -logicalPos.X * System.Math.Sin(yaw) + logicalPos.Y * System.Math.Cos(yaw) + sortOffset;
+        }
 
         public IComparer<(Id Id, double SortY)> TieBreakComparer { get; } = new SortYThenIdComparer();
 
@@ -117,7 +128,9 @@ namespace Presentation.Render
         public double ApplyFacingConvention(double rawRadians)
         {
             var mirrored = _options.MirrorFacingY ? -rawRadians : rawRadians;
-            return mirrored + _options.FacingAngleOffsetRadians;
+            var result = mirrored + _options.FacingAngleOffsetRadians;
+            var provider = _options.CameraYawRadiansProvider;
+            return provider == null ? result : result - provider();
         }
 
         public IReadOnlyList<SpriteLayerPlacement> ComposeSpriteLayers(

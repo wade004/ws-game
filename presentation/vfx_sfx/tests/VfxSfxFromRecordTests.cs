@@ -37,6 +37,27 @@ namespace Tests.Presentation.VfxSfx
         }
 
         [Fact]
+        public void VfxDef_FromRecord_ParsesUpright_DefaultsToFalse()
+        {
+            const string row = @"
+            {
+              ""id"": ""vfx.upright_spark"",
+              ""category"": ""impact"",
+              ""attach_mode"": ""world"",
+              ""resource_ref"": ""res.vfx.upright_spark"",
+              ""upright"": true
+            }";
+            var (registry, report) = VfxSfxTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["vfx.def"] = "[" + row + "," + VfxSfxTestSupport.FireImpactVfxRow + "]",
+            });
+            Assert.False(report.IsBlocking);
+
+            Assert.True(VfxDef.FromRecord(registry.Get("vfx.def", "vfx.upright_spark")!).Upright);
+            Assert.False(VfxDef.FromRecord(registry.Get("vfx.def", "vfx.fire_impact")!).Upright);
+        }
+
+        [Fact]
         public void VfxDef_FromRecord_ParsesSortOrder_DefaultsToZero()
         {
             const string row = @"

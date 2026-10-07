@@ -25,6 +25,7 @@
 | `action_cost` | Number | 否 | 离散模式行动点消耗；`SkillDefCache` 解析为 `SkillDef.ActionCost`（缺省 0），`CastPipeline` 经注入的 `SkillOptions.TryConsumeActionPoints`/`IsDiscreteStep` 在离散步内扣减（连续模式或未装配注入点时忽略本字段，见 W1 收边补齐、A3 审计 #5） |
 | `respects_gcd` | Bool | 是 | 字段名保留，语义由"是否受公共冷却影响"扩展为"是否受节拍锁约束"——开公共冷却时节拍锁是公共冷却，关公共冷却（默认）时节拍锁是当前动作时长（`cast_time`）；声明为 `false` 的反应类技能（打断/格挡/保命）可在他技能动作中插入（ADR-0031 决策 10） |
 | `target_shape_ref` | Id | 是 | 指向 `target.chain_def`（本模块施法管线步骤 6 按此语义直接传给 `ITargetHost.Resolve`，见 README"判断记录"第 1 条） |
+| `facing_arc` | Number（度，(0, 360]） | 否 | 朝向弧（[ADR-0164](../../../../architecture/adr/0164-样板游戏B缺口-斜透视公告牌与朝向弧.md)）：声明后施法起手时，每个解析出的非自身目标与施法者面向的夹角超过 `facing_arc/2` 即拒绝（`CastFailureReason.NotFacing`）；只在起手检查一次；与 `timeline` 互斥（校验规则 `facing_arc_range`/`facing_arc_timeline_conflict`，均为错误） |
 | `effects` | Array | 是 | `[{kind: String(snake_case), params: Object}, ...]`，`kind` 取值见 `EffectKindNames`；ADR-0019 起元素结构登记为 `SkillSchemas.EffectsItemSchema`（按 `kind` 分派的 `Variants`，19 种原语各自的 `params` 结构见下"效果原语参数表"），加载期递归校验 |
 | `interrupt_flags` | Array\<String\> | 否 | `movement`\|`damage_taken`\|`control` 的子集，元素登记为 `Enum(InterruptFlagValues)` |
 | `use_condition` | Expr | 否 | 使用条件（宿主为施法者上下文，`self`/`combat`/`target` 分组，见 04 第 6.2 节"宿主引用分组"）；为假时施法返回 `ConditionNotMet`（T-N3-4 落地），就绪查询（`getSkillReadiness`）同步反映；"脱战才能用""仅限战斗中""目标是物件"均用它表达（ADR-0031 决策 9，见 06 第 3.1 节 2026-09-14 修订段）。登记为 `FieldKind.Expr` 后自动获得 `DataRegistry` 内建 `expr_parsable` 校验，本任务不需要额外注册校验规则 |
