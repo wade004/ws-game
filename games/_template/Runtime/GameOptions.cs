@@ -225,6 +225,13 @@ namespace Game.Template
         public Core.Gameplay.Dialog.VendorOpenRequestedCallback? VendorOpenRequested;
 
         /// <summary>
+        /// P4 备忘 3：带商人引用（<c>vendor</c> 动作的 <c>ref</c>）的打开商店回调；装配完成后转发给 <c>Gameplay.Dialog.VendorOpenRequestedWithRef</c>，
+        /// 与 <see cref="VendorOpenRequested"/> 并存（两者都设置时先调旧的）。是属性而不是字段：不属于 Unity 可序列化类型，避免被
+        /// <c>GameOptionsTests</c> 的"值字段 JsonUtility 往返"遍历误收（同 <see cref="FeelOptions"/>）。默认 null。
+        /// </summary>
+        public Core.Gameplay.Dialog.VendorOpenRequestedWithRefCallback? VendorOpenRequestedWithRef { get; set; }
+
+        /// <summary>
         /// 手感落地 S10：手感系统装配选项（转发给 GameplayAssembly 的 <c>feelOptions</c>）。默认 null 即不启用手感，行为与此前逐位一致。
         /// 与上面三个委托字段同一惯例：不是 Unity 可序列化类型，只能由游戏代码在 Bootstrap() 真正读取之前赋值。是属性而不是字段，
         /// 避免被 <c>GameOptionsTests</c> 的"值字段 JsonUtility 往返"遍历误收。启用时数据根必须含 feel.* 行（如框架的 data/_feel）。

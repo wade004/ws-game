@@ -200,7 +200,7 @@ namespace Core.Gameplay.Encounter
             _instances[instanceId.Value] = instance;
             _instanceOrder.Add(instanceId);
 
-            _bus.PublishImmediate(new EncounterStartedEvent(instanceId));
+            _bus.PublishImmediate(new EncounterStartedEvent(instanceId, def.Id));
 
             result = EncounterStartResult.Started;
             return instanceId;
@@ -279,7 +279,7 @@ namespace Core.Gameplay.Encounter
                     }
                 }
                 BeginSettle(instance, spawnedIds);
-                _bus.PublishImmediate(new EncounterWaveSpawnedEvent(instanceId, i, spawnedIds));
+                _bus.PublishImmediate(new EncounterWaveSpawnedEvent(instanceId, i, spawnedIds, def.Id));
             }
 
             // 2) 阶段：按声明顺序单调推进，一次 Evaluate 至多切换一个阶段（08 第 4.3 节"阶段单调
@@ -291,7 +291,7 @@ namespace Core.Gameplay.Encounter
                 var oldPhase = instance.CurrentPhaseIndex;
                 instance.CurrentPhaseIndex = nextPhaseIndex;
                 ApplyPhase(instance, def.Phases[nextPhaseIndex]);
-                _bus.PublishImmediate(new EncounterPhaseChangedEvent(instanceId, oldPhase, nextPhaseIndex));
+                _bus.PublishImmediate(new EncounterPhaseChangedEvent(instanceId, oldPhase, nextPhaseIndex, def.Id));
             }
 
             // 3) 场地规则：玩家离开边界则重置（重置后本次 Evaluate 结束，不再继续判定胜负——
@@ -334,7 +334,7 @@ namespace Core.Gameplay.Encounter
                 if (def.Rewards.IsEmpty || _rewardDispatcher.Grant(instance.PlayerUnitId, def.Rewards, def.Id))
                 {
                     instance.IsActive = false;
-                    _bus.PublishImmediate(new EncounterWonEvent(instanceId));
+                    _bus.PublishImmediate(new EncounterWonEvent(instanceId, def.Id));
                 }
                 return;
             }
@@ -342,7 +342,7 @@ namespace Core.Gameplay.Encounter
             if (ExprEvaluator.EvaluateBool(def.DefeatCondition, host, _diagnostics))
             {
                 instance.IsActive = false;
-                _bus.PublishImmediate(new EncounterLostEvent(instanceId));
+                _bus.PublishImmediate(new EncounterLostEvent(instanceId, def.Id));
             }
         }
 

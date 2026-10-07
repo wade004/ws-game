@@ -9,6 +9,15 @@ namespace Core.Gameplay.Dialog
     /// <see cref="Core.Gameplay.Common.CurrencyGranter"/>）。</summary>
     public delegate void VendorOpenRequestedCallback(Id unitId, Id npcId);
 
+    /// <summary>
+    /// P4 备忘 3（样板游戏 A 反馈）：带商人引用的"打开商店"请求。<see cref="VendorOpenRequestedCallback"/> 只给 NPC 实例 id，
+    /// 对话数据里 <c>vendor</c> 动作带的商人引用（<c>econ.vendor.*</c>）在回调里丢了，游戏侧只能再去查 NPC 的 gossip 菜单数据反推。
+    /// 本委托在原有两个参数之外多给 <paramref name="vendorRef"/>——<c>vendor</c> 动作的 <c>ref</c> 字段，动作没写 <c>ref</c> 时为 <c>null</c>
+    /// （此时游戏侧按自己的约定决定开哪家，如生物自带的商人表）。经 <see cref="DialogHost.VendorOpenRequestedWithRef"/> 注入；
+    /// 与 <see cref="VendorOpenRequestedCallback"/> 并存，两者都注入时先调旧的、再调新的。
+    /// </summary>
+    public delegate void VendorOpenRequestedWithRefCallback(Id unitId, Id npcId, Id? vendorRef);
+
     /// <summary>契约缺口：传送目标的实际执行（移动单位位置/切场景）属于 05/03 文档的场景路由与
     /// 单位位置写入职责，本模块不直接依赖那些模块，改用回调把"传送请求"转发给调用方。</summary>
     public delegate void TeleportRequestedCallback(Id unitId, Id targetRef);

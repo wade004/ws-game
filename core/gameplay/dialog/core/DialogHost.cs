@@ -47,6 +47,13 @@ namespace Core.Gameplay.Dialog
         /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
         public IDialogDiagnostics Diagnostics => _diagnostics;
 
+        /// <summary>
+        /// P4 备忘 3：带商人引用（<c>vendor</c> 动作的 <c>ref</c>）的"打开商店"回调，装配后设置（ABI 只加法：构造函数不动，
+        /// 不给既有构造加参数）。与构造参数 <c>vendorOpenRequested</c> 并存：两者都设置时先调旧回调（NPC 实例 id）、再调本回调；
+        /// 都没设置时记一条诊断并跳过，行为同改动前。
+        /// </summary>
+        public VendorOpenRequestedWithRefCallback? VendorOpenRequestedWithRef { get; set; }
+
         public DialogHost(
             IEnumerable<GossipMenuDefinition> gossipMenus,
             IEnumerable<StoryTreeDefinition> storyTrees,
@@ -377,9 +384,16 @@ namespace Core.Gameplay.Dialog
             switch (action.Kind)
             {
                 case DialogActionKind.Vendor:
+                {
+                    var withRef = VendorOpenRequestedWithRef;
                     if (_vendorOpenRequested != null) _vendorOpenRequested(unitId, npcId);
-                    else _diagnostics.Warn($"DialogHost：未注入 VendorOpenRequestedCallback，跳过 vendor 动作（menuId={menuId}）");
+                    if (withRef != null) withRef(unitId, npcId, action.Ref);
+                    if (_vendorOpenRequested == null && withRef == null)
+                    {
+                        _diagnostics.Warn($"DialogHost：未注入 VendorOpenRequestedCallback，跳过 vendor 动作（menuId={menuId}）");
+                    }
                     break;
+                }
 
                 case DialogActionKind.QuestAccept:
                     _questHost.Accept(unitId, action.Ref!.Value);

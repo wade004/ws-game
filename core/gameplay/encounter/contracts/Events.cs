@@ -29,6 +29,12 @@ namespace Core.Gameplay.Encounter
     /// <c>encounter_sequence</c>（见该类型判断记录）。因此本模块统一把全部五个事件的
     /// <c>encounterId</c> 字段落地为 <b>实例 id</b>（<c>encounter.inst_&lt;n&gt;</c>），不是
     /// <c>encounter.def</c> 的定义 id——这是任务书字段表未列出细节时的判断记录。
+    /// <para>
+    /// 判断记录（P4 备忘 9，样板游戏 A 反馈）：<c>encounterId</c> 仍是实例 id（订阅方按它精确匹配自己发起的那一次运行），但订阅方
+    /// 还需要知道"是哪个遭遇定义"（例如"首领遭遇开始"要认 <c>encounter.def</c> 行 id，实例 id 每次运行都不同）。五个事件因此
+    /// 新增只读属性 <c>DefinitionId</c> 与带它的构造函数重载；旧构造函数保留，不带定义 id 时该属性是默认值。不新增表达式可读字段
+    /// （<c>found.event_catalog</c> 行与各数据哈希基线不动）。
+    /// </para>
     /// </summary>
     public sealed class EncounterStartedEvent : IEvent, IExprReadableEvent
     {
@@ -36,9 +42,19 @@ namespace Core.Gameplay.Encounter
 
         public Id EncounterId { get; }
 
+        /// <summary>遭遇定义 id（<c>encounter.def</c> 行 id）。P4 备忘 9：此前事件只带实例 id，订阅方反查不到
+        /// 是哪一个遭遇定义；用旧构造函数（不带定义 id）创建时本属性是默认值。</summary>
+        public Id DefinitionId { get; }
+
         public EncounterStartedEvent(Id encounterId)
         {
             EncounterId = encounterId;
+        }
+
+        public EncounterStartedEvent(Id encounterId, Id definitionId)
+        {
+            EncounterId = encounterId;
+            DefinitionId = definitionId;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -64,11 +80,20 @@ namespace Core.Gameplay.Encounter
 
         public IReadOnlyList<Id> EntityIds { get; }
 
+        /// <summary>遭遇定义 id（见 <see cref="EncounterStartedEvent.DefinitionId"/>）。</summary>
+        public Id DefinitionId { get; }
+
         public EncounterWaveSpawnedEvent(Id encounterId, int waveIndex, IReadOnlyList<Id> entityIds)
         {
             EncounterId = encounterId;
             WaveIndex = waveIndex;
             EntityIds = (entityIds ?? Array.Empty<Id>()).ToArray();
+        }
+
+        public EncounterWaveSpawnedEvent(Id encounterId, int waveIndex, IReadOnlyList<Id> entityIds, Id definitionId)
+            : this(encounterId, waveIndex, entityIds)
+        {
+            DefinitionId = definitionId;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -97,11 +122,20 @@ namespace Core.Gameplay.Encounter
 
         public int NewPhase { get; }
 
+        /// <summary>遭遇定义 id（见 <see cref="EncounterStartedEvent.DefinitionId"/>）。</summary>
+        public Id DefinitionId { get; }
+
         public EncounterPhaseChangedEvent(Id encounterId, int oldPhase, int newPhase)
         {
             EncounterId = encounterId;
             OldPhase = oldPhase;
             NewPhase = newPhase;
+        }
+
+        public EncounterPhaseChangedEvent(Id encounterId, int oldPhase, int newPhase, Id definitionId)
+            : this(encounterId, oldPhase, newPhase)
+        {
+            DefinitionId = definitionId;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -123,9 +157,18 @@ namespace Core.Gameplay.Encounter
 
         public Id EncounterId { get; }
 
+        /// <summary>遭遇定义 id（见 <see cref="EncounterStartedEvent.DefinitionId"/>）。</summary>
+        public Id DefinitionId { get; }
+
         public EncounterWonEvent(Id encounterId)
         {
             EncounterId = encounterId;
+        }
+
+        public EncounterWonEvent(Id encounterId, Id definitionId)
+        {
+            EncounterId = encounterId;
+            DefinitionId = definitionId;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -145,9 +188,18 @@ namespace Core.Gameplay.Encounter
 
         public Id EncounterId { get; }
 
+        /// <summary>遭遇定义 id（见 <see cref="EncounterStartedEvent.DefinitionId"/>）。</summary>
+        public Id DefinitionId { get; }
+
         public EncounterLostEvent(Id encounterId)
         {
             EncounterId = encounterId;
+        }
+
+        public EncounterLostEvent(Id encounterId, Id definitionId)
+        {
+            EncounterId = encounterId;
+            DefinitionId = definitionId;
         }
 
         public bool TryGetField(string name, out ExprValue value)

@@ -123,6 +123,67 @@ namespace Tests.Gameplay.Assembly
             Assert.Equal(npcId, openedForNpc);
         }
 
+        private const string VendorWithRefGossipMenuRows =
+            "[{\"id\": \"dialog.gossip_menu.owner_day_vendor_with_ref\", \"options\": [" +
+            "{\"text_key\": \"l10n.gossip.owner_day_vendor_with_ref.open_shop\", \"actions\": [{\"kind\": \"vendor\", \"ref\": \"econ.vendor.owner_day_vendor_shop\"}]}," +
+            "{\"text_key\": \"l10n.gossip.owner_day_vendor_with_ref.open_default\", \"actions\": [{\"kind\": \"vendor\"}]}" +
+            "]}]";
+
+        /// <summary>
+        /// P4 备忘 3 复现与不变量：<c>vendor</c> 动作写的商人引用（<c>ref</c>）经 <c>VendorOpenRequestedWithRef</c> 原样送达，
+        /// 动作没写 <c>ref</c> 时为 <c>null</c>；旧回调（NPC 实例 id）与新回调并存时都被调用、旧的先于新的；
+        /// 只设旧回调时行为同改动前（修复前这条路径只有旧回调，商人引用丢失）。
+        /// </summary>
+        [Fact]
+        public void VendorOpenRequestedWithRef_ReceivesActionRef_AndCoexistsWithLegacyCallback()
+        {
+            var source = BuildBaseDataSource()
+                .Add("dialog.gossip_menu", Envelope("dialog.gossip_menu", VendorWithRefGossipMenuRows))
+                .Add("dialog.story_tree", Envelope("dialog.story_tree", "[]"));
+
+            var order = new System.Collections.Generic.List<string>();
+            Id? legacyNpc = null;
+            var fx = Build(source, vendorOpenRequested: (unitId, npcId) => { legacyNpc = npcId; order.Add("legacy"); });
+            var withRef = new System.Collections.Generic.List<(Id Unit, Id Npc, Id? Ref)>();
+            fx.Gameplay.Dialog.VendorOpenRequestedWithRef = (unitId, npcId, vendorRef) =>
+            {
+                withRef.Add((unitId, npcId, vendorRef));
+                order.Add("with_ref");
+            };
+
+            var npcId = new Id("npc.owner_day_vendor_with_ref");
+            var menuId = new Id("dialog.gossip_menu.owner_day_vendor_with_ref");
+            fx.Gameplay.Dialog.OpenGossip(PlayerId, npcId, menuId);
+            Assert.True(fx.Gameplay.Dialog.ChooseOption(PlayerId, 0));
+            fx.Gameplay.Dialog.OpenGossip(PlayerId, npcId, menuId);
+            Assert.True(fx.Gameplay.Dialog.ChooseOption(PlayerId, 1));
+
+            Assert.Equal(npcId, legacyNpc);
+            Assert.Equal(2, withRef.Count);
+            Assert.Equal(PlayerId, withRef[0].Unit);
+            Assert.Equal(npcId, withRef[0].Npc);
+            Assert.Equal(new Id("econ.vendor.owner_day_vendor_shop"), withRef[0].Ref);
+            Assert.Null(withRef[1].Ref);
+            Assert.Equal(new[] { "legacy", "with_ref", "legacy", "with_ref" }, order);
+        }
+
+        [Fact]
+        public void VendorOpenRequestedWithRef_AloneIsEnough_NoDiagnosticWarning()
+        {
+            var source = BuildBaseDataSource()
+                .Add("dialog.gossip_menu", Envelope("dialog.gossip_menu", VendorWithRefGossipMenuRows))
+                .Add("dialog.story_tree", Envelope("dialog.story_tree", "[]"));
+            var fx = Build(source);
+            Id? seenRef = null;
+            fx.Gameplay.Dialog.VendorOpenRequestedWithRef = (_, __, vendorRef) => seenRef = vendorRef;
+
+            fx.Gameplay.Dialog.OpenGossip(PlayerId, new Id("npc.owner_day_vendor_with_ref"), new Id("dialog.gossip_menu.owner_day_vendor_with_ref"));
+            Assert.True(fx.Gameplay.Dialog.ChooseOption(PlayerId, 0));
+
+            Assert.Equal(new Id("econ.vendor.owner_day_vendor_shop"), seenRef);
+            Assert.DoesNotContain(((Core.Gameplay.Dialog.InMemoryDialogDiagnostics)fx.Gameplay.Dialog.Diagnostics).Warnings, w => w.Contains("VendorOpenRequestedCallback"));
+        }
+
         // -----------------------------------------------------------------
         // questOwnerResolver：宠物/召唤物击杀应当能归功给它解析出的主人。
         // -----------------------------------------------------------------

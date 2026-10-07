@@ -186,6 +186,10 @@ namespace Adapter.Unity.Shell
         /// <summary>见 <see cref="QuestOwnerResolver"/> 判断记录。</summary>
         public global::Core.Gameplay.Dialog.VendorOpenRequestedCallback? VendorOpenRequested { get; set; }
 
+        /// <summary>P4 备忘 3：带商人引用（<c>vendor</c> 动作的 <c>ref</c>）的打开商店回调，装配完成后转发给 <c>Gameplay.Dialog.VendorOpenRequestedWithRef</c>；
+        /// 与 <see cref="VendorOpenRequested"/> 并存（两者都设置时先调旧的）。默认 <c>null</c>，不改变既有行为。</summary>
+        public global::Core.Gameplay.Dialog.VendorOpenRequestedWithRefCallback? VendorOpenRequestedWithRef { get; set; }
+
         /// <summary>手感落地 M2-A：手感系统装配选项（转发给 <see cref="GameplayAssembly"/> 的 <c>feelOptions</c>，同
         /// <c>Adapter.Unity.Bootstrap.GameFoundationBootstrap.FeelOptions</c> 与 <c>games/_template.GameOptions.FeelOptions</c>）。
         /// 默认 <c>null</c> 即不启用手感，行为与此前逐位一致。本类型有 <see cref="Ensure"/> 单例守卫，同 <see cref="QuestOwnerResolver"/>：
@@ -470,6 +474,10 @@ namespace Adapter.Unity.Shell
                 creatureInteractOptions: null,
                 feelOptions: FeelOptions);
             Gameplay = gameplay;
+            if (VendorOpenRequestedWithRef != null)
+            {
+                gameplay.Dialog.VendorOpenRequestedWithRef = VendorOpenRequestedWithRef;
+            }
 
             _player = new PlayerUnit(PlayerId, new Id(SampleMapId), factionId, _classId)
             {

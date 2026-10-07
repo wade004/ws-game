@@ -84,6 +84,68 @@ namespace Tests.Gameplay.Encounter
             Assert.Equal(instanceId, captured!.EncounterId);
         }
 
+        /// <summary>P4 备忘 9 复现与不变量：遭遇事件的 <c>encounterId</c> 仍是实例 id，同时带遭遇定义 id；
+        /// 同一定义的两次运行定义 id 相同、实例 id 不同（开始/波次/阶段/胜利/失败五个事件口径一致）。</summary>
+        [Fact]
+        public void EncounterEvents_CarryDefinitionId_AlongsideDistinctInstanceIds()
+        {
+            var host = MakeHost(out _, out _, out _, out _, out var exprFactory, out var bus);
+            var started = new System.Collections.Generic.List<EncounterStartedEvent>();
+            var won = new System.Collections.Generic.List<EncounterWonEvent>();
+            var lost = new System.Collections.Generic.List<EncounterLostEvent>();
+            var waves = new System.Collections.Generic.List<EncounterWaveSpawnedEvent>();
+            var phases = new System.Collections.Generic.List<EncounterPhaseChangedEvent>();
+            bus.Subscribe<EncounterStartedEvent>(EncounterEventKeys.Started, e => started.Add(e));
+            bus.Subscribe<EncounterWonEvent>(EncounterEventKeys.Won, e => won.Add(e));
+            bus.Subscribe<EncounterLostEvent>(EncounterEventKeys.Lost, e => lost.Add(e));
+            bus.Subscribe<EncounterWaveSpawnedEvent>(EncounterEventKeys.WaveSpawned, e => waves.Add(e));
+            bus.Subscribe<EncounterPhaseChangedEvent>(EncounterEventKeys.PhaseChanged, e => phases.Add(e));
+
+            var basic = new Id("encounter.sample_basic");
+            var first = host.Start(basic, MapA, Player);
+            bus.DispatchPending();                                  // 参战单位 entity.created 落地后才会判胜负
+            exprFactory.Set("self.is_alive", true);
+            host.Evaluate(first);                                   // 胜利 -> 实例结束
+            var second = host.Start(basic, MapA, Player);
+            Assert.NotEqual(first, second);
+            Assert.Equal(2, started.Count);
+            Assert.All(started, e => Assert.Equal(basic, e.DefinitionId));
+            Assert.Equal(first, started[0].EncounterId);
+            Assert.Equal(second, started[1].EncounterId);
+            Assert.Single(won);
+            Assert.Equal(basic, won[0].DefinitionId);
+            Assert.Equal(first, won[0].EncounterId);
+
+            // 失败事件。
+            var lostHost = MakeHost(out _, out _, out _, out _, out var lostExpr, out var lostBus);
+            lostBus.Subscribe<EncounterLostEvent>(EncounterEventKeys.Lost, e => lost.Add(e));
+            var lostInstance = lostHost.Start(basic, MapA, Player);
+            lostBus.DispatchPending();
+            lostExpr.Set("target.is_alive", true);
+            lostHost.Evaluate(lostInstance);
+            Assert.Single(lost);
+            Assert.Equal(basic, lost[0].DefinitionId);
+            Assert.Equal(lostInstance, lost[0].EncounterId);
+
+            // 波次与阶段事件。
+            var wavesDef = new Id("encounter.sample_waves");
+            var waveInstance = host.Start(wavesDef, MapA, Player);
+            bus.DispatchPending();
+            exprFactory.Set("self.in_combat", true);
+            host.Evaluate(waveInstance);
+            Assert.Single(waves);
+            Assert.Equal(wavesDef, waves[0].DefinitionId);
+            Assert.Equal(waveInstance, waves[0].EncounterId);
+
+            var phasesDef = new Id("encounter.sample_phases_template");
+            var phaseInstance = host.Start(phasesDef, MapA, Player);
+            bus.DispatchPending();
+            exprFactory.Set("combat.in_combat", true);
+            host.Evaluate(phaseInstance);
+            Assert.NotEmpty(phases);
+            Assert.All(phases, e => Assert.Equal(phasesDef, e.DefinitionId));
+        }
+
         [Fact]
         public void Start_SpawnRefUnits_UsesSpawnRequester()
         {

@@ -412,6 +412,10 @@ namespace Game.Template
                 creatureInteractOptions: null,
                 feelOptions: _options.FeelOptions);
             Gameplay = gameplay;
+            if (_options.VendorOpenRequestedWithRef != null)
+            {
+                gameplay.Dialog.VendorOpenRequestedWithRef = _options.VendorOpenRequestedWithRef;
+            }
 
             _player = new PlayerUnit(PlayerId, new Id(_options.StartMapId), factionId, _classId)
             {
