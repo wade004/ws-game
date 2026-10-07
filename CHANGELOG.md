@@ -458,6 +458,31 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **手感落地 M4（1.96.0）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[1.96.0]` 正文。
 - **非手感已知限制清扫（1.96.0，[ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）**：数据与契约只增不改，编辑器按需跟进——`item.slot_definition` 新增可选布尔字段 `has_appearance`（缺省 `true`，写 `false` 的槽位物品不要求 `display.equip_visual` 行）；表达式可读事件 `combat.attack_avoided`、`combat.hit_confirmed` 的 `attackInstanceId` 现在可经表达式读取（为空时查不到）；`LootExpectedCurrencyOutcome.ExpectedRoundedAmount`（含取整与非正值跳过的精确货币期望，线性的 `ExpectedAmount` 保留，"理论与观测"面板应读前者）与 `LootTableAnalyzer.ExpectedAffixInclusion` 的 5 参数重载（大词缀池精确解，计算量预算 `exactMaxWork`）；`item.set` 数据重载后套装门槛立即对账（热重载后不必再等装备变化才见效果）；`simrunner fight` 子命令与 `--fight-log` 日志文件（`{schema_version, truncated, entries}`）；游戏模板 `GameOptions.PathFailurePolicy`/`BlockingChangePolicy`。详见下方 `[1.96.0]`"非手感已知限制清扫"。
 
+## [2.4.0] - 2026-10-07
+
+### 新增
+
+- **内容起步包 `data/_starter_kit`（P4，[ADR-0162](architecture/adr/0162-内容起步包与默认中文字体子集工具.md)）**：框架出厂一份游戏无关的内容起步包，**可选根，默认不装载**——游戏在 `GameOptions.ExtraFrameworkDatasetRoots` 里声明 `GameOptions.StarterKitDatasetRoot`（`data/_starter_kit`）才加载，装载顺序在框架根/手感根/默认手感模板根之后、游戏根之前，与 `data/_feel_templates` 同一套分发路径（随 dist 与框架数据包 `Data~/data/_starter_kit` 分发，`sync_package_content.ps1` 镜像进内容根，不进实验室根，包边界门禁 `_gate_package_boundary` 认可）。内容：技能模板（三连击、重击、蓄力、闪避、远程射击、带预警的范围终结技）、敌人原型（近战/远程/重型/首领骨架）、装备（槽位/品质/词缀结构与少量示例）、掉落结构与示例、任务结构（击杀计数/收集/对话交付/多阶段）、对话结构（分支、按任务状态切换）、地图规则（区域/传送/存档点/刷新点）、系统文案（简体中文 + 英文）、数值曲线（经验/成长/价格/预算）与面板热键动作 `input.action.ui_toggle_*`；50 个文件（每个文件一张表）、568 行，合计约 132 KB。**数值是自拟的试调起点，没有试玩**；外形映射指向占位精灵（`sprite.kit_placeholder`），游戏写覆盖行换成自己的美术。门禁步骤 `validate_starter_kit_data`、测试 `toolchain/tests/test_starter_kit_data.py`。模板 `games/_template` 有注释掉的声明示例与 `validate.ps1 -StarterKit`。**已知代价**：起步包的数值曲线（物品价值、武器秒伤、预算利用率）声明后对该游戏的全部内容生效，游戏自己手填的价格/伤害会出校验警告（只警告、不阻断）。
+- **字体子集工具 `toolchain/font_subset.py`（ADR-0162）**：按游戏数据里 `l10n.text` 实际用字（扫描全部数据根、多语言）加 GB2312 一级常用字表与额外字符，把默认中文字体（`assets/_placeholder/fonts/noto_sans_cjk_sc.otf`，SIL OFL 1.1，许可证 `LICENSE-OFL.txt` 同目录随发）裁成子集：起步包文案加常用字表约 1.8 MB（整套 16.4 MB 的 11%），只留数据用字约 0.15 MB；缺字报告、`--strict` 缺字即失败不写文件、输出确定性；测试 `toolchain/tests/test_font_subset.py`。依赖只有已安装的 `fontTools`。
+- **输入上下文栈（样板游戏 A P3 备忘 8）**：`IInputMapHost.PushInputContext/PopInputContext/ActiveInputContext`（C#8 默认接口成员，ABI 仅新增）。栈顶上下文的放行动作之外的动作视为未激活（按钮不触发、轴输出零向量），栈顶独占；压入时正按住的被挡键补"抬起"边沿、弹出时不补"按下"。参考面板宿主在模态面板（对话/商店/暂停/设置/存档槽）打开时压栈 `input.context.ui_modal`（`UiModalInputContext`，可 `Enabled=false` 关闭）。
+- **背景音乐播放器与地图音乐宿主（备忘 2）**：`IMusicPlayer`/`MusicPlayer`（`PresentationAssembly.Music`）——资源没加载时先加载再开播（`IAudio.PlayMusic` 本身不加载，ADR-0016 决策 6 不变）；`MapMusicHost` 在场景加载完成时读 `world.map.music_ref` 播放，`PresentationAssemblyOptions.MapMusicEnabled`（默认 `true`）可关闭、游戏自己管音乐。地图行没有 `music_ref` 时不动当前音乐。
+- **遭遇事件携带遭遇定义 id（备忘 9）**：`EncounterStarted/WaveSpawned/PhaseChanged/Won/Lost` 五个事件新增 `DefinitionId` 与带它的构造重载（旧构造保留，旧调用方该属性为默认值）。
+- **商人动作的 `ref` 送达（备忘 3）**：`DialogHost.VendorOpenRequestedWithRef(unitId, npcId, vendorRef)`，与旧回调并存（两者都设置时先旧后新）；`games/_template` 的 `GameOptions.VendorOpenRequestedWithRef` 透传。
+- **新游戏清空持久化域（备忘 7）**：`ISaveSystem.ResetAllSections()`（默认接口方法，`SaveSystem` 覆盖）：按读档同序对每个已登记段调用 `Load(JsonNull)`（声明 `KeepStateWhenSectionMissing` 的段不动）、同样回调派生状态重建钩子、同样抑制事件派发；不读不写存档文件、不发 `save.loaded`；某段抛异常只记诊断、其余段继续并返回 `false`。
+- **面板热键数据化（备忘 5）**：`UiPanelHotkeys`：数据里声明了 `input.action.ui_toggle_<面板>` 按钮动作的面板用该动作的当前绑定（可改键、可存设置），没声明的按 `LegacyEnabled`（默认 `true`，沿用原写死键；设 `false` 全部关闭）；声明了的面板不再响应写死键。
+- **物品提示框行标签与参考面板文案走 l10n（备忘 1）**：`ItemTooltipBuilder` 行标签新增本地化键 `l10n.ui.tooltip.{slot,item_level,damage,speed,required_level}`（取不到文案退回原中文常量，既有调用方行为不变）；对话/设置/商店/任务面板文案经 `T(key, fallback)` 走 l10n；`UiIntents.CloseDialog()`/`CloseDialog(panelId)` 与对话面板"离开"按钮。文案由游戏数据或内容起步包提供。
+- **自动存档的"换图完成/任务完成"触发点（备忘 4）**：装配根订阅 `scene.load_finished` 与 `quest.completed`/`quest.turned_in`（只认玩家单位），按 `AutoSavePolicy.OnMapSwitch`/`OnQuestComplete` 在下一固定步的触发评估阶段合并成至多一次写自动存档槽；没有固定步驱动的宿主可手动调 `GameplayAssembly.FlushPendingAutosave()`。
+
+### 变更
+
+- **行为变化**：`AutoSavePolicy.OnQuestComplete` 默认值本就是 `true`，但此前没有任何框架消费者，等于不生效；本版起任务完成/交付**会真正写自动存档槽**。不想要的游戏把该位设为 `false`。`OnMapSwitch` 默认仍是 `false`。
+- **`SaveSettings` 按键合并且幂等（备忘 6）**：`ShellHost.SaveSettings` 以现有设置为底、只覆盖本次传入的键（此前整份替换）；`input_bindings` 是保留键，由输入映射实时导出独占，调用方把 `LoadSettings` 的结果原样传回不再抛"同名键重复"，重复保存幂等。**已知限制：合并只覆盖不删除，没有经本方法删除某个已存设置键的办法。**
+
+### 契约决定
+
+- [ADR-0162](architecture/adr/0162-内容起步包与默认中文字体子集工具.md)：内容起步包与字体子集工具。
+- [ADR-0163](architecture/adr/0163-样板游戏P3备忘清偿的契约决定.md)：样板游戏 A P3 九条非阻塞备忘的契约决定。
+
 ## [2.3.1] - 2026-10-07
 
 ### 修复
