@@ -59,8 +59,9 @@ namespace Presentation.Shell
         /// （见 10 第 7 节"按键绑定...持久化到设置"）。</summary>
         JsonObject LoadSettings();
 
-        /// <summary>把 <paramref name="additionalFields"/>（音量、语言等设置项）连同当前按键绑定
-        /// （<see cref="Core.Foundation.InputMap.IInputMapHost.ExportBindings"/>）一并落盘。</summary>
+        /// <summary>把 <paramref name="additionalFields"/>（音量、语言等设置项）按键合并进现有设置文件，连同当前按键绑定
+        /// （<see cref="Core.Foundation.InputMap.IInputMapHost.ExportBindings"/>）一并落盘；没传的旧键保留，
+        /// <c>input_bindings</c> 为保留键（传入同名项被忽略），重复保存幂等。</summary>
         bool SaveSettings(JsonObject additionalFields);
 
         /// <summary>推进场景加载（转发 <see cref="Core.Foundation.SceneRouter.ISceneRouter.Update"/>，

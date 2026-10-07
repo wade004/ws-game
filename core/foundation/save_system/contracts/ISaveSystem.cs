@@ -70,6 +70,20 @@ namespace Core.Foundation.SaveSystem
         }
 
         /// <summary>
+        /// P4 备忘 7（样板游戏 A 反馈）：把全部已登记存档段清回"从未发生过"的默认态——新游戏用。语义取读档同一条通路里"段缺失"的
+        /// 既定做法（<see cref="IPersistable.Load"/> 判断记录）：按读档同序对每个已登记段调用一次 <c>Load(JsonNull)</c>（声明
+        /// <see cref="IPersistable.KeepStateWhenSectionMissing"/> 为 <c>true</c> 的段不动），随后与读档一样回调派生状态重建钩子
+        /// （<see cref="IDerivedStateRebuilder"/>），整个过程在 <see cref="Core.Foundation.EventBus.IEventBus.SuppressDispatch"/> 作用域内
+        /// （复位不是业务事件）。不读不写任何存档文件、不发 <c>save.loaded</c>。某一段抛异常只记诊断、其余段继续复位，返回 <c>false</c>
+        /// （尽力而为：不回滚已复位的段）；全部成功返回 <c>true</c>。
+        /// <para>
+        /// C#8 默认接口方法：默认实现什么也不做、返回 <c>false</c>（实现方未提供复位能力）——对既有 <see cref="ISaveSystem"/> 实现透明，
+        /// 本仓库唯一实现 <c>Core.Foundation.SaveSystem.SaveSystem</c> 覆盖为真实复位。
+        /// </para>
+        /// </summary>
+        bool ResetAllSections() => false;
+
+        /// <summary>
         /// 按 <see cref="SaveSystemOptions.AutoSave"/> 策略判断给定触发点当前是否应当自动
         /// 存档。本方法只做策略判断，不产生任何副作用（不写盘、不发事件）；把某个触发点
         /// 接到具体游戏时机（场景切换完成、任务状态机进入完成节点……）并在返回 true 时

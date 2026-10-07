@@ -334,20 +334,62 @@ namespace Presentation.Shell
             return data;
         }
 
+        /// <summary>
+        /// 判断记录（P4 备忘 6，样板游戏 A 反馈）：此前整份替换设置文件——调用方只传一项（如语言）就丢掉文件里先前存的其它项（音量），
+        /// 回传 <see cref="LoadSettings"/> 结果（已含 <c>input_bindings</c>）还会因键重复抛 <see cref="ArgumentException"/>。
+        /// 现改为按键合并：以设置文件里现有内容为底，逐键用 <paramref name="additionalFields"/> 覆盖；<c>input_bindings</c> 是保留键，
+        /// 永远写输入映射宿主当前导出（调用方传入的同名项被忽略）；<c>input_axis_settings</c> 调用方显式传了就用调用方的，
+        /// 否则写宿主当前导出（导出为空则不写该键，沿用此前行为）。重复保存同一份内容结果相同（幂等）。
+        /// 已知限制：合并只覆盖不删除，没有经本方法删除某个已存设置键的办法。
+        /// </summary>
         public bool SaveSettings(JsonObject additionalFields)
         {
             if (additionalFields == null) throw new ArgumentNullException(nameof(additionalFields));
 
-            var builder = new JsonObjectBuilder();
+            var merged = new Dictionary<string, JsonValue>(StringComparer.Ordinal);
+            var order = new List<string>();
+            void Put(string key, JsonValue value)
+            {
+                if (!merged.ContainsKey(key))
+                {
+                    order.Add(key);
+                }
+                merged[key] = value;
+            }
+
+            foreach (var entry in _settingsStore.Load())
+            {
+                Put(entry.Key, entry.Value);
+            }
+
             foreach (var entry in additionalFields)
             {
-                builder.Add(entry.Key, entry.Value);
+                if (entry.Key == "input_bindings")
+                {
+                    continue;
+                }
+                Put(entry.Key, entry.Value);
             }
-            builder.Add("input_bindings", _inputMap.ExportBindings());
-            var axisSettings = _inputMap.ExportAxisSettings();
-            if (axisSettings.Count > 0 && !additionalFields.ContainsKey("input_axis_settings"))
+
+            Put("input_bindings", _inputMap.ExportBindings());
+            if (!additionalFields.ContainsKey("input_axis_settings"))
             {
-                builder.Add("input_axis_settings", axisSettings);
+                var axisSettings = _inputMap.ExportAxisSettings();
+                if (axisSettings.Count > 0)
+                {
+                    Put("input_axis_settings", axisSettings);
+                }
+                else if (merged.ContainsKey("input_axis_settings"))
+                {
+                    merged.Remove("input_axis_settings");
+                    order.Remove("input_axis_settings");
+                }
+            }
+
+            var builder = new JsonObjectBuilder();
+            foreach (var key in order)
+            {
+                builder.Add(key, merged[key]);
             }
 
             return _settingsStore.Save(builder.Build());

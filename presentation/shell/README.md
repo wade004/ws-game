@@ -20,8 +20,8 @@
   11 已解决，见下），为 null 时才回退可选注入的 `LoadedMapIdResolver` 委托 → `ISceneRouter.LoadScene`。
 - `ReturnToMainMenu()`：InWorld/Pause → MainMenu（`IAppStateHost.RequestTransition`）。
 - `Quit()`：`IAppStateHost.RequestExit`（仅 MainMenu 下允许）。
-- 设置：`SaveSettings` 把调用方传入的字段与 `IInputMapHost.ExportBindings()` 一并写入
-  `ISettingsStore`；`LoadSettings` 读回后把其中的 `input_bindings` 经 `IInputMapHost.ImportBindings`
+- 设置：`SaveSettings` 把调用方传入的字段按键合并进 `ISettingsStore` 现有内容（没传的旧键保留，`input_bindings`
+  为保留键、永远写 `IInputMapHost.ExportBindings()`，回传 `LoadSettings()` 结果不再抛键重复；P4 备忘 6）；`LoadSettings` 读回后把其中的 `input_bindings` 经 `IInputMapHost.ImportBindings`
   重新应用。
 
 ## 已知契约缺口

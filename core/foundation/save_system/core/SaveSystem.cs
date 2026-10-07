@@ -499,6 +499,56 @@ namespace Core.Foundation.SaveSystem
             return LoadResult.Loaded(meta, migratedFrom, status, currentMapId, currentPosition);
         }
 
+        /// <summary>P4 备忘 7：见 <see cref="ISaveSystem.ResetAllSections"/>。与 <see cref="Load(Id, bool)"/> 的逐段循环同序、同钩子、
+        /// 同事件抑制；区别只在没有存档文档（每段收到 <see cref="JsonNull.Instance"/>）、不做失败回滚（新游戏复位没有"读档前状态"可回）。</summary>
+        public bool ResetAllSections()
+        {
+            var allOk = true;
+            try
+            {
+                _derivedStateRebuilder?.BeforeLoad();
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.Warn($"派生状态重建钩子 BeforeLoad 抛出异常（{ex.Message}），复位继续");
+            }
+
+            using (_bus?.SuppressDispatch())
+            {
+                foreach (var key in ComputeReadOrder())
+                {
+                    var persistable = _persistables[key];
+                    if (persistable.KeepStateWhenSectionMissing)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        persistable.Load(JsonNull.Instance);
+                    }
+                    catch (Exception ex)
+                    {
+                        allOk = false;
+                        _diagnostics.Error($"存档段 \"{key}\" 的 Load(JsonNull) 在复位时抛出异常，其余段继续复位", ex);
+                        continue;
+                    }
+
+                    try
+                    {
+                        _derivedStateRebuilder?.OnSectionLoaded(key);
+                    }
+                    catch (Exception rebuildEx)
+                    {
+                        _diagnostics.Warn(
+                            $"存档段 \"{key}\" 复位后派生状态重建钩子抛出异常（{rebuildEx.Message}），复位继续");
+                    }
+                }
+            }
+
+            return allOk;
+        }
+
         /// <summary>ADR-0085：见 <see cref="ISaveSystem.NotifyLoaded"/> 判断记录。抽出为独立方法后，
         /// <see cref="Load(Id, bool)"/> 的自动派发分支（<c>deferLoadedNotification: false</c>）与调用方
         /// 手动补发分支（<c>GameplayAssembly.RestoreFromSlot</c> 跨图分支）共用同一份"migratedFrom

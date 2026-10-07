@@ -453,15 +453,38 @@ namespace Tests.PresentationShell
             Assert.Equal("additionalFields", ex.ParamName);
         }
 
-        /// <summary>特征化现行为（待设计层确认，见汇报）：<c>input_bindings</c> 是保留键；调用方把 <c>LoadSettings()</c> 的结果原样
-        /// 回传（其中已含该键）会因 <c>JsonObjectBuilder</c> 键重复抛 <see cref="ArgumentException"/>。</summary>
+        /// <summary>P4 备忘 6：<c>input_bindings</c> 是保留键，永远以输入映射宿主当前导出为准；调用方把 <c>LoadSettings()</c> 的
+        /// 结果原样回传（其中已含该键）不再抛重复键异常，而是该键被忽略（红：此前抛 <see cref="ArgumentException"/>）。</summary>
         [Fact]
-        public void SaveSettings_ReservedKeyInputBindingsInAdditionalFields_ThrowsArgumentException_CurrentBehavior()
+        public void SaveSettings_ReservedKeyInputBindingsInAdditionalFields_IsIgnored_LiveBindingsWin()
+        {
+            var inputMap = new FakeInputMapHost();
+            inputMap.SetBindingsForTest("input.action.jump", "key:space");
+            var rig = NewRig(inputMap: inputMap);
+            var stale = new JsonObjectBuilder().Add("input_bindings", new JsonObjectBuilder().Build()).Build();
+
+            Assert.True(rig.Shell.SaveSettings(stale));
+
+            var saved = rig.Settings.Load();
+            Assert.True(saved.TryGetValue("input_bindings", out var bindings));
+            Assert.Equal(inputMap.ExportBindings().ToString(), bindings.ToString());
+        }
+
+        /// <summary>P4 备忘 6 不变量：按键合并——只传一项（语言）不丢先前存的其它项（音量）；回传 <c>LoadSettings()</c> 结果再存幂等。</summary>
+        [Fact]
+        public void SaveSettings_MergesKeyWise_KeepsUntouchedKeys_AndRoundTripIsIdempotent()
         {
             var rig = NewRig();
-            var fields = new JsonObjectBuilder().Add("input_bindings", new JsonObjectBuilder().Build()).Build();
+            Assert.True(rig.Shell.SaveSettings(new JsonObjectBuilder().Add("music_volume", new JsonNumber(0.5)).Add("language", new JsonString("zh-CN")).Build()));
 
-            Assert.Throws<ArgumentException>(() => rig.Shell.SaveSettings(fields));
+            Assert.True(rig.Shell.SaveSettings(new JsonObjectBuilder().Add("language", new JsonString("en")).Build()));
+
+            var afterSecond = rig.Settings.Load();
+            Assert.Equal(0.5, ((JsonNumber)afterSecond["music_volume"]).Value);
+            Assert.Equal("en", ((JsonString)afterSecond["language"]).Value);
+
+            Assert.True(rig.Shell.SaveSettings(rig.Shell.LoadSettings()));
+            Assert.Equal(afterSecond.ToString(), rig.Settings.Load().ToString());
         }
 
         [Fact]
