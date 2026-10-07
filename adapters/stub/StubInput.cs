@@ -19,6 +19,7 @@ namespace Adapters.Stub
         private readonly List<InputEvent> _pendingEvents = new List<InputEvent>();
         private Vec2 _mousePosition = Vec2.Zero;
         private string _pendingTextInput = string.Empty;
+        private double _scrollNotches;
 
         public IReadOnlyList<InputEvent> PollEvents()
         {
@@ -68,6 +69,17 @@ namespace Adapters.Stub
         {
             _mousePosition = position;
             _pendingEvents.Add(new InputEvent(InputEventKind.MouseMoved, position: position));
+        }
+
+        /// <summary>测试用：模拟滚轮转过若干格（向前为正），累积到下一次 <see cref="ConsumeScrollNotches"/>。</summary>
+        public void ScrollWheel(double notches) => _scrollNotches += notches;
+
+        /// <inheritdoc />
+        public double ConsumeScrollNotches()
+        {
+            var value = _scrollNotches;
+            _scrollNotches = 0.0;
+            return value;
         }
 
         /// <summary>测试用：覆盖下一次 EndTextInput() 将要返回的文本。</summary>

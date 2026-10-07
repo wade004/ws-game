@@ -58,6 +58,17 @@ namespace Adapter.Unity.Tests.Runtime
         }
 
         [Test]
+        public void ConsumeScrollNotches_ReturnsAccumulatedNotchesOnceThenZero()
+        {
+            IInput input = _input;
+            Assert.AreEqual(0.0, input.ConsumeScrollNotches(), "没滚过：0");
+            _input.SimulateScrollForTest(2.0);
+            _input.SimulateScrollForTest(-0.5);
+            Assert.AreEqual(1.5, input.ConsumeScrollNotches(), 1e-12, "累积求和");
+            Assert.AreEqual(0.0, input.ConsumeScrollNotches(), "取走即清零");
+        }
+
+        [Test]
         public void SimulateKeyForTest_EnqueuesEvent_PollEventsReturnsIt()
         {
             _input.SimulateKeyForTest("t", down: true);

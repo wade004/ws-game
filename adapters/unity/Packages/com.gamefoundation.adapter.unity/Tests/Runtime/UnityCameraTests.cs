@@ -528,5 +528,45 @@ namespace Adapter.Unity.Tests.Runtime
                 }
             }
         }
+
+        [Test]
+        public void GroundHeightProvider_SlopeBehindTheFocus_LookUpCameraStaysAboveTheTerrain_FlatGroundAvoidanceDoesNot()
+        {
+            // 焦点身后（相机一侧，偏航 0 时是 y 负方向）有一段上坡：地面高度 = 0.6 × |y|（y < 0），y ≥ 0 平地。
+            System.Func<double, double, double> hill = (x, y) => y < 0.0 ? -0.6 * y : 0.0;
+            _camera.DeclarePitchRange(5.0, 150.0);
+            _camera.FocusHeight = 1.6;
+            _camera.GroundAvoidanceMargin = 0.3;
+            _camera.GroundAvoidance = true;
+            Pose(0, 115, zoom: 8.0);
+            var pos = _cameraGo.transform.position;
+            Assert.Less(_camera.CameraHeightAboveGround, hill(pos.x, pos.y) + 0.3 - 0.05, "只会避让 Z = 0 平面时，相机在上坡面以下（复现缺陷场景）");
+
+            _camera.GroundHeightProvider = hill;
+            var nominal = 8.0 / System.Math.Tan(40.0 * Deg / 2.0);
+            foreach (var yaw in new[] { 0.0, 90.0, 180.0, 270.0 })
+            {
+                for (var pitch = 20.0; pitch <= 150.0; pitch += 5.0)
+                {
+                    Pose(yaw, pitch, zoom: 8.0);
+                    var p = _cameraGo.transform.position;
+                    var tag = $"yaw={yaw} pitch={pitch}";
+                    Assert.GreaterOrEqual(_camera.CameraHeightAboveGround - hill(p.x, p.y), 0.3 - 2e-3, tag + "：相机始终高于地形余量");
+                    Assert.LessOrEqual(_camera.CurrentDistance, nominal + 1e-6, tag);
+                    Assert.Greater(_camera.CurrentDistance, 0.01 - 1e-9, tag);
+                }
+            }
+
+            Pose(0, 115, zoom: 8.0);
+            Assert.IsTrue(_camera.GroundAvoidanceEngaged, "上坡一侧仰视：避让介入");
+            Pose(180, 60, zoom: 8.0);
+            Assert.IsFalse(_camera.GroundAvoidanceEngaged, "朝坡的反方向俯视：相机在平地上方，避让不介入");
+            Assert.AreEqual(nominal, _camera.CurrentDistance, 1e-6);
+
+            _camera.GroundHeightProvider = null;
+            Pose(0, 115, zoom: 8.0);
+            var q = _cameraGo.transform.position;
+            Assert.Less(_camera.CameraHeightAboveGround, hill(q.x, q.y) + 0.3 - 0.05, "提供者清空回到只看 Z = 0 平面的原行为");
+        }
     }
 }

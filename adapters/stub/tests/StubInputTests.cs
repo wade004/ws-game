@@ -19,6 +19,40 @@ namespace Tests.StubAdapters
         }
 
         [Fact]
+        public void ScrollWheel_AccumulatesNotches_ConsumeReturnsTheSumOnceThenZero()
+        {
+            IInput input = new StubInput();
+            Assert.Equal(0.0, input.ConsumeScrollNotches());
+            var stub = (StubInput)input;
+            stub.ScrollWheel(2.0);
+            stub.ScrollWheel(-0.5);
+            Assert.Equal(1.5, input.ConsumeScrollNotches(), 12);
+            Assert.Equal(0.0, input.ConsumeScrollNotches());
+        }
+
+        [Fact]
+        public void ScrollWheel_AnInputWithoutWheelSupport_ReportsZeroThroughTheDefaultMember()
+        {
+            IInput input = new NoWheelInput();
+            Assert.Equal(0.0, input.ConsumeScrollNotches());
+        }
+
+        private sealed class NoWheelInput : IInput
+        {
+            public System.Collections.Generic.IReadOnlyList<InputEvent> PollEvents() => new InputEvent[0];
+
+            public bool IsKeyDown(string key) => false;
+
+            public Vec2 GetMousePosition() => Vec2.Zero;
+
+            public double GetGamepadAxis(int gamepadIndex, string axis) => 0.0;
+
+            public void BeginTextInput(string placeholder) { }
+
+            public string EndTextInput() => string.Empty;
+        }
+
+        [Fact]
         public void PressThenRelease_TogglesIsKeyDown_AndEmitsKeyDownThenKeyUpInOrder()
         {
             var input = new StubInput();

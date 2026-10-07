@@ -100,11 +100,44 @@ namespace Core.Rules.Targeting
         {
             if (!ctx.GridSnapCellSize.HasValue)
             {
-                return AddBodyRadiusHits(ctx, shape, filter, ctx.Spatial.QueryShape(shape, filter));
+                return WithoutStale(ctx, AddBodyRadiusHits(ctx, shape, filter, ctx.Spatial.QueryShape(shape, filter)));
             }
 
-            return GridSnapShapeQuery.QueryShapeAtCellCenters(
-                ctx.Spatial, shape, filter, ctx.Units.GetPosition, ctx.GridSnapPolicy!, ctx.GridSnapCellSize.Value);
+            // 已不在世界里的单位（空间索引的过期条目）位置取不到：给 NaN，格子中心判定自然不命中，随后 WithoutStale 再兜底。
+            return WithoutStale(ctx, GridSnapShapeQuery.QueryShapeAtCellCenters(
+                ctx.Spatial, shape, filter,
+                id => ctx.Units.Exists(id) ? ctx.Units.GetPosition(id) : new Vec2(double.NaN, double.NaN),
+                ctx.GridSnapPolicy!, ctx.GridSnapCellSize.Value));
+        }
+
+        /// <summary>
+        /// 判断记录（空间索引过期条目，样板游戏 C 消费方反馈）：空间索引靠订阅"实体已销毁"事件注销条目，而事件在世界销毁实体之后才分发；同一固定步里实体被销毁、
+        /// 事件尚未分发的窗口内，空间查询仍会返回该 id，后面对它取位置/阵营的调用（<c>WorldUnitAccess.Require</c>）直接抛异常——
+        /// 玩家的动作技能在这个窗口内起手做目标辅助就必现。这里在所有空间查询的出口丢掉已不是世界里单位的 id（<see cref="IUnitAccess.Exists"/>），
+        /// 与 AI 宿主对候选的处理一致；窗口过后条目由事件正常注销，行为不变。
+        /// </summary>
+        private static IReadOnlyList<Id> WithoutStale(TargetContext ctx, IReadOnlyList<Id> ids)
+        {
+            List<Id>? kept = null;
+            for (var i = 0; i < ids.Count; i++)
+            {
+                var alive = ctx.Units.Exists(ids[i]);
+                if (!alive && kept == null)
+                {
+                    kept = new List<Id>(ids.Count);
+                    for (var j = 0; j < i; j++)
+                    {
+                        kept.Add(ids[j]);
+                    }
+                }
+
+                if (alive && kept != null)
+                {
+                    kept.Add(ids[i]);
+                }
+            }
+
+            return kept ?? ids;
         }
 
         /// <summary>
@@ -125,6 +158,11 @@ namespace Core.Rules.Targeting
             foreach (var id in ctx.Spatial.QueryShape(shape.Expand(ctx.MaxTargetRadius), filter))
             {
                 if (seen.Contains(id) || id.Equals(ctx.CasterId))
+                {
+                    continue;
+                }
+
+                if (!ctx.Units.Exists(id))
                 {
                     continue;
                 }

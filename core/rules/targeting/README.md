@@ -207,3 +207,8 @@ T-N3-8（ADR-0031 决策 6、拍板 7）补充：`TargetOverflowPolicy` 枚举�
 2. **`ITargetHost.TargetHitRadius(Id)`**（默认接口成员，缺省 0）：`TargetHost` 覆盖为 `TargetRadius` 的当前值（选项未启用时 0），供命中接触几何（skill README M5-S2a 第 1 条）读取。
 3. **复现与不变量**：`tests/TargetHostBodyRadiusTests.cs`（`MaxTargetRadiusProvider_*`：上界升高后同一宿主立刻命中；提供者为 0 与不配置逐位一致；`TargetHitRadius_*`）。
 4. **已知限制**：打开后每次解析都由生产提供者对全部单位取一遍受击半径，单位很多时有成本（装配选项缺省关闭）；提供者的结果不缓存。
+
+## 判断记录（空间索引过期条目，2026-10-08，样板游戏 C 缺口，[ADR-0165](../../../architecture/adr/0165-样板游戏C缺口-相机地形避让滚轮输入与空间索引过期条目.md)）
+
+复现：实体在同一固定步里被销毁、"实体已销毁"事件尚未分发时，空间索引里仍有它的 id；`nearest_in_shape` 对该 id 调 `ctx.DistanceTo`，`WorldUnitAccess.Require` 抛 `InvalidOperationException`（动作技能起手的目标辅助必现，`TargetHostStaleSpatialTests`）。修法：`BuiltinTargetStrategies.QueryShape` 的所有出口（直接查询、命中半径外扩、格子吸附）丢掉 `IUnitAccess.Exists` 为假的 id；格子吸附路径对不存在的 id 给 NaN 位置（格子中心判定不命中）再兜底过滤。不变量：没有过期条目时结果、顺序与此前逐位一致。没有改空间索引的注销时序（事件分发之后才注销是事件总线的整体约定）。已知限制：只在目标选择的消费出口过滤；直接调用空间查询接口的其它调用方自己负责。
+

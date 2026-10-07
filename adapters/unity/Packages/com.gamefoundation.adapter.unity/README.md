@@ -1651,3 +1651,9 @@ GameBootstrap.cs` 同样两根合并（`data/_framework` + 游戏自己的 `data
 
 1. 整身外形（`PaperdollLayers.Count == 0`）没有静态底图，整身兜底渲染器要等第一次剪辑播放才有贴图，新出现的站立单位在第一次状态切换前只剩影子。`UnityViewFactory` 在挂接动画上下文时对这类外形调一次 `ResetToLocomotionClip`；有纸娃娃层的外形仍由静态层负责初始显示、创建时什么都不播（`CombatStanceAnimInvariantTests` ④ 口径不变）。用例 `UnityViewFactoryDefaultAnimationTests.CreateView_FlatCreature_StartsIdleClipAtCreation_LayeredCreatureDoesNot`（红绿对照）。
 2. `SfxEngineReportedFinishPlayModeTests` 偶发红（`full-20261001-45`）：等待上限按渲染帧数（300 帧）计，无头批处理一帧只有零点几毫秒，而约 4.5ms 的极短 clip 何时"自然播完"由混音线程的 DSP 块节奏决定，两者没有固定比例；不是产品缺陷，也无法确定性复现（用 `AudioListener.pause` 等手段构造的复现用例观测不到 `isPlaying`，已删）。改为 `Time.realtimeSinceStartup` 实时上限（缺省 5 秒），条件满足立即返回。
+
+### 样板游戏 C 缺口：相机地形避让与滚轮（2026-10-08，ADR-0165）
+
+- **`UnityCamera.GroundHeightProvider`**（`Func<double, double, double>?`，缺省 null）：世界平面 (x, y) → 该处地面高度（与 `FocusHeight`、`CameraHeightAboveGround` 同一基准）。设置后 `GroundAvoidance` 走地形版：沿焦点到名义相机位置等分 32 段取样离地高度（`−z − 地面高度`），找到第一个低于余量的取样点后在它与前一点之间二分 24 次，把距离缩到刚好离地余量处；余量取 `min(GroundAvoidanceMargin, 焦点离其下地面的高度)`；不小于 0.01 的最小距离。没有提供者时走原来的 Z = 0 平面解析解，逐位不变。已知限制：比名义距离 1/32 还窄的隆起可能漏过；只约束相机，渲染物（blob 阴影等）由游戏自己按地形放置。复现/不变量：`UnityCameraTests.GroundHeightProvider_SlopeBehindTheFocus_LookUpCameraStaysAboveTheTerrain_FlatGroundAvoidanceDoesNot`（偏航 0/90/180/270 × 俯仰 20～150 全程离地高度 ≥ 余量；清空提供者回到原行为）。
+- **`UnityInput.ConsumeScrollNotches`**：`<Mouse>/scroll` 的 PassThrough 动作累积 y，绝对值 ≥ 20 视为像素单位除以 120；`SimulateScrollForTest(notches)` 供测试。用例 `UnityInputTests.ConsumeScrollNotches_ReturnsAccumulatedNotchesOnceThenZero`。
+
