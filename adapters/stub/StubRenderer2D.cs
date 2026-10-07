@@ -58,6 +58,10 @@ namespace Adapters.Stub
         /// 实现（见 <see cref="EmitParticle(Id, Vec2, IReadOnlyDictionary{string, double}, VfxBlendMode)"/>）。</summary>
         public readonly Dictionary<int, VfxBlendMode> ParticleBlendModes = new Dictionary<int, VfxBlendMode>();
 
+        /// <summary>消费方反馈 2026-10-07 新增：每个粒子句柄发射时实际传入的 <c>parameters</c>（含 <c>VfxPlayer</c> 并入的
+        /// 保留键 <c>sort_order</c>），供测试断言 <c>vfx.def.sort_order</c> 是否真的透传到 <see cref="IRenderer2D"/> 这一层。</summary>
+        public readonly Dictionary<int, IReadOnlyDictionary<string, double>> ParticleParameters = new Dictionary<int, IReadOnlyDictionary<string, double>>();
+
         /// <summary>GP-PRES-05 收口新增：记录每个句柄最近一次 <see cref="SetShadow"/> 的模式，供
         /// 测试断言。</summary>
         public readonly Dictionary<int, ShadowMode> Shadows = new Dictionary<int, ShadowMode>();
@@ -132,6 +136,7 @@ namespace Adapters.Stub
             _aliveParticles.Add(handle.Value);
             EmittedParticles[handle.Value] = (effectId, position);
             ParticleBlendModes[handle.Value] = blendMode;
+            ParticleParameters[handle.Value] = parameters;
             return handle;
         }
 

@@ -38,6 +38,8 @@
 // 判断记录），解析不到时回退播放一个内建的通用爆发粒子效果（不抛异常、不阻断游戏运行）；
 // parameters 里的 "duration"/"start_lifetime"/"start_speed"/"start_size" 四个已知键会覆盖对应
 // 模块参数（仅回退路径生效，具体特效资产自带参数不经这四个键覆盖），其余键被忽略。
+// 例外："sort_order"（来自 vfx.def.sort_order，非 0 时由 VfxPlayer 并入）只对序列帧路径生效，作为该特效渲染器的
+// sortingOrder；不声明时为 0，与地图地面层并列（见 EffectSequencePlayer.SetSortingOrder 注释）。
 //
 // ADR-0104 新增（消费方反馈第五十二批，同 sortY 精灵前后顺序确定且可读回）：sortingOrder 相等
 // （含"同层且 sortY 逐位相同"这一确切平局场景）时，此前完全交给 URP 2D Renderer 的 Transparency
@@ -1019,6 +1021,8 @@ namespace Adapter.Unity.EngineAdapter
                 }
 
                 player.gameObject.SetActive(true);
+                // vfx.def.sort_order 经保留键 "sort_order" 传入；缺省 0（池复用，每次显式落地）
+                player.SetSortingOrder(parameters.TryGetValue("sort_order", out var sortOrder) ? (int)sortOrder : 0);
                 player.Play(frames, durations, effect.Loop, blendMode);
                 _sequencePlayers[handle] = player;
                 player.TimeSource = _effectTimeSource;
@@ -1061,6 +1065,11 @@ namespace Adapter.Unity.EngineAdapter
         /// 粒子回退路径（<see cref="ParticleSystem"/>，不受本次改动影响）时返回 null。</summary>
         internal Material? GetEffectSequenceMaterialForTests(ParticleHandle handle) =>
             _sequencePlayers.TryGetValue(handle.Value, out var player) ? player.GetComponent<SpriteRenderer>().sharedMaterial : null;
+
+        /// <summary>框架自身测试专用（同 <see cref="GetEffectSequenceMaterialForTests"/>）：序列帧特效句柄当前的渲染排序序号
+        /// （<c>vfx.def.sort_order</c> 经保留参数键落地的结果）；句柄不存在或命中回退粒子路径时返回 null。</summary>
+        internal int? GetEffectSequenceSortingOrderForTests(ParticleHandle handle) =>
+            _sequencePlayers.TryGetValue(handle.Value, out var player) ? player.GetComponent<SpriteRenderer>().sortingOrder : (int?)null;
 
         public void StopParticle(ParticleHandle handle)
         {

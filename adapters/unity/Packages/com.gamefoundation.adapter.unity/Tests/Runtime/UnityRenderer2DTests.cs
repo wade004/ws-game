@@ -243,6 +243,26 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreNotEqual("GameFoundation/Vfx/AdditiveUnlit", reusedMaterial!.shader.name, "复用的组件播 alpha 特效时必须重设回默认材质，不能残留上一轮 additive 的材质");
         }
 
+        /// <summary>消费方反馈 2026-10-07：vfx.def.sort_order 经保留参数键 "sort_order" 落到序列帧渲染器的 sortingOrder；
+        /// 缺省 0（与改动前逐字一致）；对象池复用不继承上一次的值。期望值由传入的参数算出，不写死裸数。</summary>
+        [UnityTest]
+        public IEnumerator EmitParticle_SortOrderParameter_SetsSortingOrder_AndPooledPlayerDoesNotInheritIt()
+        {
+            var effectId = new Id("vfx.hit_spark");
+            yield return LoadEffectResource(effectId);
+            const double requested = 5.0;
+
+            var withOrder = _renderer.EmitParticle(effectId, new Vec2(1, 1), new System.Collections.Generic.Dictionary<string, double> { ["sort_order"] = requested }, VfxBlendMode.Alpha);
+            yield return null;
+            Assert.AreEqual((int)requested, _renderer.GetEffectSequenceSortingOrderForTests(withOrder));
+            _renderer.StopParticle(withOrder);
+            yield return null; // 归还对象池
+
+            var withoutOrder = _renderer.EmitParticle(effectId, new Vec2(1, 1), new System.Collections.Generic.Dictionary<string, double>(), VfxBlendMode.Alpha);
+            yield return null;
+            Assert.AreEqual(0, _renderer.GetEffectSequenceSortingOrderForTests(withoutOrder), "未声明 sort_order 时必须是 0（含复用的池实例，不得残留上一次的值）");
+        }
+
         private IEnumerator LoadEffectResource(Id effectId)
         {
             bool? loadSuccess = null;

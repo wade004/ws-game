@@ -67,6 +67,39 @@ namespace Tests.Presentation.VfxSfx
         }
 
         [Fact]
+        public void Spawn_WithoutSortOrder_DoesNotAddReservedParameter()
+        {
+            var renderer = new StubRenderer2D();
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog());
+
+            var handle = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+
+            Assert.NotNull(handle);
+            Assert.False(renderer.ParticleParameters[handle!.Value.Value].ContainsKey(VfxDef.SortOrderParameterKey));
+        }
+
+        [Fact]
+        public void Spawn_PassesDeclaredSortOrder_ToRenderer2D_WithoutMutatingCallerParameters()
+        {
+            var renderer = new StubRenderer2D();
+            var groundVfx = new Id("vfx.ground_warn");
+            var catalog = new Dictionary<Id, VfxDef>(BuildCatalog())
+            {
+                [groundVfx] = new VfxDef(groundVfx, "telegraph", VfxAttachMode.World, 1.5, new Id("res.warn"), VfxBlendMode.Alpha, 7),
+            };
+            var player = new VfxPlayer(renderer, new StubCamera(), catalog);
+            var callerParams = new Dictionary<string, double> { ["duration"] = 2.0 };
+
+            var handle = player.Spawn(groundVfx, VfxAttach.World(new Vec2(1, 1)), callerParams);
+
+            Assert.NotNull(handle);
+            var passed = renderer.ParticleParameters[handle!.Value.Value];
+            Assert.Equal(7.0, passed[VfxDef.SortOrderParameterKey]);
+            Assert.Equal(2.0, passed["duration"]);
+            Assert.False(callerParams.ContainsKey(VfxDef.SortOrderParameterKey));
+        }
+
+        [Fact]
         public void Spawn_Anchor_UsesAnchorResolverWorldPosition()
         {
             var renderer = new StubRenderer2D();

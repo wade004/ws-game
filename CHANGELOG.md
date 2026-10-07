@@ -462,6 +462,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ### 新增
 
+- **`vfx.def.sort_order`：贴地特效（范围预警圈）不再被地图地面层盖住（消费方反馈 P3 缺口 G2）**：序列帧特效的渲染器排序序号恒为 0，与地图地面层（0）并列，并列时引擎按世界 Y 次级排序，特效位置偏"后"时被地面整张盖住——样板游戏 A 首领碎地重击的预警圈实测不可见。新增可选字段 `vfx.def.sort_order`（整数，缺省 0，行为与改动前逐位一致）：`VfxDef.SortOrder` 与 7 参构造函数、`VfxDef.SortOrderParameterKey`；`VfxPlayer.Spawn` 非 0 时把它以保留键 `sort_order` 拷贝并入 `EmitParticle` 的 `parameters`；`UnityRenderer2D` 序列帧路径落成渲染器序号（池复用每次显式落地）；`StubRenderer2D.ParticleParameters` 供测试读回。纯加法：`IRenderer2D` 签名不变，既有数据与调用方行为逐位不变。边界：只对序列帧路径生效；正值保证画在地面层之上，不提供"画在角色之上"的语义。
 - **物品"使用"通路：`item.template.on_use` + `use_item` 意图消费（`UseItemIntentTickHandler`，消费方反馈 P3 缺口 G1）**：表现层 `UiIntents.UseItem` 早就把使用物品提交成 `use_item` 意图（`{instance_id}`），但没有任何处理器消费它，`item.template` 也没有登记"使用时做什么"，消耗品（药水）只能躺在背包里。现在模板可选写 `on_use: {skill_ref: <skill.def>, consume: <Bool，缺省 true>}`，`CarriersAssembly` 注册的处理器在 `TriggerEvaluation` 阶段按它以使用者为施法者施放该技能，施放成功且 `consume` 不为 false 时从使用者背包扣 1 个；技能被拒（冷却、死亡、沉默……）、实例不在使用者背包、模板没有 `on_use` 时不扣物品、不改状态、只记诊断。药水冷却即该技能的 `cooldown_duration`，效果即技能的 `effects`，不引入第二套效果系统。纯加法：ABI 只新增公开类型，既有数据与调用方行为逐位不变。
 
 ## [2.2.0] - 2026-10-07
