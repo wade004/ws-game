@@ -203,6 +203,194 @@ namespace Tests.PresentationRender
             Assert.Equal(3, harness.Renderer.MapLayerDestroyCalls.Count);
         }
 
+        // ------------------------------------------------------------------------------------------------
+        // 迟到回填：真实的 IResourceLoader.LoadAsync 是异步的（回调要等到下一次 Tick/后台读盘完成），而 SceneRouter
+        // 的切图（pre_unload -> post_load）不等地图分层图加载完成。下面几条用"手动放行"的加载器把这个窗口钉住，
+        // 期望值只有一条不变量：任何时刻场景里存活的地图分层图都只属于当前地图，且当前地图每层恰好一份。
+        // ------------------------------------------------------------------------------------------------
+
+        /// <summary>地图分层图加载手动放行（scene/nav 同步成功，<see cref="ResourceKind.MapLayers"/> 排队到
+        /// <see cref="ReleaseAll"/> 才回调）；同一地图重复请求与真实加载器的在途合并一致——各自的回调各触发一次，
+        /// 按请求顺序。</summary>
+        private sealed class ManualMapLayersLoader : IResourceLoader
+        {
+            private readonly List<(Id Id, LoadCallback Callback)> _pendingMapLayers = new List<(Id, LoadCallback)>();
+            private readonly HashSet<Id> _loaded = new HashSet<Id>();
+
+            public int PendingMapLayerRequests => _pendingMapLayers.Count;
+
+            public void LoadAsync(Id resourceId, ResourceKind kind, LoadCallback callback)
+            {
+                if (kind == ResourceKind.MapLayers)
+                {
+                    _pendingMapLayers.Add((resourceId, callback));
+                    return;
+                }
+
+                _loaded.Add(resourceId);
+                callback(resourceId, true);
+            }
+
+            public bool IsLoaded(Id resourceId) => _loaded.Contains(resourceId);
+
+            public double GetLoadProgress(Id resourceId) => _loaded.Contains(resourceId) ? 1.0 : 0.0;
+
+            public void Unload(Id resourceId) => _loaded.Remove(resourceId);
+
+            /// <summary>放行当前全部排队的地图分层图加载（按请求先后回调；回调里新排的请求留到下一次放行）。</summary>
+            public void ReleaseAll()
+            {
+                var batch = _pendingMapLayers.ToArray();
+                _pendingMapLayers.Clear();
+                foreach (var (id, callback) in batch)
+                {
+                    _loaded.Add(id);
+                    callback(id, true);
+                }
+            }
+        }
+
+        private sealed class LateLoadHarness
+        {
+            public ManualMapLayersLoader Loader { get; } = new ManualMapLayersLoader();
+            public StubRenderer2D Renderer { get; } = new StubRenderer2D();
+            public Core.Foundation.SceneRouter.SceneRouter Router { get; }
+            public MapLayerHost Host { get; }
+
+            public LateLoadHarness(params string[] worldMapRows)
+            {
+                var bus = new EventBus(EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()), new EventBusOptions { StrictCatalog = false });
+                var source = new InMemoryDataSource().Add("world.map",
+                    "{\"table\": \"world.map\", \"schema_version\": 1, \"rows\": [" + string.Join(",", worldMapRows) + "]}");
+                IDataRegistry registry = new Core.Foundation.DataRegistry.DataRegistry(source, bus);
+                registry.RegisterSchema(WorldMapSchema.Table);
+                var report = registry.LoadAll();
+                Assert.False(report.IsBlocking, "测试夹具数据未通过校验");
+
+                var app = new AppStateHost(bus, AppStateMachineConfig.Default().AllowTransition(AppState.Loading, AppState.MainMenu));
+                app.RequestTransition(AppState.MainMenu);
+                var world = new WorldSim(bus);
+                var hooks = new HookRegistry(bus);
+                Router = new Core.Foundation.SceneRouter.SceneRouter(registry, Loader, app, world, hooks, bus);
+                Host = new MapLayerHost(Router, registry, Renderer, Loader);
+            }
+
+            /// <summary>发起并走完一次切图（scene/nav 同步成功）；地图分层图的加载留在排队里，不放行。</summary>
+            public void SwitchTo(string mapName)
+            {
+                Router.LoadScene(new Id("world." + mapName));
+                Router.Update();
+                Assert.Equal(new Id("world." + mapName), Router.GetCurrentScene());
+            }
+
+            /// <summary>当前存活的分层图所属地图（由渲染器收到的建层调用与销毁调用推出，不看宿主自己的记账）。</summary>
+            public List<Id> AliveLayerOwners()
+            {
+                var destroyed = new HashSet<int>();
+                foreach (var h in Renderer.MapLayerDestroyCalls) destroyed.Add(h.Value);
+                var owners = new List<Id>();
+                foreach (var c in Renderer.MapLayerCreateCalls)
+                {
+                    if (c.Handle.IsValid && !destroyed.Contains(c.Handle.Value)) owners.Add(c.MapId);
+                }
+
+                return owners;
+            }
+        }
+
+        [Fact]
+        public void LeavingMapBeforeLayerLoadCompletes_LateCompletion_BuildsNothingForTheOldMap()
+        {
+            var h = new LateLoadHarness(MapRow("field_a", true), MapRow("field_b", true));
+
+            h.SwitchTo("field_a");   // field_a 的分层图加载排队中
+            h.SwitchTo("field_b");   // 还没加载完就离开 field_a；field_b 的加载也排队中
+            Assert.Equal(2, h.Loader.PendingMapLayerRequests);
+
+            h.Loader.ReleaseAll();   // 两次加载按请求先后完成：field_a 的回调"迟到"
+
+            var owners = h.AliveLayerOwners();
+            Assert.DoesNotContain(new Id("world.field_a"), owners);
+            Assert.Equal(3, owners.Count);
+            Assert.All(owners, o => Assert.Equal(new Id("world.field_b"), o));
+            Assert.Equal(0, h.Host.GetActiveLayerCount(new Id("world.field_a")));
+            Assert.Equal(1, h.Host.ActiveMapCount);
+        }
+
+        [Fact]
+        public void SameMapRequestedTwiceBeforeLayerLoadCompletes_BuildsExactlyOneSet()
+        {
+            var h = new LateLoadHarness(MapRow("field_a", true));
+
+            h.SwitchTo("field_a");   // 例如开局先进一次默认地图
+            h.SwitchTo("field_a");   // 随即又读一次档回到同一张地图：两次请求并入同一次在途加载
+            Assert.Equal(2, h.Loader.PendingMapLayerRequests);
+
+            h.Loader.ReleaseAll();   // 两个回调各触发一次
+
+            var owners = h.AliveLayerOwners();
+            Assert.Equal(3, owners.Count);
+            Assert.Equal(3, h.Host.GetActiveLayerCount(new Id("world.field_a")));
+            // 迟到回调不能把同一张地图建两遍，更不能覆盖记账让第一套层变成无人销毁的孤儿。
+            Assert.Empty(h.Renderer.MapLayerDestroyCalls);
+        }
+
+        [Fact]
+        public void LayerLoadCompletionAfterDispose_BuildsNothing()
+        {
+            var h = new LateLoadHarness(MapRow("field_a", true));
+            h.SwitchTo("field_a");
+
+            h.Host.Dispose();
+            h.Loader.ReleaseAll();
+
+            Assert.Equal(0, h.Renderer.AliveMapLayerCount);
+            Assert.Empty(h.Renderer.MapLayerCreateCalls);
+        }
+
+        [Fact]
+        public void RandomSwitchAndReleaseOrders_AliveLayersAlwaysBelongToCurrentMapOnly()
+        {
+            // 不变量（与具体次序无关）：任意"切图/放行加载"交错之后，场景里存活的分层图都只属于当前地图，且要么还没建（0 层）要么恰好一整套。
+            // 种子固定（不依赖系统时间与哈希），失败时报出操作序列以便复现。
+            var rng = new System.Random(20261007);
+            var maps = new[] { "field_a", "field_b", "field_c" };
+            for (var round = 0; round < 200; round++)
+            {
+                var h = new LateLoadHarness(MapRow("field_a", true), MapRow("field_b", true), MapRow("field_c", true));
+                var trail = new List<string>();
+                for (var step = 0; step < 12; step++)
+                {
+                    if (rng.Next(3) == 0)
+                    {
+                        trail.Add("release");
+                        h.Loader.ReleaseAll();
+                    }
+                    else
+                    {
+                        var map = maps[rng.Next(maps.Length)];
+                        trail.Add("switch:" + map);
+                        h.SwitchTo(map);
+                    }
+
+                    var current = h.Router.GetCurrentScene();
+                    var owners = h.AliveLayerOwners();
+                    var detail = $"round {round} 操作序列 [{string.Join(", ", trail)}] 当前 {current} 存活层归属 [{string.Join(", ", owners)}]";
+                    Assert.True(owners.TrueForAll(o => current.HasValue && o.Equals(current.Value)), "存活层出现了非当前地图的：" + detail);
+                    Assert.True(owners.Count == 0 || owners.Count == 3, "当前地图的层数应为 0（尚未加载完）或恰好一整套 3 层：" + detail);
+                }
+
+                h.Loader.ReleaseAll();
+                var finalCurrent = h.Router.GetCurrentScene();
+                if (finalCurrent.HasValue)
+                {
+                    var final = h.AliveLayerOwners();
+                    Assert.True(final.Count == 3 && final.TrueForAll(o => o.Equals(finalCurrent.Value)),
+                        $"round {round} 全部放行后应恰好是当前地图 {finalCurrent} 的一整套层：[{string.Join(", ", final)}] 操作序列 [{string.Join(", ", trail)}]");
+                }
+            }
+        }
+
         [Fact]
         public void MinimalRenderer2D_WithoutOverridingMapLayerMembers_DefaultsToInvalidHandle_NoException()
         {

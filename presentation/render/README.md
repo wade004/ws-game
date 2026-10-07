@@ -47,7 +47,7 @@ render/
     ProceduralAnimSequencer.cs    IProceduralAnim 默认实现：纯时间推进 + 曲线求值，不调用任何 L-1 接口
     FrameAnimPlayer.cs            IFrameAnimPlayer 参考实现：帧号推进 + 关键帧/播放完成事件派发
   tests/
-    MapLayerHostTests.cs           ADR-0080：建层/decal 缺失降级/image_transform 缺失降级/切图不泄漏/Dispose 清理/默认接口成员用例
+    MapLayerHostTests.cs           ADR-0080：建层/decal 缺失降级/image_transform 缺失降级/切图不泄漏/Dispose 清理/默认接口成员用例；迟到回填（切图抢在加载完成之前、同图重复请求、Dispose 之后到达）与"存活层只属于当前地图"随机交错不变量用例
     RenderConventionHostTests.cs   12 个用例
     SpriteViewBaseTests.cs         10 个用例
     AnimStateMachineTests.cs       逐条转移 + 优先级用例 + StateChangedWithSkill 用例
@@ -473,3 +473,16 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
 
 32. **动画表现标记发出端与残影能力（2026-10-04，手感落地 M5-S5，[ADR-0148](../../architecture/adr/0148-镜头与音画反馈的合成上限玩家强度脚步材质与动画表现标记.md)）**：`SpriteCharacterRig`/`ModelCharacterRig` 把剪辑上的每个标记经 `IAnimMarkerEmitter.AnimMarker` 转发（不论 `HitFrameSync` 策略；命中帧同步事件仍只在逐帧驱动策略下发，既有行为不变）；`FrameAnimPlayer` 同名重复标记以"名#序号"登记、触发时去后缀，`ModelCharacterRig` 把渲染器事件 `anim_event.<name>` 标准化为 `<name>`、`anim_event.fx.<id>` 为 `fx:<id>`。`IAfterimageTarget.SetAfterimage(bool)` 是 View 的可选能力（探测 `view is IAfterimageTarget`），没有实现的外形静默忽略（Unity 侧只有序列帧 View 实现，模型 View 没有）。复现/不变量：`tests/AnimMarkerTests.cs`（两次 footstep 各触发一次——此前互相覆盖只剩一次；两种同步策略下标记全部转发且命中帧只在逐帧策略下发；模型事件名标准化）。
 - **姿势与动画契约落地（M5-S4，2026-10-04，ADR-0147，手感设计/04 第 2.4、5 节、02 第 7 节）**：(1) **受击反应驱动**：`AnimStateMachine` 新增带 `IHitReactionQuery` 的构造重载，进入反应驱动模式后 `Hit` 由 `combat.reaction_applied`、`unit.knocked_down`、`unit.getup_started`、`combat.hit_confirmed`（`Block`）驱动并带受击子键（`GetHitPoseSub`，`PoseKeys.HitSub*`），有硬直的反应进入"保持"，每个 `sim.tick_finished` 查 `IHitReactionQuery.RemainingStaggerTicks` 决定何时回落；反应为 none 不播受击；没带查询的旧构造逐位不变（仍由伤害落地驱动）。`PoseRequest` 新增 `Sub` 与带子键的构造重载，`PoseContext.ToRequest(…, sub)`、`TryGetAirHitRequest`（空中受击改请求 `hit.air`）。限制：flinch 不打断动作与保持、格挡抖动不进动作与保持、更轻的反应落在更长的硬直上被忽略、离散模式的世界不进入该模式。(2) **移动呈现参数**：`PoseGaitFeeder` 的新重载（带 `LocomotionPresentation` 与步长）按速度比与呈现型字段发布步幅速率与前倾（`stride_scale`、`lean_deg_per_accel`，取整与夹取见 `LocomotionPresentationMath`），`ILocomotionPresentationReceiver`/`ILocomotionBlendsReceiver`/`IHitReactionQueryReceiver` 是视图工厂的可选接口，由 `PresentationAssembly` 交付；`LocomotionBlends` 读 `start_blend_ms`/`stop_blend_ms`，只用于"待机 ↔ 移动"的混合时长提示。(3) **播放速率**：`ClipPlaybackRates` 汇总每个实体当前状态的剪辑播放速率（动作各相位取 `action.started` 的三相速率、移动取步幅速率、其余 1），`IFrameAnimPlayer.SetSpeed`（默认成员）与 `ModelCharacterRig.SetClipSpeed` 把它交给播放器；`IRenderer3D.SetLean`（默认成员）交付前倾，只骨骼模型外形支持（序列帧外形保持直立）。(4) **标记对外发布**：`IAnimMarkerEmitter`（`AnimMarker(entityId, 标记名)`，实现见 ADR-0148）由序列帧与骨骼角色外壳实现，标记名经标准化后转发（见 ADR-0148），只保证发出去，消费方（脚步、拖尾、特效挂点、冲击帧）订阅它；有 `footstep` 标记的外形以标记为脚步唯一来源，对 `unit.stride_completed` 的抑制随消费方落地。
+
+33. **`MapLayerHost` 的迟到回填：每次载入领令牌，回调只在令牌仍是该地图最新令牌时建层（2026-10-07，样板游戏 A 反馈：二层画面露出小镇）**：
+    `ResourceKind.MapLayers` 的 `LoadAsync` 是异步的，而 `SceneRouter` 的切图（`pre_unload` → `post_load`）不等它。旧实现回调里无条件
+    `BuildLayers`，于是两种迟到都会留下无人销毁的孤儿层：(a) 回调到达时地图已被卸载（`pre_unload` 先于回调、当时 `_activeLayers` 里还没有
+    这张图，没东西可销）；(b) 同一张地图在加载完成前被再次请求（开局先进默认地图又读档回同一张图；真实加载器把两次请求并入同一次在途加载，
+    两个回调都会到达），后一次 `_activeLayers[mapId] = handles` 覆盖前一次的记账。孤儿层与之后地图的地面层同序号、世界矩形重叠，
+    画面里就是两张地图的美术叠在一起。**判断：用"载入令牌"而不是在回调里反查"这张地图是不是当前地图"**——宿主只订阅 `pre_unload`/`post_load`
+    两个挂载点、没有（也不该去读）路由器的当前场景状态；令牌随这两个挂载点自然失效：`post_load` 领新令牌并先作废该图旧状态，`pre_unload`
+    与 `Dispose` 清掉令牌，回调只在 `令牌 == 该图最新令牌` 时建层，且建层（或判定加载失败）即消费令牌，同一令牌至多建一次，不依赖加载器
+    "每个回调恰好一次"的承诺。同一地图的两次请求并入一次在途加载时，先到的旧令牌回调被丢弃、后到的新令牌回调建层。
+    **没有降级/不处理的情形**：回调晚于卸载到达时该次加载的资源缓存不由本类型回收（`IResourceLoader.Unload` 的调用时机属于加载器与
+    场景路由，不在本类型职责内）。复现与不变量用例见 `tests/MapLayerHostTests.cs`（手动放行加载器 `ManualMapLayersLoader` 把"回调晚于切图"
+    的窗口钉住，期望只有一条：任何时刻存活的层只属于当前地图、至多一整套）。

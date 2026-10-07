@@ -47,6 +47,8 @@ namespace Presentation.Render
         private readonly SubscriptionHandle _postLoadSubscription;
         private readonly SubscriptionHandle _preUnloadSubscription;
         private readonly Dictionary<Id, List<MapLayerHandle>> _activeLayers = new Dictionary<Id, List<MapLayerHandle>>();
+        private readonly Dictionary<Id, long> _pendingLoadTokens = new Dictionary<Id, long>();
+        private long _loadSequence;
         private bool _disposed;
 
         /// <summary>诊断出口（同 <c>VfxDiagnostics</c>/<c>SfxDiagnostics</c> 惯例，见
@@ -76,6 +78,10 @@ namespace Presentation.Render
 
         private void OnPostLoad(Id mapId)
         {
+            // 同一张地图在没经过 pre_unload 的情况下又收到 post_load（理论上 SceneRouter 总是先 pre_unload 再 post_load，
+            // 仍保留防御）：上一次载入留下的层与在途加载一并作废，以这一次为准。
+            DiscardMap(mapId);
+
             var record = _registry.Get(WorldMapSchema.Table.Name, mapId);
             if (record == null)
             {
@@ -110,8 +116,22 @@ namespace Presentation.Render
 
             // ADR-0080 决策 3："先 LoadAsync 再建层"的顺序由表现层驱动方负责——渲染实现只消费已加载
             // 完成的资源，本类型是本资源种类唯一的消费方，首次引用该地图分层图的责任在此。
+            //
+            // 迟到回填（2026-10-07 样板游戏 A 反馈）：LoadAsync 是异步的，回调要等到后台读盘/解码完成，而
+            // SceneRouter 的切图不等它——回调到达时这张地图可能已经被卸载（pre_unload 已跑过，没有层可销毁），
+            // 也可能同一张地图又被请求了一次（两个回调都会到达）。无条件建层会让这些迟到回调建出没人销毁的孤儿层，
+            // 压在后面的地图上（表现为"二层里露出小镇"）。所以每次载入领一个令牌，回调只在令牌仍是该地图的
+            // 最新令牌时才建层、且建层即消费令牌（同一令牌至多建一次）；卸载、重新载入、Dispose 都会让旧令牌失效。
+            var token = ++_loadSequence;
+            _pendingLoadTokens[mapId] = token;
             _resourceLoader.LoadAsync(mapId, ResourceKind.MapLayers, (loadedMapId, success) =>
             {
+                if (_disposed || !_pendingLoadTokens.TryGetValue(loadedMapId, out var latest) || latest != token)
+                {
+                    return;
+                }
+
+                _pendingLoadTokens.Remove(loadedMapId);
                 if (!success)
                 {
                     Diagnostics.Warn($"map_layer_host: 地图 \"{loadedMapId}\" 分层图加载失败，跳过建层");
@@ -152,8 +172,12 @@ namespace Presentation.Render
             // 不重复记诊断——是否存在该层文件、是否要记诊断，由渲染实现自己决定（见类型注释判断记录）。
         }
 
-        private void OnPreUnload(Id mapId)
+        private void OnPreUnload(Id mapId) => DiscardMap(mapId);
+
+        /// <summary>作废一张地图的全部状态：在途加载的令牌失效（迟到回调不再建层），已建出的层销毁。</summary>
+        private void DiscardMap(Id mapId)
         {
+            _pendingLoadTokens.Remove(mapId);
             if (!_activeLayers.TryGetValue(mapId, out var handles))
             {
                 return;
@@ -190,6 +214,7 @@ namespace Presentation.Render
                 }
             }
             _activeLayers.Clear();
+            _pendingLoadTokens.Clear();
 
             _postLoadSubscription.Dispose();
             _preUnloadSubscription.Dispose();
