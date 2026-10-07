@@ -57,6 +57,13 @@ namespace Core.Foundation.EngineAdapter
 
         double GetGamepadAxis(int gamepadIndex, string axis);
 
+        /// <summary>
+        /// 取走并清零自上次调用以来累积的滚轮格数（默认接口成员，缺省 0：没有滚轮的实现不用改）：一格 = 1.0，向前（远离使用者）推为正、向后拉为负；
+        /// 实现负责把硬件的原始单位换算成格数（精细滚动的设备可以是小数）。滚轮是连续量、不是按键，不进 <see cref="PollEvents"/>；
+        /// 游戏每帧（或每个固定步）读一次，用于镜头缩放、列表滚动这类"累积量"输入。同一帧里多次调用，只有第一次拿到累积值，之后为 0。
+        /// </summary>
+        double ConsumeScrollNotches() => 0.0;
+
         /// <summary>用于存档命名等少量场景，开启一个平台原生或引擎内置的文本输入会话。</summary>
         void BeginTextInput(string placeholder);
 

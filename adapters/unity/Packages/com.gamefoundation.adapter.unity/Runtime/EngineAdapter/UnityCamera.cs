@@ -168,6 +168,7 @@ namespace Adapter.Unity.EngineAdapter
         private double _pitchMaxDegrees = DefaultMaxPitchDegrees;
         private double _focusHeight;
         private bool _groundAvoidance;
+        private Func<double, double, double>? _groundHeightProvider;
         private double _groundAvoidanceMargin = DefaultGroundAvoidanceMargin;
         private double _currentDistance;
         private bool _groundAvoidanceEngaged;
@@ -357,6 +358,26 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
+        /// <summary>
+        /// 可选能力（缺省 null = 地面恒为世界平面 Z = 0，与引入前逐位一致）：地面高度提供者，入参世界平面坐标 (x, y)，返回该处地面的高度（世界单位，"向上"= 世界 −Z，
+        /// 与 <see cref="FocusHeight"/>、<see cref="CameraHeightAboveGround"/> 同一高度基准，即离世界平面 Z = 0 的高度）。
+        /// 设置后 <see cref="GroundAvoidance"/> 不再只看 Z = 0 平面，而是沿"焦点到相机"的整条视线取样地面：相机位置、以及视线上任何一点会落到地形（含余量）之下时，
+        /// 把相机沿视线向焦点拉近到刚好离地余量处，起伏地形、台地、坡上仰视都不会穿进地里。余量取 min(<see cref="GroundAvoidanceMargin"/>, 焦点离其下地面的高度)。
+        /// 纯表现，不回流逻辑层；游戏的高度源（地形数据）自己提供，框架不规定地形格式。
+        /// </summary>
+        public Func<double, double, double>? GroundHeightProvider
+        {
+            get => _groundHeightProvider;
+            set
+            {
+                _groundHeightProvider = value;
+                if (_groundAvoidance && (_applyPitch || _perspective))
+                {
+                    RefreshOrientation();
+                }
+            }
+        }
+
         /// <summary>地面避让余量（世界单位，缺省 <see cref="DefaultGroundAvoidanceMargin"/>）。非有限数或负数抛 <see cref="ArgumentOutOfRangeException"/>。</summary>
         public double GroundAvoidanceMargin
         {
@@ -515,7 +536,9 @@ namespace Adapter.Unity.EngineAdapter
             _groundAvoidanceEngaged = false;
             if (_groundAvoidance)
             {
-                distance = AvoidGround(focus.z, forward.z, distance);
+                distance = _groundHeightProvider != null
+                    ? AvoidTerrain(focus, forward, distance, _groundHeightProvider)
+                    : AvoidGround(focus.z, forward.z, distance);
             }
 
             _currentDistance = distance;
@@ -543,6 +566,50 @@ namespace Adapter.Unity.EngineAdapter
 
             _groundAvoidanceEngaged = true;
             return Math.Max(limit, MinAvoidanceDistance);
+        }
+
+        /// <summary>取样步数：沿视线从焦点到名义相机位置等分取样地面高度（地形起伏的尺度远大于名义距离的 1/32 时不会漏过一个隆起）。</summary>
+        private const int TerrainSamples = 32;
+
+        /// <summary>
+        /// 地形版地面避让（设置了 <see cref="GroundHeightProvider"/> 时用）：离地高度 = 相机高度（−z）− 该处地面高度。从焦点向相机等分取样，
+        /// 找到第一个离地高度低于余量的取样点后在它与前一个取样点之间二分，把距离缩到刚好离地余量处。
+        /// </summary>
+        private double AvoidTerrain(Vector3 focus, Vector3 forward, double distance, Func<double, double, double> ground)
+        {
+            double Clearance(double d) =>
+                -((double)focus.z - (double)forward.z * d) - ground((double)focus.x - (double)forward.x * d, (double)focus.y - (double)forward.y * d);
+
+            var margin = Math.Min(_groundAvoidanceMargin, Math.Max(0.0, Clearance(0.0)));
+            var previous = 0.0;
+            for (var i = 1; i <= TerrainSamples; i++)
+            {
+                var d = distance * i / TerrainSamples;
+                if (Clearance(d) < margin)
+                {
+                    var low = previous;
+                    var high = d;
+                    for (var k = 0; k < 24; k++)
+                    {
+                        var mid = 0.5 * (low + high);
+                        if (Clearance(mid) >= margin)
+                        {
+                            low = mid;
+                        }
+                        else
+                        {
+                            high = mid;
+                        }
+                    }
+
+                    _groundAvoidanceEngaged = true;
+                    return Math.Max(low, MinAvoidanceDistance);
+                }
+
+                previous = d;
+            }
+
+            return distance;
         }
 
         public void Follow(Vec2 planePos, double smoothing)

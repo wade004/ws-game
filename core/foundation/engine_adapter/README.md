@@ -149,6 +149,10 @@ engine_adapter/
 
 `INavigation2D` 追加两个**默认接口成员**（只加不改，既有实现无需改动、二进制兼容）：`FindPath(mapId, from, to, ITerrainStepConstraint? constraint)` 与 `TryFindNearestReachable(mapId, from, point, maxRadius, constraint, out reachable)`（参数同旧版加约束）。`ITerrainStepConstraint.FirstStepBlock(mapId, from, to)` 返回贴地行走者沿 from→to 第一个被台阶挡住的点（没有返回 null；**有向**：上台阶被挡不等于下台阶被挡）；实现者是核心层 `VerticalMotionHost`。默认实现：对旧 `FindPath` 的结果逐段验证约束，有一段被挡就返回 `null`（"没有网格的第三方实现不假装能绕行，也不静默忽略地形"）；`constraint == null` 时与旧重载完全一致。有网格的实现（测试桩 `StubNavigation2D`、Unity `UnityNavigation2D`、核心层 `OpenFieldNavigation`）覆盖它们，共用同一份规划器 `TerrainStepPathPlanner`（八邻接 A*，被台阶挡住的有向边不可通行、不切角、开放表按 `(f, 节点序号)` 排序、直线通畅时直接 `[from, to]`、视线剪枝，端点所在格心被阻挡盖住时用 8 邻格里与端点直连不受阻的格心做多源接合；绕行搜索窗口 = 两端点包围盒外扩 `max(4, 距离/2)` 加网格边距 2，超窗判无路，规划器不知道地形的全局范围，详见 `core/carriers/unit/README.md` 的判断记录）。台阶规则本身（滑窗 + 二分到 1e-10）在 `TerrainStepMath`，移动阻挡、寻路与路径校验共用。测试：`tests/TerrainAwareNavigationTests.cs`。
 
+## `IInput.ConsumeScrollNotches`：滚轮格数（2026-10-08，样板游戏 C 缺口，[ADR-0165](../../../architecture/adr/0165-样板游戏C缺口-相机地形避让滚轮输入与空间索引过期条目.md)）
+
+`IInput` 追加**默认接口成员** `double ConsumeScrollNotches()`（缺省 0；只加不改，既有实现无需改动、二进制兼容）：取走并清零自上次调用以来累积的滚轮格数，一格 = 1.0，向前（远离使用者）为正；实现负责把硬件单位换算成格数。滚轮是连续累积量，不进 `PollEvents` 的离散事件列表（精细滚动设备给小数，进事件列表会丢精度或刷屏）。`UnityInput` 绑定 `<Mouse>/scroll`（绝对值达 20 视为像素单位，按 120 一格换算），`StubInput.ScrollWheel` 供测试。已知限制：只有垂直方向，不区分设备。
+
 ## 可选能力接口 `ICameraOrientation`（M4-W4，2026-10-03）
 
 `core/foundation/engine_adapter/contracts/ICameraOrientation.cs`：相机朝向查询，只有 `double YawRadians`（相机在世界平面上的偏航，逆时针为正，0 = 屏幕上方是世界 +Y；右轴 (cos, sin)、上轴 (−sin, cos)）。独立成可选接口（探测写法 `camera is ICameraOrientation`），不给必选的 `ICamera` 加成员，旧相机实现与第三方实现不受影响；用途是输入映射的相机相对控制空间（`core/foundation/input_map/README.md` M4-W4 一节）。`StubCamera`（`YawDegrees` 换算）与 `UnityCamera` 实现它。

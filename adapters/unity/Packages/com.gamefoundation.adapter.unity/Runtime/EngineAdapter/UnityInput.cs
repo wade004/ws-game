@@ -42,6 +42,12 @@ namespace Adapter.Unity.EngineAdapter
         private readonly StringBuilder _textInputBuffer = new StringBuilder();
         private bool _recordingTextInput;
         private Vec2 _lastMousePosition;
+        private double _scrollNotches;
+
+        /// <summary>Input System 在 Windows 上把一格滚轮报成 ±120（其它平台/触控板可能是小数）；绝对值达到 20 视为这类像素单位，除以 120 换成格数。</summary>
+        private const float PixelsPerNotch = 120f;
+
+        private const float PixelUnitThreshold = 20f;
 
         public UnityInput()
         {
@@ -62,6 +68,13 @@ namespace Adapter.Unity.EngineAdapter
             _mouseMiddleAction.started += ctx => EnqueueMouseButton(InputEventKind.MouseButtonDown, "MouseMiddle");
             _mouseMiddleAction.canceled += ctx => EnqueueMouseButton(InputEventKind.MouseButtonUp, "MouseMiddle");
 
+            var scrollAction = _map.AddAction("MouseScroll", InputActionType.PassThrough, binding: "<Mouse>/scroll");
+            scrollAction.performed += ctx =>
+            {
+                var y = ctx.ReadValue<Vector2>().y;
+                _scrollNotches += Mathf.Abs(y) >= PixelUnitThreshold ? y / PixelsPerNotch : y;
+            };
+
             _map.Enable();
 
             InputSystem.onDeviceChange += OnDeviceChange;
@@ -80,6 +93,16 @@ namespace Adapter.Unity.EngineAdapter
             _pendingEvents.Clear();
             return events;
         }
+
+        public double ConsumeScrollNotches()
+        {
+            var value = _scrollNotches;
+            _scrollNotches = 0.0;
+            return value;
+        }
+
+        /// <summary>测试用：模拟滚轮转过若干格（向前为正），与真实滚轮同一累积量。</summary>
+        public void SimulateScrollForTest(double notches) => _scrollNotches += notches;
 
         public bool IsKeyDown(string key)
         {
