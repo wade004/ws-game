@@ -458,6 +458,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **手感落地 M4（1.96.0）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[1.96.0]` 正文。
 - **非手感已知限制清扫（1.96.0，[ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）**：数据与契约只增不改，编辑器按需跟进——`item.slot_definition` 新增可选布尔字段 `has_appearance`（缺省 `true`，写 `false` 的槽位物品不要求 `display.equip_visual` 行）；表达式可读事件 `combat.attack_avoided`、`combat.hit_confirmed` 的 `attackInstanceId` 现在可经表达式读取（为空时查不到）；`LootExpectedCurrencyOutcome.ExpectedRoundedAmount`（含取整与非正值跳过的精确货币期望，线性的 `ExpectedAmount` 保留，"理论与观测"面板应读前者）与 `LootTableAnalyzer.ExpectedAffixInclusion` 的 5 参数重载（大词缀池精确解，计算量预算 `exactMaxWork`）；`item.set` 数据重载后套装门槛立即对账（热重载后不必再等装备变化才见效果）；`simrunner fight` 子命令与 `--fight-log` 日志文件（`{schema_version, truncated, entries}`）；游戏模板 `GameOptions.PathFailurePolicy`/`BlockingChangePolicy`。详见下方 `[1.96.0]`"非手感已知限制清扫"。
 
+## [2.6.0] - 2026-10-08
+
+### 新增
+
+- **斜透视公告牌渲染（样板游戏 B 缺口，[ADR-0164](architecture/adr/0164-样板游戏B缺口-斜透视公告牌与朝向弧.md)）**：`RenderOptions.CameraYawRadiansProvider`（排序键沿屏幕上方向投影、朝向换算减去相机偏航；不提供时逐位不变）；引擎适配层精灵渲染器 `BillboardCamera` + `ApplyBillboards()`（精灵层平行于相机、高度沿相机上方向抬升）；`vfx.def` 新增可选字段 `upright`，资产导入器 vfx 子命令新增 `--upright`。
+- **技能朝向弧 `facing_arc`（度，可选）**：施法起手对每个解析出的非自身目标检查施法者面向，超出弧的一半拒绝，失败原因为新增枚举值 `CastFailureReason.NotFacing`（追加在枚举末尾）；校验规则 `facing_arc_range` / `facing_arc_timeline_conflict`。
+
+### 修复
+
+- **装备预算利用率警告的分母扣除词缀预留份额**：内容起步包稀有/史诗品质（70% + 30% 词缀预留）的装备此前要么报错要么报警，现在警告消息写明已扣除的预留份额；不带词缀的品质不变。
+- **任务击杀归属缺省走召唤者**：装配未传 `questOwnerResolver` 时缺省为 `Carriers.Summons.GetOwner`（此前恒空，召唤物击杀不给玩家计任务击杀数）；显式传入时完全以调用方为准。
+- **内容起步包补治疗加成属性定义**：`stat.healing_done_pct`（及中英文名）——战斗结算默认读它，起步包此前只有伤害加成/受伤调整，带治疗技能的游戏每次结算都告警"属性缺失，按 0 处理"；新增不变量用例读战斗选项源码里的默认属性 id 核对起步包都有定义。
+- **反馈绑定的实体 id 取值链补召唤事件字段**：self 链末尾补 `ownerId`、target 链补 `entityId`，`summon.created` 上的 `play_vfx`(attach=source/target) 可解析；既有事件取值不变。
+
+### 契约决定
+
+- [ADR-0164](architecture/adr/0164-样板游戏B缺口-斜透视公告牌与朝向弧.md)：样板游戏 B 的缺口（公告牌渲染、朝向弧、起步包预算规则、任务击杀归属、反馈实体 id），含 6 条已知限制。
+
 ## [2.5.0] - 2026-10-08
 
 ### 新增

@@ -18,7 +18,7 @@
 | 任务结构 | `quest.def` | 击杀计数 `kit_kill_count`、收集 `kit_collect`、对话交付 `kit_talk`、多阶段（同任务多目标 + 前置任务链）`kit_stage_1/2` |
 | 对话结构 | `dialog.gossip_menu`、`dialog.story_tree` | 发布者/商人/存档点菜单（按任务状态显示/隐藏选项）、带条件分支的剧情树（分支按任务完成情况切换） |
 | 地图规则 | `world.map`、`spawn.table`、`encounter.def`、`area.trigger_def`、`world.flag_schema` | 两张示例图（出生点）、刷怪点、遭遇区域（进入触发、清场写世界标记）、传送区（带目标出生点）、探索区、存档点 NPC |
-| 数值曲线 | `prog.*`、`stat.*`、`econ.*`、`item.budget_curve` | 10 级经验/成长曲线、击杀与任务经验来源、属性定义（力量/体力/攻击强度/移速/伤害加成/受伤调整/护甲）、金币与物品价值曲线 |
+| 数值曲线 | `prog.*`、`stat.*`、`econ.*`、`item.budget_curve` | 10 级经验/成长曲线、击杀与任务经验来源、属性定义（力量/体力/攻击强度/移速/伤害加成/受伤调整/治疗加成/护甲）、金币与物品价值曲线 |
 | 系统文案 | `l10n.locale`、`l10n.text` | 简体中文（默认）+ 英文：框架自带界面（背包/装备/任务日志/暂停/设置/商店/对话/提示框）用到的全部文案键、属性/槽位/品质名 |
 | 输入与界面 | `found.input_action`、`shell_menu_definition`、`ui_layout_definition` | 面板开关热键 `input.action.ui_toggle_*`（背包 I、装备 U、任务 J、技能 K、角色 C、设置 N、存档 L，可在设置里改键）、主菜单、基础界面布局 |
 | 表现占位 | `display.map` | 每个技能/物品/生物一行，指向占位精灵 `sprite.kit_placeholder`（框架的 display 覆盖规则要求每个逻辑 id 都有外形行）；游戏用 `"override": true` 换成自己的美术 |

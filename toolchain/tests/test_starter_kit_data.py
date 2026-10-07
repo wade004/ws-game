@@ -112,3 +112,13 @@ def test_kit_is_not_loaded_by_the_template_unless_the_game_declares_it() -> None
     assert not declared, f"模板默认配置里不应声明起步包：{declared}"
     bootstrap = (REPO_ROOT / "games" / "_template" / "Runtime" / "GameBootstrap.cs").read_text(encoding="utf-8")
     assert "_starter_kit" not in bootstrap
+
+
+def test_kit_defines_every_percent_stat_the_combat_resolver_reads_by_default() -> None:
+    """战斗结算默认读的百分比属性（伤害加成/受伤调整/治疗加成）起步包都要登记定义：未登记时每次结算都告警"属性缺失，按 0 处理"
+    （样板游戏 B 的法师有治疗技能，暴露出起步包漏了治疗加成，ADR-0164）。期望集合从战斗选项源码里的默认 id 读出，不写死。"""
+    source = (REPO_ROOT / "core" / "rules" / "combat" / "contracts" / "CombatOptions.cs").read_text(encoding="utf-8")
+    wanted = set(re.findall(r'new Id\("(stat\.(?:damage_done_pct|damage_taken_pct|healing_done_pct))"\)', source))
+    assert {"stat.damage_done_pct", "stat.damage_taken_pct", "stat.healing_done_pct"} <= wanted, wanted
+    defined = {r["id"] for r in _tables()["stat.definition"]["rows"]}
+    assert wanted <= defined, sorted(wanted - defined)

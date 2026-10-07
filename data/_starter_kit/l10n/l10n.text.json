@@ -33,6 +33,11 @@
       "text": "受到伤害调整"
     },
     {
+      "key": "l10n.stat.healing_done_pct.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "治疗加成"
+    },
+    {
       "key": "l10n.stat.armor.name",
       "locale": "l10n.locale.zh_cn",
       "text": "护甲"
@@ -991,6 +996,11 @@
       "key": "l10n.stat.damage_taken_pct.name",
       "locale": "l10n.locale.en",
       "text": "Damage Taken"
+    },
+    {
+      "key": "l10n.stat.healing_done_pct.name",
+      "locale": "l10n.locale.en",
+      "text": "Healing Bonus"
     },
     {
       "key": "l10n.stat.armor.name",
