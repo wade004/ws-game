@@ -37,6 +37,27 @@ namespace Tests.Presentation.VfxSfx
         }
 
         [Fact]
+        public void VfxDef_FromRecord_ParsesSortOrder_DefaultsToZero()
+        {
+            const string row = @"
+            {
+              ""id"": ""vfx.ground_warn"",
+              ""category"": ""telegraph"",
+              ""attach_mode"": ""world"",
+              ""resource_ref"": ""res.vfx.ground_warn"",
+              ""sort_order"": 3
+            }";
+            var (registry, report) = VfxSfxTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["vfx.def"] = "[" + row + "," + VfxSfxTestSupport.FireImpactVfxRow + "]",
+            });
+            Assert.False(report.IsBlocking);
+
+            Assert.Equal(3, VfxDef.FromRecord(registry.Get("vfx.def", "vfx.ground_warn")!).SortOrder);
+            Assert.Equal(0, VfxDef.FromRecord(registry.Get("vfx.def", "vfx.fire_impact")!).SortOrder);
+        }
+
+        [Fact]
         public void VfxDef_FromRecord_ParsesExplicitAdditiveBlendMode()
         {
             const string row = @"

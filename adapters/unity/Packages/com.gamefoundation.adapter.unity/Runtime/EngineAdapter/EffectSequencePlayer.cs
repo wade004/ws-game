@@ -163,6 +163,11 @@ namespace Adapter.Unity.EngineAdapter
             return _additiveMaterial;
         }
 
+        /// <summary>绘制序（<c>vfx.def.sort_order</c>，消费方反馈 2026-10-07）：序列帧渲染器的 <c>sortingOrder</c>。
+        /// 缺省 0 与地图地面层的 <c>sortingOrder</c>（0）并列，并列时 Unity 按世界 Y 次级排序，特效可能被地面盖住
+        /// （贴地预警圈实测不可见）；调用方（<c>UnityRenderer2D.EmitParticle</c>）对象池复用时每次都显式落地，不继承上一次的值。</summary>
+        public void SetSortingOrder(int order) => Renderer.sortingOrder = order;
+
         public void StopImmediately()
         {
             _playing = false;

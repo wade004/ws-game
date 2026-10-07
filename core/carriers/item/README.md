@@ -1059,3 +1059,11 @@ QualityId, AffixIds)` 与框架 `StandardPlayer.EquippedInstances`（槽位→�
 - **新增可选 Bool 字段 `has_appearance`，缺省 `true`**：只在数据契约里登记（`ItemSchemas.SlotDefinition`，只增不改），运行期核心（`EquipmentHost` 等）不读取它。消费方是工具链的装备资产包校验（`toolchain/asset_import/equip_pack.py`）：槽位写 `false`（戒指/项链等不上身可见的槽位）时，该槽位的物品不要求 `display.equip_visual` 行、不报 `equip_visual_missing`。缺省或 `true` 与登记前行为逐位一致。
 - **取舍**：此前"所有装备类槽位都当有外观"，戒指类物品会被误报，游戏只能把它们挪到别的数据根或写空外观行。不选"按槽位名猜"（槽位名是游戏自己的约定），不选"让游戏补空外观行"（空行没有语义，反被当成真外观去校验层图）。显式字段是唯一不靠猜的表达。
 - **测试**：`ItemSchemaCoverageTests`（`SlotDefinition_HasAppearance_Bool_LoadsWithoutErrors` 两种取值加载零问题且无该字段的任何 issue；`SlotDefinition_HasAppearance_NotBool_ReportsFieldType` 非布尔值被 `field_type` 拦下）；校验侧行为用例在 `toolchain/tests/test_equip_pack.py`（`test_slot_without_appearance_does_not_require_equip_visual` 等三条）。
+
+## 判断记录（`use_item` 意图与 `item.template.on_use`，样板游戏 A P3 缺口 G1，2026-10-07）
+
+- **决定**：新增 `UseItemIntentTickHandler`（`TickPhase.TriggerEvaluation`，`CarriersAssembly` 构造期注册），消费 `use_item{instance_id}` 意图：取使用者背包里的该实例 → 读模板可选字段 `on_use{skill_ref, consume?}` → 以使用者为施法者经 `SkillHost.CastSkill`（不传显式目标，由技能自己的目标链解析）施放 → 成功且 `consume` 不为 false 才扣 1 个。
+- **理由**：`UiIntents.UseItem` 与 ADR-0077 的 `use_item` 词汇早已存在，缺的是规则层消费者与"使用时做什么"的数据位。复用技能管线而不另造效果系统：任何 `skill.def.effects` 能表达的（治疗、加光环、授予物品）都是合法的使用效果，冷却/资源/死亡/沉默由施法管线统一裁决，药水冷却就是技能的 `cooldown_duration`。先施法、成功后再扣，避免"先扣后施法被拒"的回滚。
+- **拒绝路径**：实例不在使用者背包（含别人的实例 id）、模板无 `on_use`、`skill_ref` 缺失或指向未登记技能、施法被拒，一律只记诊断，不扣物品、不改状态。
+- **没做**：不在物品上做冷却（用技能冷却）；不做"使用前选目标"（技能目标链决定）；不新增事件（施法事件已足够表现层绑定音效/飘字）。
+- **测试**：`core/carriers/assembly/tests/P3_UseItemIntentTests.cs`——复现用例 `UseItem_Intent_RunsOnUseSkill_AndConsumesExactlyOne`（修前生命值与药水数量全程不变）；不变量 `UseItem_WhileSkillOnCooldown_DoesNotConsume_AndWorksAfterCooldown`、`UseItem_WithoutOnUse_OrForeignInstance_HasNoEffect`、`UseItem_ConsumeFalse_RunsSkillButKeepsItem`。

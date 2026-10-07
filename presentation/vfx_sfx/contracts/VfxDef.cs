@@ -26,6 +26,15 @@ namespace Presentation.VfxSfx.Contracts
         /// 见 <see cref="Presentation.VfxSfx.Core.VfxPlayer.Spawn"/>。</summary>
         public VfxBlendMode BlendMode { get; }
 
+        /// <summary>绘制序偏移（<c>vfx.def.sort_order</c>，缺省 0）。非 0 时由 <see cref="Presentation.VfxSfx.Core.VfxPlayer.Spawn"/>
+        /// 以保留参数键 <see cref="SortOrderParameterKey"/> 并入 <see cref="IRenderer2D.EmitParticle(Id, Vec2, System.Collections.Generic.IReadOnlyDictionary{string, double}, VfxBlendMode)"/>
+        /// 的 <c>parameters</c>，由渲染实现换算成实际绘制序。0 与地图地面层并列（谁先谁后由引擎决定，不保证）；
+        /// 正值保证画在地图地面层之上，用于贴地的范围预警圈等必须可见的地面特效。</summary>
+        public int SortOrder { get; }
+
+        /// <summary>保留的 <c>parameters</c> 键：绘制序偏移，见 <see cref="SortOrder"/>。</summary>
+        public const string SortOrderParameterKey = "sort_order";
+
         public VfxDef(Id id, string category, VfxAttachMode attachMode, double? lifetime, Id resourceRef)
             : this(id, category, attachMode, lifetime, resourceRef, VfxBlendMode.Alpha)
         {
@@ -34,6 +43,13 @@ namespace Presentation.VfxSfx.Contracts
         /// <summary>ADR-0074 新增重载：携带 <see cref="BlendMode"/>。既有 5 参构造函数保留、签名不变
         /// （ABI 只加法），转发到本重载并固定传 <see cref="VfxBlendMode.Alpha"/>。</summary>
         public VfxDef(Id id, string category, VfxAttachMode attachMode, double? lifetime, Id resourceRef, VfxBlendMode blendMode)
+            : this(id, category, attachMode, lifetime, resourceRef, blendMode, 0)
+        {
+        }
+
+        /// <summary>消费方反馈 2026-10-07（样板游戏 A 首领碎地预警圈被地面盖住）新增重载：携带
+        /// <see cref="SortOrder"/>。既有 6 参构造函数保留、签名不变（ABI 只加法），转发到本重载并固定传 0。</summary>
+        public VfxDef(Id id, string category, VfxAttachMode attachMode, double? lifetime, Id resourceRef, VfxBlendMode blendMode, int sortOrder)
         {
             Id = id;
             Category = category ?? throw new System.ArgumentNullException(nameof(category));
@@ -41,6 +57,7 @@ namespace Presentation.VfxSfx.Contracts
             Lifetime = lifetime;
             ResourceRef = resourceRef;
             BlendMode = blendMode;
+            SortOrder = sortOrder;
         }
 
         /// <summary>从一条已加载的 <c>vfx.def</c> <see cref="DataRecord"/> 构造（与
@@ -54,7 +71,8 @@ namespace Presentation.VfxSfx.Contracts
             var lifetime = record.TryGetNumber("lifetime", out var lifetimeVal) ? (double?)lifetimeVal : null;
             var resourceRef = record.GetId("resource_ref");
             var blendMode = record.TryGetString("blend_mode", out var blendModeVal) ? ParseBlendMode(record, blendModeVal) : VfxBlendMode.Alpha;
-            return new VfxDef(id, category, attachMode, lifetime, resourceRef, blendMode);
+            var sortOrder = record.TryGetInt("sort_order", out var sortOrderVal) ? checked((int)sortOrderVal) : 0;
+            return new VfxDef(id, category, attachMode, lifetime, resourceRef, blendMode, sortOrder);
         }
 
         private static VfxAttachMode ParseAttachMode(DataRecord record, string value) => value switch

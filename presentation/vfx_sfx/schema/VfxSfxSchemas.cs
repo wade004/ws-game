@@ -33,6 +33,8 @@ namespace Presentation.VfxSfx.Schema
                     .WithAllowedRefCategories("vfx"),
                 new FieldSchema("blend_mode", FieldKind.Enum, required: false, enumValues: BlendModes,
                     description: "混合模式（alpha/additive），缺省 alpha（与改动前逐字一致的既有行为），见 ADR-0074"),
+                new FieldSchema("sort_order", FieldKind.Int, required: false,
+                    description: "绘制序偏移，缺省 0（与改动前逐字一致）；0 与地图地面层并列（先后由引擎决定），正值保证画在地图地面层之上，用于贴地的范围预警圈等必须可见的地面特效"),
             },
             migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "vfx");
 
