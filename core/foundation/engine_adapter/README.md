@@ -160,3 +160,7 @@ engine_adapter/
 ## 可选能力接口 `ICameraZoomPunch` 与 `IRumble`（手感落地 M5-S5，2026-10-04，[ADR-0148](../../../architecture/adr/0148-镜头与音画反馈的合成上限玩家强度脚步材质与动画表现标记.md)）
 
 两个新的可选能力，探测写法与 `ICameraImpulse` 相同（`camera is ICameraZoomPunch z && z.SupportsCameraZoomPunch`、`IRumble.SupportsRumble`），不给必选接口加成员，旧实现与第三方实现不受影响。`ICameraZoomPunch.ZoomPunch(magnitude, decayMs)`：可视范围瞬间收窄 `magnitude`（比例）再线性回落，多次叠加合计收窄不超过 0.5；`IRumble.Rumble(strength, durationMs)`：0..1 强度，后到的取强度较大者、时长取剩余较长者。`UnityCamera` 实现缩放脉冲（恒声明支持）；`UnityRumble` 经 Input System 手柄马达输出（低频全强度、高频 0.6 倍），可注入马达输出以便无设备测试，`UnityEngineHost` 逐帧推进并在退出时归零。
+
+## 可选能力接口 `ITerrainPlatforms2D`：单向平台与移动平台（2026-10-08，样板游戏 D 缺口，[ADR-0170](../../../architecture/adr/0170-单向平台移动平台与下穿俯冲.md)）
+
+`ITerrainHeight2D` 对每个平面点只回答一个地面高度，表达不了"同一点上方悬着一块从下面能跳穿的平台"，也没有随时间移动的表面。新增独立的可选接口 `ITerrainPlatforms2D`（`TimeSeconds`、`SetTime`、`Advance`、`LastMotions`、`TryLand`、`TryGetSupport`、`TryGetTop`）与值类型 `PlatformContact`/`PlatformMotion`，通过 `VerticalAxisOptions.Platforms` 接入，缺省 null 世界逐位不变，不给 `ITerrainHeight2D` 加成员。`TryLand` 的单向规则是"这一步脚下起点不低于顶面、终点不高于顶面"；`TryGetSupport` 允许与移动平台上一步的顶面齐平（刚放上去的单位还没来得及被带动）。数据实现见 `MapPlatforms`（scene_router）；引擎侧可用物理单向碰撞体实现同一接口（本次未提供引擎版，样板游戏用数据版）。已知限制：见 ADR-0170 限制 1~6。

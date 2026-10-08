@@ -598,6 +598,8 @@ namespace Core.Carriers.Assembly
             {
                 var verticalHost = new VerticalMotionHost(world, resolvedMovementOptions.Vertical, bus);
                 VerticalMotion = verticalHost;
+                // 移动平台带走站在上面的单位时经单位访问口写位置（空间索引同步，ADR-0170）；没声明平台时不读。
+                verticalHost.UnitAccess = Units;
                 // 地形高度能力同时给单位访问口（地面坐标施法的落点高度、命中高度窗口的锚点读它）；没声明地形时保持 null。
                 Units.Terrain = resolvedMovementOptions.Vertical.Terrain;
                 // 空中横向控制与地形台阶阻挡由移动系统读竖直轴服务（ADR-0130 追加决定）；没有竖直轴时该属性保持 null，移动系统逐位不变。

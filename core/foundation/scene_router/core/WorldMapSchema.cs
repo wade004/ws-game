@@ -144,6 +144,42 @@ namespace Core.Foundation.SceneRouter
             },
             description: "地面材质区域：与 terrain 同形状（rect | polygon | heightfield 的几何字段）加 material 标签；后声明的盖住先声明的");
 
+        /// <summary>
+        /// <c>platforms</c> 元素结构（ADR-0170）：单向平台（跳穿平台）与可选的往复运动。判断记录：必填项（id、min、max、height、motion.travel）与
+        /// 取值约束（max 不小于 min、travel 为正、id 在同一地图内唯一）由 <see cref="WorldMapTerrainValidationRule"/> 与运行期读取
+        /// （<see cref="MapPlatforms.ReadItem"/>）走同一份解析，登记层只登记字段与类型。
+        /// </summary>
+        private static readonly FieldSchema PlatformItemSchema = new FieldSchema(
+            "<platform>", FieldKind.Object, required: true, fields: new[]
+            {
+                new FieldSchema("id", FieldKind.String, required: false, description: "平台 id（必填，同一地图内唯一）；站在平台上的单位按它记住支撑"),
+                new FieldSchema("min", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("x", FieldKind.Number, required: true, description: "平台范围左下角 x（运动起点处）"),
+                    new FieldSchema("y", FieldKind.Number, required: true, description: "平台范围左下角 y（运动起点处）"),
+                }, description: "平台范围左下角（含，必填）"),
+                new FieldSchema("max", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("x", FieldKind.Number, required: true, description: "平台范围右上角 x"),
+                    new FieldSchema("y", FieldKind.Number, required: true, description: "平台范围右上角 y"),
+                }, description: "平台范围右上角（含，必填），不小于 min"),
+                new FieldSchema("height", FieldKind.Number, required: false,
+                    description: "顶面的绝对高度（世界单位，运动起点处，必填）"),
+                new FieldSchema("motion", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("kind", FieldKind.String, required: false, description: "运动种类：ping_pong（缺省；在起点与终点之间匀速往复）"),
+                    new FieldSchema("offset", FieldKind.Object, required: false, fields: new[]
+                    {
+                        new FieldSchema("x", FieldKind.Number, required: true, description: "终点相对起点的 x 偏移"),
+                        new FieldSchema("y", FieldKind.Number, required: true, description: "终点相对起点的 y 偏移"),
+                    }, description: "终点相对起点的平面偏移，缺省 {0,0}"),
+                    new FieldSchema("lift", FieldKind.Number, required: false, description: "终点相对起点的高度变化（电梯），缺省 0"),
+                    new FieldSchema("travel", FieldKind.Number, required: false, description: "单程时长（秒，必填，正数）"),
+                    new FieldSchema("pause", FieldKind.Number, required: false, description: "两端各停留的时长（秒，非负），缺省 0"),
+                    new FieldSchema("phase", FieldKind.Number, required: false, description: "平台时钟相位偏移（秒），缺省 0"),
+                }, description: "可选运动；缺省平台静止"),
+            }, description: "单向平台：{id, min, max, height, motion?}；从下面能跳穿、从上面落下能站住，可往复移动并带走站在上面的单位");
+
         public static readonly TableSchema Table = new TableSchema(
             name: "world.map",
             primaryKey: "id",
@@ -168,6 +204,9 @@ namespace Core.Foundation.SceneRouter
                     description: "可选地形高度（ADR-0130 追加决定：地面高度、地形形状）：高度区域清单（rect/polygon/heightfield 三种形状，见 terrain 元素结构），后声明的盖住先声明的；"
                         + "区域之外与未声明该字段的地图地面恒为 0、没有天花板。只在世界装配了竖直轴并声明地形能力（VerticalAxisOptions.Terrain）时被读取，"
                         + "否则忽略（平面世界逐位不变）"),
+                new FieldSchema(MapPlatforms.FieldName, FieldKind.Array, required: false, item: PlatformItemSchema,
+                    description: "可选单向平台与移动平台（ADR-0170）：平台清单 {id, min, max, height, motion?}。只在世界装配了竖直轴并声明平台能力"
+                        + "（VerticalAxisOptions.Platforms）时被读取，否则忽略（平面世界与既有地图逐位不变）"),
                 new FieldSchema("surface_materials", FieldKind.Array, required: false, item: SurfaceMaterialItemSchema,
                     description: "可选地面材质区域（ADR-0148，手感设计/07 第 3 节）：与 terrain 同形状加 material 标签，后声明的盖住先声明的；"
                         + "表现层的脚步音效按单位脚下的材质选 sfx.def 的 feel_material 行，区域之外与未声明该字段的地图按通用材质（generic）"),
@@ -404,6 +443,54 @@ namespace Core.Foundation.SceneRouter
                         failure.Message, recordKey: record.Key, field: failure.Field);
                 }
             }
+
+            // ADR-0170：platforms 的条目走运行期同一份解析；同一张地图内平台 id 必须唯一。
+            foreach (var record in view.GetAll(WorldMapSchema.Table.Name))
+            {
+                if (!record.TryGetArray(MapPlatforms.FieldName, out var items))
+                {
+                    continue;
+                }
+
+                var seen = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+                for (var i = 0; i < items.Count; i++)
+                {
+                    DataFieldException? failure = null;
+                    PlatformDef def = default;
+                    try
+                    {
+                        def = MapPlatforms.ReadItem(record, items[i], i);
+                    }
+                    catch (DataFieldException ex)
+                    {
+                        failure = ex;
+                    }
+
+                    if (failure == null)
+                    {
+                        if (!seen.Add(def.Id))
+                        {
+                            yield return new ValidationIssue(
+                                ValidationSeverity.Error, WorldMapSchema.Table.Name, PlatformCheck,
+                                "平台 id 重复：" + def.Id, recordKey: record.Key, field: MapPlatforms.FieldName + "[" + i.ToString(System.Globalization.CultureInfo.InvariantCulture) + "].id");
+                        }
+
+                        continue;
+                    }
+
+                    if (failure.Message.Contains("：期望 Object") || failure.Message.Contains("：期望 Number") || failure.Message.Contains("：期望 Vec2"))
+                    {
+                        continue;
+                    }
+
+                    var required = failure.Message.EndsWith("：必填", StringComparison.Ordinal);
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Error, WorldMapSchema.Table.Name, required ? "required_field" : PlatformCheck,
+                        failure.Message, recordKey: record.Key, field: failure.Field);
+                }
+            }
         }
+
+        private const string PlatformCheck = "world_map_platform";
     }
 }

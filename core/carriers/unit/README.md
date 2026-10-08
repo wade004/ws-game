@@ -790,3 +790,13 @@ M4-V 遗留的八条限制逐条解除（原文见上节第 6 条的旧版本，
 ## 判断记录（方向移动松开后落回 Idle，2026-10-06，消费方反馈 P2 缺口 8）
 
 方向输入松开后，单位没有路径/追击/受控位移，自主移动模式（Walk/Run/Sprint）此前不落回 Idle，也不发 `unit.state_changed`；动画状态机只认这条事件，站着的单位原地踏步。决定：`SettleToIdleIfReleased` 统一收口——运动层开启时在 `FinishMotionTick` 里按"速度为零且期望方向为零"判定（含减速滑行结束），关闭时在 `MovementTickHandler` 第二遍"没有路径"分支里判定；只动 Walk/Run/Sprint，不动 Forced（被击退/传送）与有路径、追击、位移的单位；运动层路径下冻结与死亡的单位不判。用例 `MotionArbiterTests.ReleaseToIdle`（5 例，红绿对照）；按 AGENTS 规则已列的跨层例外，引擎侧 `MovementStopAndBlockingPlayModeTests` 需定向重跑。
+
+## 判断记录（单向平台、移动平台、下穿与俯冲，2026-10-08，样板游戏 D 缺口，[ADR-0170](../../../architecture/adr/0170-单向平台移动平台与下穿俯冲.md)）
+
+1. **契约（只加不改）**：`VerticalAxisOptions.Platforms`（`ITerrainPlatforms2D?`，缺省 null；声明必须同时声明 `Terrain`，否则 `Validate()` 抛 `ArgumentException`）；`IVerticalMotion` 新增默认接口成员 `DropThrough(id)`、`Plunge(id, downSpeed)`、`StandingPlatform(id)`（缺省分别为假/假/null）；`VerticalMotionHost.UnitAccess`（可选属性，`CarriersAssembly` 装配时指向 `Units`，带乘客时经它写位置以同步空间索引）。
+2. **落地规则**：`AdvanceFlights` 的落地判定改成"下降中（竖直速度 ≤ 0）且这一步脚下起点 `footBefore` 不低于平台上一步顶面、终点不高于本步顶面"，多块满足取最高；平台顶面高于地面时落在平台，否则落在地面。上升中与平台下方的单位完全不受影响（单向）。边缘下落同样是飞行，同一规则。不声明平台时落地路径逐位不变。
+3. **贴地**：`FollowGround` 首次观察一个单位时用 `TryGetSupport` 认出支撑平台（出生/传送到平台上）；站在平台上的单位其脚下高度跟随平台顶面，走出平台范围起一段 `LedgeFall` 零速飞行（同悬崖，可土狼起跳）。
+4. **带乘客**：`Advance` 先推进平台时钟，再对站在移动平台上的单位（按 Id 序数序）加平台本步位移，最后推进飞行与贴地；被带走不算自己走动。
+5. **下穿**：`DropThrough` 只在站在平台上时成立：离地初速 0 下落，这次飞行记录 `IgnorePlatform`，落地检测跳过该块平台，落到下面的地面或别的平台才结束；不是 `LedgeFall`，不可土狼起跳。**俯冲**：`Plunge` 只在空中成立，竖直速度换成向下的 `downSpeed` 后继续抛体，保持空中跳跃次数与空中时间；它是新开的一段飞行，`LedgeFall` 与 `IgnorePlatform` 标记随之清除（已知限制：下穿某块平台后立刻俯冲，下方又是同一块平台时会被它接住；边缘下落中俯冲后不能再土狼起跳）。
+6. 已知限制（原样登记）：平台范围只有轴对齐矩形；移动平台之间不互相携带；带乘客时不做碰撞检测（平台水平推进可能把乘客带进墙里，由关卡保证路线干净）；从下方被上升的移动平台"顶到"不会被抬起也不受伤；平台时钟整个世界一个。
+7. 复现/不变量：`tests/VerticalPlatformTests.cs`（19+ 例）：旧接口缺口复现 `Gap_SingleValuedTerrain_…`（单值地形下同一点站不到悬空平台，也跳不穿）；从下方跳穿并落在平台上，落地步按公式（空中时间、落点高度）算期望；走出边缘下落并可土狼起跳；`DropThrough` 穿过并落到地面；移动平台带乘客位移与平台时钟的解析式一致；`UnitAccess` 同步空间索引；`SetTime` 复原；叠放平台取最高；`Plunge` 速度/高度按抛体公式；两次相同输入逐位一致。
