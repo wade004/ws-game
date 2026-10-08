@@ -368,8 +368,10 @@ class Skeleton:
         env["GH_STUB_STORE"] = str(self.gh_store_path)
         for key in ("NPM_STUB_FAIL_PACK", "NPM_STUB_FAIL_PUBLISH_PKG", "NPM_STUB_VIEW_ERROR",
                     "GH_STUB_FAIL_CREATE", "CHECK_STUB_EXIT", "DOTNET_STUB_EXIT", "DOTNET_STUB_EXIT_FROM_BUILD",
-                    "NPM_STUB_FAIL_PACK_VERSION", "SAMPLES_STUB_EXIT", "SAMPLES_STUB_UPGRADE_EXIT", "WS_GAME_SAMPLES"):
+                    "NPM_STUB_FAIL_PACK_VERSION", "SAMPLES_STUB_EXIT", "SAMPLES_STUB_UPGRADE_EXIT", "WS_GAME_SAMPLES", "WS_GAME_WT_ROOT"):
             env.pop(key, None)
+        if self.samples is not None:
+            env["WS_GAME_WT_ROOT"] = str(self.samples.parent / "samples_wtroot")
         env.update(self.extra_env)
         if extra:
             env.update(extra)
@@ -542,6 +544,9 @@ def build_skeleton(tmp_path: Path, *, base_version: str = "1.2.0", release_versi
     init_temp_repo(samples, branch="main")
     _write(samples / "check.ps1", SAMPLES_CHECK_STUB, bom=True)
     _write(samples / "tools" / "upgrade_framework.ps1", SAMPLES_UPGRADE_STUB, bom=True)
+    # ��ѡ�׶�������ֿ����ʱ���������ܣ��������嵱ǰ HEAD��������׮�������ύ����ʱ��������Ŀ¼ָ�� tmp��������ʵ D:\wt��
+    run_git(samples, "add", "check.ps1", "tools/upgrade_framework.ps1")
+    run_git(samples, "commit", "-q", "-m", "skeleton samples stubs")
 
     return Skeleton(root=root, origin=origin, stub_dir=stub_dir, work=work,
                     base_version=base_version, release_version=release_version, base_commit=base, samples=samples)
