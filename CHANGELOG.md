@@ -458,6 +458,16 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **手感落地 M4（1.96.0）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[1.96.0]` 正文。
 - **非手感已知限制清扫（1.96.0，[ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）**：数据与契约只增不改，编辑器按需跟进——`item.slot_definition` 新增可选布尔字段 `has_appearance`（缺省 `true`，写 `false` 的槽位物品不要求 `display.equip_visual` 行）；表达式可读事件 `combat.attack_avoided`、`combat.hit_confirmed` 的 `attackInstanceId` 现在可经表达式读取（为空时查不到）；`LootExpectedCurrencyOutcome.ExpectedRoundedAmount`（含取整与非正值跳过的精确货币期望，线性的 `ExpectedAmount` 保留，"理论与观测"面板应读前者）与 `LootTableAnalyzer.ExpectedAffixInclusion` 的 5 参数重载（大词缀池精确解，计算量预算 `exactMaxWork`）；`item.set` 数据重载后套装门槛立即对账（热重载后不必再等装备变化才见效果）；`simrunner fight` 子命令与 `--fight-log` 日志文件（`{schema_version, truncated, entries}`）；游戏模板 `GameOptions.PathFailurePolicy`/`BlockingChangePolicy`。详见下方 `[1.96.0]`"非手感已知限制清扫"。
 
+## [Unreleased]
+
+### 新增
+
+- **第三人称镜头遮挡淡化（[ADR-0166](architecture/adr/0166-第三人称镜头遮挡淡化.md)，样板游戏 C 截图复核驱动）**：`UnityCamera.EnableOcclusionFade(CameraOcclusionOptions?)` 返回 `CameraOcclusionFader`（缺省关闭，`OcclusionFade` 为 null，不启用时行为逐位不变；`DisableOcclusionFade()` 关闭并恢复）。游戏用 `Add(Renderer)` 登记会挡视线的布景渲染物，用 `SetWatchPoints` 登记锁定目标等额外观察点；相机焦点自动是观察点。镜头到观察点的连线（按 `SightRadius` 外扩）穿过遮挡物包围盒时，其不透明度按 dt 线性降到 `FadedOpacity`（缺省 0.25），离开后恢复到 1；值写进渲染物属性覆盖（属性名 `FadeProperty`，缺省 `_OcclusionFade`，恢复到 1 时清掉），游戏着色器按它做抖动透明或混合。取景与镜头位姿不动。已知限制：包围盒登记时取一次且为轴对齐盒（外扩偏保守）；淡化整个渲染物，合并成一个网格的布景要按物拆分登记；不处理地形遮挡（仍归地面避让）。测试 `UnityCameraTests.OcclusionFade_*`。
+
+### 契约决定
+
+- [ADR-0166](architecture/adr/0166-第三人称镜头遮挡淡化.md)：遮挡物淡化与镜头前推二选一，选淡化。
+
 ## [2.6.0] - 2026-10-08
 
 ### 新增
