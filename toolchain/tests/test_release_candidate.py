@@ -124,21 +124,28 @@ $registryHas = {existing}
 $list = {{ param($pkg) $script:log.Add("list $pkg"); return @($registryHas) }}
 $build = {{ param($rc) $script:log.Add("build $rc"); {build_body} return (Join-Path $repo ('dist\\' + $rc)) }}
 $publish = {{ param($pkgDir, $rc) $script:log.Add("publish " + (Split-Path -Leaf $pkgDir) + " $rc"); {publish_body} }}
-$upgrade = {{ param($samples, $rc, $url) $script:log.Add("upgrade $rc"); {upgrade_body} }}
-$gate = {{ param($samples) $script:log.Add("gate"); return [PSCustomObject]@{{ ExitCode = {gate_exit}; Conclusion = '{gate_conclusion}' }} }}
+$script:paths = New-Object System.Collections.Generic.List[string]
+$mkwt = {{ param($samplesRepo, $rc, $root) $script:log.Add("worktree-add $rc"); return (Join-Path $root 'wt') }}
+$rmwt = {{ param($samplesRepo, $path) $script:log.Add("worktree-remove") }}
+$upgrade = {{ param($samples, $rc, $url) $script:log.Add("upgrade $rc"); $script:paths.Add("$samples"); {upgrade_body} }}
+$gate = {{ param($samples) $script:log.Add("gate"); $script:paths.Add("$samples"); return [PSCustomObject]@{{ ExitCode = {gate_exit}; Conclusion = '{gate_conclusion}' }} }}
 foreach ($n in $names) {{ foreach ($k in 1..4) {{ New-Item -ItemType Directory -Force -Path (Join-Path $repo ('dist\\2.0.0-rc.' + $k + '\\packages\\' + $n)) | Out-Null }} }}
 $thrown = ''
 $result = $null
 try {{
     $result = Invoke-ReleaseCandidateStage -RepoRoot $repo -Version '2.0.0' -StatePath $statePath -SamplesRepo {samples} `
         -RegistryUrl 'http://registry.invalid/' -NpmrcPath 'x.npmrc' {flags} `
-        -ListVersions $list -BuildPackages $build -PublishPackage $publish -UpgradeSamples $upgrade -RunSamplesGate $gate
+        -SamplesWorktreeRoot (Join-Path $repo 'wtroot') `
+        -ListVersions $list -BuildPackages $build -PublishPackage $publish -UpgradeSamples $upgrade -RunSamplesGate $gate `
+        -CreateSamplesWorktree $mkwt -RemoveSamplesWorktree $rmwt
 }} catch {{
     $thrown = $_.Exception.Message
 }}
 $state = Read-ReleaseState -Path $statePath
 $out = [ordered]@{{
     log = @($script:log)
+    paths = @($script:paths)
+    repo = $repo
     thrown = $thrown
     status = $(if ($result) {{ $result.Status }} else {{ $null }})
     candidate = $(if ($result) {{ $result.Candidate }} else {{ $null }})
@@ -171,7 +178,7 @@ def test_candidate_stage_green_path_publishes_rc_then_upgrades_samples_then_runs
         [f"list {p}" for p in PACKAGES]
         + ["build 2.0.0-rc.1"]
         + [f"publish {p} 2.0.0-rc.1" for p in PACKAGES]
-        + ["upgrade 2.0.0-rc.1", "gate"]
+        + ["worktree-add 2.0.0-rc.1", "upgrade 2.0.0-rc.1", "gate", "worktree-remove"]
     )
     assert r["log"] == expected
     assert r["candidateDone"] is True
@@ -188,7 +195,9 @@ def test_candidate_stage_takes_the_next_rc_number_from_the_registry(tmp_path: Pa
 def test_red_samples_gate_stops_the_release_before_it_can_tag(tmp_path: Path) -> None:
     r = _run_stage(tmp_path, gate_exit=1, gate_conclusion="")
     assert "未通过" in r["thrown"] and "打标签前终止" in r["thrown"] and "-Resume" in r["thrown"], r["thrown"]
-    assert r["log"][-2:] == ["upgrade 2.0.0-rc.1", "gate"]
+    assert r["log"][-2:] == ["upgrade 2.0.0-rc.1", "gate"], "红了保留临时工作树作现场，不移除"
+    assert "worktree-remove" not in r["log"]
+    assert "worktree remove --force" in r["thrown"], "消息里要给出清理命令"
     assert r["candidateDone"] is False, "红的候选不得标记完成：发布流程据此不继续打包/打标签"
     assert r["status"] is None
 
@@ -211,6 +220,136 @@ def test_candidate_publish_failure_does_not_upgrade_or_run_samples(tmp_path: Pat
 def test_candidate_upgrade_failure_does_not_run_the_samples_gate(tmp_path: Path) -> None:
     r = _run_stage(tmp_path, upgrade_body="throw '升级失败(注入)'")
     assert "升级失败" in r["thrown"] and "gate" not in r["log"] and r["candidateDone"] is False
+
+
+def test_upgrade_and_samples_gate_run_in_the_temp_worktree_never_in_the_samples_main(tmp_path: Path) -> None:
+    samples = _make_samples(tmp_path)
+    r = _run_stage(tmp_path, samples=samples)
+    assert r["thrown"] == "", r["thrown"]
+    worktree = str(Path(r["repo"]) / "wtroot" / "wt")
+    assert [Path(x) for x in r["paths"]] == [Path(worktree), Path(worktree)], "升级与样板门禁都必须收到临时工作树路径"
+    assert Path(samples) not in [Path(x) for x in r["paths"]], "样板主工作树不得被升级/门禁触碰"
+    assert r["log"].index("worktree-add 2.0.0-rc.1") < r["log"].index("upgrade 2.0.0-rc.1") < r["log"].index("gate") < r["log"].index("worktree-remove")
+
+
+def test_samples_repo_that_is_already_a_linked_worktree_is_used_directly(tmp_path: Path) -> None:
+    samples = _make_samples(tmp_path, git=False)
+    (samples / ".git").write_text("gitdir: /elsewhere/.git/worktrees/x\n", encoding="utf-8")  # 已关联工作树的 .git 是文件
+    r = _run_stage(tmp_path, samples=samples)
+    assert r["thrown"] == "", r["thrown"]
+    assert not any(x.startswith("worktree") for x in r["log"]), "显式给的已关联工作树直接用，不另建不移除"
+    assert [Path(x) for x in r["paths"]] == [samples, samples]
+
+
+# ----------------------------------------------------------------------------
+# 端到端（真实 git）：候选阶段结束后样板主工作树 git status 不变
+# ----------------------------------------------------------------------------
+
+_REAL_GIT_DRIVER = """
+$ErrorActionPreference = 'Stop'
+$repo = {repo}
+$samples = {samples}
+$statePath = Join-Path $repo 'dist\\release-2.0.0.state.json'
+$names = @({names})
+$s = New-ReleaseState -Version '2.0.0' -ParentCommit 'p' -PreviousVersion '1.100.0' -GateConclusion 'g' -PackageNames $names
+Save-ReleaseState -Path $statePath -State $s
+foreach ($n in $names) {{ New-Item -ItemType Directory -Force -Path (Join-Path $repo ('dist\\2.0.0-rc.1\\packages\\' + $n)) | Out-Null }}
+$list = {{ param($pkg) return @() }}
+$build = {{ param($rc) return (Join-Path $repo ('dist\\' + $rc)) }}
+$publish = {{ param($pkgDir, $rc) }}
+$thrown = ''
+$status = ''
+try {{
+    $r = Invoke-ReleaseCandidateStage -RepoRoot $repo -Version '2.0.0' -StatePath $statePath -SamplesRepo $samples `
+        -RegistryUrl 'http://registry.invalid/' -NpmrcPath 'x.npmrc' -SamplesWorktreeRoot {wtroot} `
+        -ListVersions $list -BuildPackages $build -PublishPackage $publish
+    $status = $r.Status
+}} catch {{
+    $thrown = $_.Exception.Message
+}}
+@{{ thrown = $thrown; status = $status }} | ConvertTo-Json | Out-File -LiteralPath $ResultPath -Encoding utf8
+"""
+
+
+def _git(cwd: Path, *args: str) -> str:
+    import subprocess
+
+    from _git_env import git_env
+
+    proc = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", env=git_env(), timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout
+
+
+def _make_real_samples_repo(tmp: Path, *, gate_exit: int) -> Path:
+    """真实 git 仓库形态的样板：升级脚本改 unity/Packages/manifest.json 并写标记文件，门禁脚本打印结论行。"""
+    from _git_env import init_temp_repo
+
+    samples = init_temp_repo(tmp / "ws-game-samples")
+    (samples / "tools").mkdir()
+    (samples / "unity" / "Packages").mkdir(parents=True)
+    (samples / "unity" / "Packages" / "manifest.json").write_text('{"dependencies": {"x": "1.0.0"}}\n', encoding="utf-8", newline="\n")
+    bom = b"\xef\xbb\xbf"
+    (samples / "tools" / "upgrade_framework.ps1").write_bytes(
+        bom
+        + (
+            "param([string]$Version, [string]$RegistryUrl)\n"
+            "$root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)\n"
+            "[System.IO.File]::WriteAllText((Join-Path $root 'unity\\Packages\\manifest.json'), ('{\"dependencies\": {\"x\": \"' + $Version + '\"}}' + \"`n\"))\n"
+            "[System.IO.File]::WriteAllText((Join-Path $root 'upgraded.marker'), $root)\n"
+        ).encode("utf-8")
+    )
+    (samples / "check.ps1").write_bytes(
+        bom
+        + (
+            "$root = Split-Path -Parent $MyInvocation.MyCommand.Path\n"
+            "[System.IO.File]::WriteAllText((Join-Path $root 'gate.marker'), $root)\n"
+            f"if ({gate_exit} -eq 0) {{ Write-Host '门禁通过：桩样板门禁' }}\n"
+            f"exit {gate_exit}\n"
+        ).encode("utf-8")
+    )
+    _git(samples, "add", "-A")
+    _git(samples, "commit", "-q", "-m", "init")
+    # 用户的试玩现场：已跟踪文件有未提交改动 + 一个未跟踪文件。候选阶段不得碰它们。
+    (samples / "unity" / "Packages" / "manifest.json").write_text('{"dependencies": {"x": "1.0.0", "user_edit": "1"}}\n', encoding="utf-8", newline="\n")
+    (samples / "scratch_play_note.txt").write_text("user", encoding="utf-8")
+    return samples
+
+
+def _run_real_stage(tmp: Path, *, gate_exit: int) -> tuple[dict, Path, Path]:
+    repo = _make_repo(tmp)
+    samples = _make_real_samples_repo(tmp, gate_exit=gate_exit)
+    wtroot = tmp / "wtroot"
+    body = _preamble() + _REAL_GIT_DRIVER.format(
+        repo=ps_quote(repo), samples=ps_quote(samples), names=",".join(ps_quote(n) for n in PACKAGES), wtroot=ps_quote(wtroot)
+    )
+    return run_ps_json(tmp, body, name="cand_real_git"), samples, wtroot
+
+
+def test_real_git_candidate_stage_leaves_the_samples_main_worktree_untouched_and_removes_the_temp_worktree(tmp_path: Path) -> None:
+    r, samples, wtroot = _run_real_stage(tmp_path, gate_exit=0)
+    assert r["thrown"] == "", r["thrown"]
+    assert r["status"] == "Passed"
+    # 主工作树：HEAD、git status、被用户改过的 manifest 逐字节不变；升级/门禁的标记文件只出现在临时工作树里（已随工作树移除）。
+    assert _git(samples, "status", "--porcelain").splitlines() == [" M unity/Packages/manifest.json", "?? scratch_play_note.txt"]
+    assert (samples / "unity" / "Packages" / "manifest.json").read_text(encoding="utf-8") == '{"dependencies": {"x": "1.0.0", "user_edit": "1"}}\n'
+    assert not (samples / "upgraded.marker").exists() and not (samples / "gate.marker").exists()
+    worktrees = [ln for ln in _git(samples, "worktree", "list", "--porcelain").splitlines() if ln.startswith("worktree ")]
+    assert len(worktrees) == 1, "绿了之后临时工作树必须移除：" + str(worktrees)
+    assert not wtroot.exists() or list(wtroot.iterdir()) == []
+
+
+def test_real_git_red_gate_keeps_the_temp_worktree_as_evidence_and_still_leaves_main_untouched(tmp_path: Path) -> None:
+    r, samples, wtroot = _run_real_stage(tmp_path, gate_exit=1)
+    assert "未通过" in r["thrown"] and "worktree remove --force" in r["thrown"], r["thrown"]
+    assert _git(samples, "status", "--porcelain").splitlines() == [" M unity/Packages/manifest.json", "?? scratch_play_note.txt"]
+    assert (samples / "unity" / "Packages" / "manifest.json").read_text(encoding="utf-8") == '{"dependencies": {"x": "1.0.0", "user_edit": "1"}}\n'
+    kept = [p for p in wtroot.iterdir() if p.is_dir()]
+    assert len(kept) == 1
+    # 升级确实发生在临时工作树里：manifest 被钉到候选版本，标记文件指向临时工作树自己。
+    assert '"x": "2.0.0-rc.1"' in (kept[0] / "unity" / "Packages" / "manifest.json").read_text(encoding="utf-8")
+    assert Path((kept[0] / "gate.marker").read_text(encoding="utf-8")).resolve() == kept[0].resolve()
+    assert kept[0].name in r["thrown"]
 
 
 def test_missing_samples_repo_refuses_unless_explicitly_opted_out(tmp_path: Path) -> None:

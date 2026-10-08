@@ -25,8 +25,15 @@
        （从 worktree 里发布时 `git rev-parse --git-common-dir` 指向主仓库，以主仓库为准）。
        样板仓库必须有 `check.ps1`（它自己的门禁）与 `tools/upgrade_framework.ps1`（升级到指定框架版本）。
 
-    6) 样板的升级改动（`unity/Packages/manifest.json` 等）留在样板工作树里不提交：红时留着现场供排查，
-       绿时由发布后的"升到正式版"那一步在样板仓库里提交（升到正式版会再次覆盖这些文件）。
+    6) 样板的升级改动绝不落在样板主工作树（2026-10-09 决定，ADR-0160 补注）：主工作树是用户的试玩目录（Unity 工程打开着、
+       有未提交的编辑器改动），此前候选阶段直接在它上面把 manifest 改成 X.Y.Z-rc.N 且不提交，试玩目录被留在一个候选版本上。
+       现在候选阶段在样板仓库的**临时工作树**里做升级与样板门禁：`git -C <样板仓库> worktree add --detach <D:\wt\samples-…> HEAD`
+       （基线 = 样板仓库当前 HEAD 的已提交状态；根目录用 `-SamplesWorktreeRoot`，缺省环境变量 `WS_GAME_WT_ROOT`，再缺省 `D:\wt`，
+       短路径是为了 Unity 批处理不触 MAX_PATH）。门禁绿 -> 移除临时工作树；红 -> 保留现场供排查（消息里给出路径与清理命令）。
+       `-SamplesRepo` 若本身就是一个**已关联的工作树**（`.git` 是文件而不是目录），则直接用它、不再另建（用于预热过 Library 的
+       长期发布门禁工作树）；若指向主工作树（`.git` 是目录）则一律走临时工作树。阶段前后各取一次样板主工作树的 HEAD 与
+       `git status` 快照，不一致直接失败（兜底：升级脚本或样板门禁被改坏时不能悄悄弄脏试玩目录）。
+       门禁绿时的"升到正式版"由发布后收尾在样板仓库里提交，不依赖这里的改动。
 
     7) 所有外部动作（构建、发布、查询、升级、跑样板门禁）都通过可注入的脚本块执行，
        供 `toolchain/tests/test_release_candidate.py` 用伪造的实现覆盖成功/各种失败路径，不依赖私服、Unity 与样板仓库。
@@ -113,6 +120,30 @@ function Invoke-CandidateNativeStreaming {
     return $code
 }
 
+# 样板仓库路径本身是不是"已关联的工作树"（.git 是文件而不是目录）。主工作树的 .git 是目录。
+function Test-SamplesPathIsLinkedWorktree {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    return (Test-Path -LiteralPath (Join-Path $Path ".git") -PathType Leaf)
+}
+
+# 临时工作树根目录：显式 > 环境变量 WS_GAME_WT_ROOT > D:\wt。
+function Resolve-SamplesWorktreeRoot {
+    param([string]$Explicit = "", [string]$EnvValue = "")
+    if ($Explicit -ne "") { return [System.IO.Path]::GetFullPath($Explicit) }
+    if ($EnvValue -ne "") { return [System.IO.Path]::GetFullPath($EnvValue) }
+    return "D:\wt"
+}
+
+# 样板主工作树的状态快照（HEAD + 未提交/未跟踪改动清单）；不是可用的 git 仓库时返回 $null（不做对比）。
+function Get-SamplesMainSnapshot {
+    param([Parameter(Mandatory = $true)][string]$SamplesRepo)
+    $head = Invoke-ReleaseNative -Exe "git" -NativeArgs @("-C", $SamplesRepo, "rev-parse", "HEAD")
+    if ($head.ExitCode -ne 0) { return $null }
+    $status = Invoke-ReleaseNative -Exe "git" -NativeArgs @("-C", $SamplesRepo, "status", "--porcelain=v1", "--untracked-files=normal")
+    if ($status.ExitCode -ne 0) { return $null }
+    return ("HEAD " + ($head.Out -join "") + "`n" + ($status.Out -join "`n"))
+}
+
 # 执行候选阶段。成功返回 [PSCustomObject]@{ Status = "Passed"/"OptOut"/"AlreadyDone"; Candidate; Detail }；失败 throw（调用方让发布流程终止）。
 function Invoke-ReleaseCandidateStage {
     param(
@@ -122,16 +153,20 @@ function Invoke-ReleaseCandidateStage {
         [string]$SamplesRepo = "",
         [string]$RegistryUrl = "",
         [string]$NpmrcPath = "",
+        [string]$SamplesWorktreeRoot = "",
         [switch]$SkipSamplesCandidate,
         [switch]$Resume,
         # 注入点（默认实现见下）。ListVersions: param($pkg) -> string[]；BuildPackages: param($rc) -> 候选包所在的 dist 目录（含 packages\）；
         # PublishPackage: param($pkgDir, $rc) -> 发布失败 throw；UpgradeSamples: param($samples, $rc, $registryUrl)；
-        # RunSamplesGate: param($samples) -> @{ ExitCode; Conclusion }。
+        # RunSamplesGate: param($samples) -> @{ ExitCode; Conclusion }（UpgradeSamples/RunSamplesGate 收到的是**临时工作树**路径，不是样板主工作树）；
+        # CreateSamplesWorktree: param($samplesRepo, $rc, $root) -> 新建的临时工作树路径；RemoveSamplesWorktree: param($samplesRepo, $path)。
         [scriptblock]$ListVersions = $null,
         [scriptblock]$BuildPackages = $null,
         [scriptblock]$PublishPackage = $null,
         [scriptblock]$UpgradeSamples = $null,
-        [scriptblock]$RunSamplesGate = $null
+        [scriptblock]$RunSamplesGate = $null,
+        [scriptblock]$CreateSamplesWorktree = $null,
+        [scriptblock]$RemoveSamplesWorktree = $null
     )
 
     if ($Resume) {
@@ -222,6 +257,29 @@ function Invoke-ReleaseCandidateStage {
         }
     }
 
+    if ($null -eq $CreateSamplesWorktree) {
+        $CreateSamplesWorktree = {
+            param($samplesRepo, $rc, $root)
+            if (-not (Test-Path -LiteralPath $root)) { New-Item -ItemType Directory -Force -Path $root | Out-Null }
+            $path = Join-Path $root ("samples-" + ($rc -replace '[^0-9A-Za-z]+', '-'))
+            if (Test-Path -LiteralPath $path) { $path = $path + "-" + (Get-Date -Format "HHmmss") }
+            $r = Invoke-ReleaseNative -Exe "git" -NativeArgs @("-C", $samplesRepo, "worktree", "add", "--detach", $path, "HEAD")
+            if ($r.ExitCode -ne 0) {
+                throw "创建样板临时工作树失败：git -C $samplesRepo worktree add --detach $path HEAD（退出码 $($r.ExitCode)）：$($r.Out -join ' ') $($r.Err -join ' ')"
+            }
+            return $path
+        }
+    }
+    if ($null -eq $RemoveSamplesWorktree) {
+        $RemoveSamplesWorktree = {
+            param($samplesRepo, $path)
+            $r = Invoke-ReleaseNative -Exe "git" -NativeArgs @("-C", $samplesRepo, "worktree", "remove", "--force", $path)
+            if ($r.ExitCode -ne 0) {
+                Write-Host "  警告：移除样板临时工作树失败（退出码 $($r.ExitCode)），请手工清理：git -C $samplesRepo worktree remove --force $path" -ForegroundColor Yellow
+            }
+        }
+    }
+
     $existing = @()
     foreach ($pkg in $packageNames) { $existing += @(& $ListVersions $pkg) }
     $rc = Get-NextCandidateVersion -Version $Version -ExistingVersions @($existing)
@@ -238,12 +296,37 @@ function Invoke-ReleaseCandidateStage {
         & $PublishPackage $pkgDir $rc
     }
 
-    & $UpgradeSamples $samples $rc $registryUrlResolved
-    $gate = & $RunSamplesGate $samples
+    # 升级与样板门禁一律在临时工作树（或调用方显式给的已关联工作树）里做，样板主工作树不动（判断记录 6）。
+    $mainSnapshotBefore = Get-SamplesMainSnapshot -SamplesRepo $samples
+    $workSamples = $samples
+    $tempWorktree = ""
+    if (Test-SamplesPathIsLinkedWorktree -Path $samples) {
+        Write-Host "  -SamplesRepo 本身是已关联的工作树：直接使用，不另建临时工作树"
+    } else {
+        $wtRoot = Resolve-SamplesWorktreeRoot -Explicit $SamplesWorktreeRoot -EnvValue "$env:WS_GAME_WT_ROOT"
+        $tempWorktree = "$(@(& $CreateSamplesWorktree $samples $rc $wtRoot)[-1])"
+        $workSamples = $tempWorktree
+        Write-Host "  样板临时工作树：$workSamples（基于样板仓库当前 HEAD；样板主工作树不会被改动）"
+    }
+
+    & $UpgradeSamples $workSamples $rc $registryUrlResolved
+    $gate = & $RunSamplesGate $workSamples
     $gate = @($gate)[-1]
+
+    $mainSnapshotAfter = Get-SamplesMainSnapshot -SamplesRepo $samples
+    if ($null -ne $mainSnapshotBefore -and $mainSnapshotBefore -ne $mainSnapshotAfter) {
+        throw ("候选阶段改动了样板主工作树（HEAD 或未提交改动清单与阶段开始前不同），这违反判断记录 6：主工作树是用户的试玩目录。" +
+            "请检查样板仓库 $samples 的 git status，并排查升级脚本/样板门禁为什么写到了主工作树。")
+    }
+
     if ([int]$gate.ExitCode -ne 0) {
-        throw ("样板仓库在候选版本 $rc 上的门禁未通过（退出码 $($gate.ExitCode)），发布在打标签前终止（ADR-0160）。" +
-            "样板仓库保留在升级后的现场：$samples。修好问题后用 -Resume 续跑（会发布新的候选版本，不覆盖 $rc，不重跑框架门禁）。")
+        if ($tempWorktree -ne "") { $keep = "样板临时工作树保留作现场：$workSamples（排查完用 git -C $samples worktree remove --force $workSamples 清理）。" }
+        else { $keep = "样板工作树保留在升级后的现场：$workSamples。" }
+        throw ("样板仓库在候选版本 $rc 上的门禁未通过（退出码 $($gate.ExitCode)），发布在打标签前终止（ADR-0160）。" + $keep +
+            "修好问题后用 -Resume 续跑（会发布新的候选版本，不覆盖 $rc，不重跑框架门禁）。")
+    }
+    if ($tempWorktree -ne "") {
+        & $RemoveSamplesWorktree $samples $tempWorktree
     }
     $conclusionText = "$($gate.Conclusion)"
     if ($conclusionText -eq "") { $conclusionText = "样板门禁退出码 0（输出里未捕获到'门禁通过'结论行）" }

@@ -458,6 +458,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **手感落地 M4（1.96.0）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[1.96.0]` 正文。
 - **非手感已知限制清扫（1.96.0，[ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）**：数据与契约只增不改，编辑器按需跟进——`item.slot_definition` 新增可选布尔字段 `has_appearance`（缺省 `true`，写 `false` 的槽位物品不要求 `display.equip_visual` 行）；表达式可读事件 `combat.attack_avoided`、`combat.hit_confirmed` 的 `attackInstanceId` 现在可经表达式读取（为空时查不到）；`LootExpectedCurrencyOutcome.ExpectedRoundedAmount`（含取整与非正值跳过的精确货币期望，线性的 `ExpectedAmount` 保留，"理论与观测"面板应读前者）与 `LootTableAnalyzer.ExpectedAffixInclusion` 的 5 参数重载（大词缀池精确解，计算量预算 `exactMaxWork`）；`item.set` 数据重载后套装门槛立即对账（热重载后不必再等装备变化才见效果）；`simrunner fight` 子命令与 `--fight-log` 日志文件（`{schema_version, truncated, entries}`）；游戏模板 `GameOptions.PathFailurePolicy`/`BlockingChangePolicy`。详见下方 `[1.96.0]`"非手感已知限制清扫"。
 
+## [2.10.0] - 2026-10-09
+
+### 新增
+
+- **提交信息乱码拦截（`.githooks/commit-msg` + `toolchain/check_commit_msg.py`）**：提交信息含 U+FFFD、非法 UTF-8、典型 GBK/Latin-1/cp1252 误解码乱码或成串问号（中文被替换成 `?`）时拒绝提交，提示"把提交信息先写进 UTF-8 文件，再 `git commit -F <文件>`"。随 `core.hooksPath` 对同一仓库所有工作树生效，新克隆跑一次 `toolchain/install_hooks.ps1`。用例 `toolchain/tests/test_commit_msg_hook.py`（纯函数、命令行、经真实 `git commit` 的整链路）。
+- **`build.ps1 -Release` 候选阶段新增 `-SamplesWorktreeRoot`**（缺省环境变量 `WS_GAME_WT_ROOT`，再缺省 `D:\wt`）：临时工作树的根目录，见下面"修复"。
+- **示例数据世界物件外形的静态不变量**：`toolchain/tests/test_sample_world_view_displays_layered.py`，以及引擎侧 `VerticalSliceTests.SampleData_EveryWorldViewNonCreatureDisplay_CreatesViewWithoutDiagnosticWarnings`（示例数据里所有会在世界里建视图的非生物外形创建视图时零诊断警告）。
+
+### 修复
+
+- **示例数据的非生物外形改为分层精灵集（`data/_sample`）**：箱子/门/存档点/弩矢/任务标记/掉落堆原先是整身精灵集用于非生物，2.9.0 起视图层会对它们发"静默不画"诊断警告，竖切用例靠测试出口放行。现改为 `<方向>/body.png` 分层精灵集并在 `display.map` 行写 `paperdoll_layers: ["body"]`（弩矢独占新精灵集 `sprite.projectile.sample_bolt`，不再与 `sample_blade` 共用）；`toolchain/import_sample_assets.py` 同步，`UnityViewFactory.MarkWholeBodyStaticWarnedForTests` 测试出口已删除。item/skill/aura 类行仍共用整身的 `sprite.item.sample_blade`（只用图标、从不建视图，不报警）。
+- **发布候选阶段不再改样板主工作树**：此前候选阶段默认把样板主工作树（使用者的试玩目录）的 manifest 改成 `X.Y.Z-rc.N` 且不提交。现在升级与样板门禁在样板仓库的临时工作树里做（绿则移除、红则保留现场并给出清理命令；`-SamplesRepo` 本身是已关联工作树时直接使用），阶段前后对样板主工作树做 HEAD+status 快照比对，被改动即失败。ADR-0160 补注，用例含真实 git 的端到端（绿/红两条路径下样板主工作树 `git status` 与被改过的文件逐字节不变）。
+
 ## [2.9.0] - 2026-10-08
 
 ### 新增

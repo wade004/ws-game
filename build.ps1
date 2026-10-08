@@ -180,7 +180,8 @@
 .PARAMETER SamplesRepo
     仅与 `-Release` 同传有效（ADR-0160）。样板仓库（`ws-game-samples`）的本地路径，候选阶段（`-Release` 第 6b 步）用它
     验证"这个版本发出去以后样板还绿"。省略时依次取环境变量 `WS_GAME_SAMPLES`、主工作树同级目录 `ws-game-samples`。
-    样板仓库必须有自己的 `check.ps1` 与 `tools/upgrade_framework.ps1`。
+    样板仓库必须有自己的 `check.ps1` 与 `tools/upgrade_framework.ps1`。候选阶段不改它的主工作树：升级与样板门禁在样板仓库的
+    临时工作树（根目录取环境变量 `WS_GAME_WT_ROOT`，缺省 `D:\wt`）里做，绿则移除、红则保留现场；本参数若指向已关联的工作树则直接使用。
 
 .PARAMETER SkipSamplesCandidate
     仅与 `-Release` 同传有效（ADR-0160）。显式放弃候选验证：没有样板仓库（或确定不需要验）时才用。默认没有样板仓库就

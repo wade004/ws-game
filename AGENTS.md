@@ -209,7 +209,7 @@
   且工作树除第 4 步写回的版本文件外无别的改动时，第 5 步改跑 `check.ps1 -Changed <记录提交> -AbiStrict -FailFast -NoTiming`（版本号写回波及的包清单一致性、DLL 同步、Unity 编译、
   消费方演练仍会跑；规则 `release_version_files`），日志与状态文件写明复用的记录（run_id + 提交）与定向门禁结论行。因此**合并前的全量必须在发布前登记进 `REGRESSION_LOG.md`**
   （含 Unity，结果列含"含 Unity"或"PlayMode N/N"），否则守卫拒绝发布；要强制重跑全量传 `-FullRegate`（约 50 分钟）；`-DryRun` 与守卫不放行时仍跑全量。
-- **发布含候选阶段（ADR-0160）**：发布提交之后、打包之前，`build.ps1 -Release` 把 `X-rc.N` 发到本地私服并让样板仓库 `ws-game-samples`（`-SamplesRepo` > 环境变量 `WS_GAME_SAMPLES` > 主工作树同级目录）升级后跑它自己的全量门禁；绿才继续，红在打标签前停下（修好后 `-Resume`，会发 `rc.N+1`）。样板仓库缺失时拒绝发布，只有显式 `-SkipSamplesCandidate` 才放行并记 `OPT-OUT`。私服要在跑。
+- **发布含候选阶段（ADR-0160）**：发布提交之后、打包之前，`build.ps1 -Release` 把 `X-rc.N` 发到本地私服并让样板仓库 `ws-game-samples`（`-SamplesRepo` > 环境变量 `WS_GAME_SAMPLES` > 主工作树同级目录）升级后跑它自己的全量门禁；绿才继续，红在打标签前停下（修好后 `-Resume`，会发 `rc.N+1`）。样板仓库缺失时拒绝发布，只有显式 `-SkipSamplesCandidate` 才放行并记 `OPT-OUT`。私服要在跑。**候选阶段绝不改样板主工作树**（用户的试玩目录）：升级与样板门禁在样板仓库的临时工作树（`-SamplesWorktreeRoot` / 环境变量 `WS_GAME_WT_ROOT` / `D:\wt`）里做，绿则移除、红则保留现场；`-SamplesRepo` 指向已关联的工作树时直接使用；阶段前后对样板主工作树做快照比对，被改动即失败。
 - 成功的唯一标记：日志末尾出现提示行 `git push origin main refs/tags/vX`。
 - 失败标记：出现"门禁失败"/"发布流程终止"/"自检失败"字样。
 - 一旦被拦截或失败，立刻停下汇报，不自行回退、不自行重试、不自行改动版本文件。
