@@ -273,6 +273,7 @@ namespace Adapter.Unity.Presentation
         private readonly List<IView> _created = new List<IView>();
         private readonly HashSet<string> _warnedMissingDisplay = new HashSet<string>();
         private readonly HashSet<string> _warnedAnimDegraded = new HashSet<string>();
+        private readonly HashSet<string> _warnedWholeBodyStatic = new HashSet<string>();
 
         /// <summary>诊断转发到引擎控制台（feat/diagnostics-console-forward）：见
         /// PresentationDiagnosticsConsoleForwarding.cs 顶部判断记录——本工厂是唯一持有
@@ -761,6 +762,16 @@ namespace Adapter.Unity.Presentation
                 if (info.Category == DisplayCategory.Creature)
                 {
                     AttachDefaultAnimation(spriteView, info, entityId);
+                }
+                else if (info.Sprite != null && info.Sprite.PaperdollLayers.Count == 0
+                    && _warnedWholeBodyStatic.Add(info.Id.Value))
+                {
+                    // 静默不画的诊断（样板游戏 D 反馈 B 节，判断记录见本包 README）：整身精灵集（没有 paperdoll_layers）
+                    // 没有静态底图，只能靠动画剪辑显示，而非生物不挂默认动画——这个组合永远画不出东西，此前没有任何提示。
+                    Debug.LogWarning(
+                        $"[UnityViewFactory] displayId \"{info.Id}\"（精灵集 \"{info.Sprite.SpriteSetId}\"，分类 {info.Category}）是整身精灵集" +
+                        "（没有 paperdoll_layers）却用于非生物：整身外形没有静态底图、只靠动画剪辑显示，而非生物不挂默认动画，视图层不会画出任何东西。" +
+                        "静态显示请改用分层精灵集（<槽位>/body.png）并在 display.map 行写 paperdoll_layers: [\"body\"]");
                 }
 
                 // W6-B 新增：sprite 路线也登记进命中帧同步注册表（见 IHitFrameSource 类型注释、

@@ -458,6 +458,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **手感落地 M4（1.96.0）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[1.96.0]` 正文。
 - **非手感已知限制清扫（1.96.0，[ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）**：数据与契约只增不改，编辑器按需跟进——`item.slot_definition` 新增可选布尔字段 `has_appearance`（缺省 `true`，写 `false` 的槽位物品不要求 `display.equip_visual` 行）；表达式可读事件 `combat.attack_avoided`、`combat.hit_confirmed` 的 `attackInstanceId` 现在可经表达式读取（为空时查不到）；`LootExpectedCurrencyOutcome.ExpectedRoundedAmount`（含取整与非正值跳过的精确货币期望，线性的 `ExpectedAmount` 保留，"理论与观测"面板应读前者）与 `LootTableAnalyzer.ExpectedAffixInclusion` 的 5 参数重载（大词缀池精确解，计算量预算 `exactMaxWork`）；`item.set` 数据重载后套装门槛立即对账（热重载后不必再等装备变化才见效果）；`simrunner fight` 子命令与 `--fight-log` 日志文件（`{schema_version, truncated, entries}`）；游戏模板 `GameOptions.PathFailurePolicy`/`BlockingChangePolicy`。详见下方 `[1.96.0]`"非手感已知限制清扫"。
 
+## [2.9.0] - 2026-10-08
+
+### 新增
+
+- **门禁独占锁机制（`toolchain/_gate_lock.ps1`）**：`check.ps1` 与 `build.ps1 -Release` 启动时自动检查全机独占锁（默认 `D:\wt\_exclusive_gate.lock`，环境变量 `WS_GATE_LOCK_PATH` 可覆盖），别的持有者占着就拒绝启动并打印持有者、开始时间与 PID；新增参数 `-AcquireExclusiveLock <持有者名>` 获取锁（进程结束自动释放，PID 已不存在的陈旧锁自动接管；子进程经环境变量识别为同一持有者）。用例 `toolchain/tests/test_gate_lock.py`。
+- **视图层"整身精灵集用于非生物"诊断**：`UnityViewFactory.CreateView` 对 kind=sprite、没有 `paperdoll_layers`、分类不是生物（gobj/projectile/item 等）的外形发一次诊断警告（带 displayId 与精灵集 id，同一 displayId 只发一次）。此前该组合静默什么都不画（工厂只给生物挂默认动画，整身渲染器没有静态底图）。
+
+### 修复
+
+- **CI 缺 fontTools**：2.4.0 起 `toolchain/tests/test_font_subset.py` 用 `importorskip` 整体跳过，而 CI 只装 `toolchain/requirements.txt`，门禁"skipped 必须为 0"判红，GitHub 上 CI 工作流 2.4.0～2.8.0 连续失败。`fonttools` 写进 `requirements.txt`，测试改硬导入（缺依赖直接失败）。
+
 ## [2.8.0] - 2026-10-08
 
 ### 新增

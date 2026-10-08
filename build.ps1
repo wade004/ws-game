@@ -378,12 +378,12 @@ if ($DistRequested) {
 # -----------------------------------------------------------------------------
 $ReleaseRequested = ($Release -ne "")
 
-# ȫ����ռ����toolchain/_gate_lock.ps1����-Release �ĵ� 5 ������ȫ��/�����Ž�������ǰ����������顪����ĳ�����ռ������
-# �ܾ��������� -AcquireExclusiveLock <��������> ʱ�ɱ����̻�ȡ�������̽����Զ��ͷţ���������� check.ps1 ������ֿ�
-# ��ѡ�׶ε� check.ps1 ����������ʶ��Ϊͬһ�����ߣ������Լ������Լ���
+# 全机独占锁（toolchain/_gate_lock.ps1）：-Release 的第 5 步会跑全量/定向门禁，发布前先做启动检查——别的持有者占着锁就
+# 拒绝启动；带 -AcquireExclusiveLock <持有者名> 时由本进程获取锁（进程结束自动释放），它调起的 check.ps1 与样板仓库
+# 候选阶段的 check.ps1 经环境变量识别为同一持有者，不会自己卡死自己。
 . (Join-Path $RepoRoot "toolchain\_gate_lock.ps1")
 if (($AcquireExclusiveLock -ne "") -and (-not $ReleaseRequested)) {
-    Write-Host "-AcquireExclusiveLock ����ͬ�� -Release <�汾��> ʱ��Ч�����ű� check.ps1 �Լ���ͬ��������" -ForegroundColor Red
+    Write-Host "-AcquireExclusiveLock 仅在同传 -Release <版本号> 时有效（check.ps1 自己带同名参数）" -ForegroundColor Red
     exit 1
 }
 if ($ReleaseRequested) {

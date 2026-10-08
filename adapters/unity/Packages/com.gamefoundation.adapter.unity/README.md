@@ -1668,3 +1668,11 @@ GameBootstrap.cs` 同样两根合并（`data/_framework` + 游戏自己的 `data
 - **着色器契约**：把 `_OcclusionFade` 声明进 `UnityPerMaterial` 常量缓冲（缺省值 1），片元里按它抖动透明——4×4 拜耳阈值 `(i + 0.5) / 16` 小于淡出量才保留像素（`clip(fade - threshold)`），淡出量为 1 时一个像素都不丢。
 - **已知限制**（同 ADR-0166）：轴对齐包围盒、外扩取立方体（偏保守）；淡化整个渲染物（合并成一个网格的布景要按物拆分登记）；不处理地形遮挡（地面避让负责）。
 - **复现/不变量（引擎 PlayMode）**：`UnityCameraTests.OcclusionFade_*`——连线上的遮挡物按选项算出的步长淡到目标不透明度、属性块里的值等于它；连线外与观察点身后的物体不受影响且不写属性块；转开镜头后恢复到 1 并清属性块；额外观察点；注销/销毁/关闭；非法选项声明期抛错；线段-包围盒闭式解。
+
+## 判断记录（整身精灵集用于非生物时的静默不画诊断，2026-10-08，样板游戏 D 反馈 B 节）
+
+- **现象**：display.map 行 kind=sprite、没有 `paperdoll_layers`（整身精灵集），分类是 gobj/projectile/item 等非生物时，视图层什么都不画，此前没有任何提示。根因：整身外形没有静态底图，只靠动画片段显示，而 `UnityViewFactory.CreateView` 只给生物挂默认动画（非生物不会收到状态切换）。
+- **选在哪一层报**：在 `CreateView` 创建视图这一刻发一次 `Debug.LogWarning`（带 displayId 与精灵集 id，按 displayId 去重，字段 `_warnedWholeBodyStatic`），而不是数据校验阶段。理由：数据校验阶段分不出"这一行会被谁消费、有没有动画"——`display.map` 里分类为 item/skill/aura 的整身行大量存在（只用图标，从不建视图，样例与起步包就有），在校验里报会是满屏误报；创建视图才是"确实要画却画不出"的确定时刻，没有冷加载歧义（不依赖资源是否已读完）。早于它的 `asset_import check` 只看文件存在性，不做这个判定。
+- **不报的情形**：分层精灵集（有静态层可画）；生物（挂了默认动画，整身外形靠剪辑显示，缺剪辑另有既有的逐状态降级警告）。
+- **修法提示（警告文案里就写了）**：静态显示的非生物外形用分层精灵集（`<槽位>/body.png`）并在 `display.map` 行写 `paperdoll_layers: ["body"]`。
+- **复现/不变量（引擎 PlayMode）**：`UnityViewFactoryDefaultAnimationTests.CreateView_WholeBodySpriteSetForNonCreature_WarnsOnceWithDisplayIdAndSpriteSetId`（整身 + gobj：三次创建只一条警告，含 displayId 与精灵集 id）、`CreateView_WholeBodySpriteSetForProjectile_AlsoWarns`、`CreateView_LayeredSpriteSetForNonCreature_DoesNotWarn`、`CreateView_WholeBodySpriteSetForCreature_DoesNotWarn`。
