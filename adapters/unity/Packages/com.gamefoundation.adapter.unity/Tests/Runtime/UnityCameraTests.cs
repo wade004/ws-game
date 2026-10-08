@@ -24,6 +24,15 @@ namespace Adapter.Unity.Tests.Runtime
         [TearDown]
         public void TearDown()
         {
+            foreach (var go in _occluders)
+            {
+                if (go != null)
+                {
+                    Object.DestroyImmediate(go);
+                }
+            }
+
+            _occluders.Clear();
             Object.DestroyImmediate(_cameraGo);
         }
 
@@ -567,6 +576,184 @@ namespace Adapter.Unity.Tests.Runtime
             Pose(0, 115, zoom: 8.0);
             var q = _cameraGo.transform.position;
             Assert.Less(_camera.CameraHeightAboveGround, hill(q.x, q.y) + 0.3 - 0.05, "提供者清空回到只看 Z = 0 平面的原行为");
+        }
+
+        // ---- 遮挡淡化（ADR-0166）：期望值全部由几何与选项算出，不写死裸数 ----
+
+        private readonly System.Collections.Generic.List<GameObject> _occluders = new System.Collections.Generic.List<GameObject>();
+
+        private MeshRenderer MakeCube(Vector3 center, float size = 1f)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.transform.position = center;
+            go.transform.localScale = new Vector3(size, size, size);
+            Object.DestroyImmediate(go.GetComponent<Collider>());
+            _occluders.Add(go);
+            return go.GetComponent<MeshRenderer>();
+        }
+
+        /// <summary>第三人称取景：焦点抬到头部高度，偏航/俯仰给定；返回（相机位置，焦点），都是 Tick 之后的真实值。</summary>
+        private (Vector3 Camera, Vector3 Focus) ThirdPerson(double yaw, double pitch)
+        {
+            _camera.FocusHeight = 1.5;
+            Pose(yaw, pitch, zoom: 6.0);
+            _camera.Tick(0.0);
+            return (_cameraGo.transform.position, new Vector3(0f, 0f, -1.5f));
+        }
+
+        private static Vector3 PerpendicularOnGround(Vector3 a, Vector3 b)
+        {
+            var d = (b - a).normalized;
+            return new Vector3(-d.y, d.x, 0f).normalized;
+        }
+
+        [Test]
+        public void OcclusionFade_NotEnabled_IsNullAndTickDoesNothingExtra()
+        {
+            ThirdPerson(0, 60);
+            Assert.IsNull(_camera.OcclusionFade, "缺省关闭");
+            var cube = MakeCube(new Vector3(0f, -3f, -3f));
+            _camera.Tick(0.1);
+            Assert.IsFalse(cube.HasPropertyBlock(), "没启用时不碰任何渲染物");
+        }
+
+        [Test]
+        public void OcclusionFade_OccluderOnSightLine_FadesToTheTargetOpacity_OffLineAndBehindUntouched_ThenRestores()
+        {
+            var (cam, focus) = ThirdPerson(0, 60);
+            var options = new CameraOcclusionOptions();
+            var fader = _camera.EnableOcclusionFade(options);
+            var mid = (cam + focus) * 0.5f;
+            var side = PerpendicularOnGround(cam, focus) * (float)(options.SightRadius + 3.0);
+            var behindDir = (focus - cam).normalized;
+            var onLine = MakeCube(mid);
+            var offLine = MakeCube(mid + side);
+            var behind = MakeCube(focus + behindDir * 4f);
+            fader.Add(new Renderer[] { onLine, offLine, behind });
+            Assert.AreEqual(3, fader.Count);
+
+            // 半程：线性推进，期望 = 1 - (1 - 目标) * 已走时间 / 淡出秒数
+            _camera.Tick(options.FadeOutSeconds * 0.5);
+            var half = 1.0 - (1.0 - options.FadedOpacity) * 0.5;
+            Assert.IsTrue(fader.IsOccluding(onLine), "连线上的遮挡物被判定为挡住");
+            Assert.AreEqual(half, fader.GetOpacity(onLine), 1e-6, "半程不透明度由选项算出");
+
+            // 走满：停在目标不透明度，属性块里的值就是它（着色器读到的量）
+            _camera.Tick(options.FadeOutSeconds);
+            Assert.AreEqual(options.FadedOpacity, fader.GetOpacity(onLine), 1e-9);
+            Assert.IsTrue(onLine.HasPropertyBlock());
+            var block = new MaterialPropertyBlock();
+            onLine.GetPropertyBlock(block);
+            Assert.AreEqual((float)options.FadedOpacity, block.GetFloat(options.FadeProperty), 1e-6f, "渲染物属性块里的淡出量 = 目标不透明度");
+
+            // 不在连线上的、在观察点身后的：不受影响，也没有属性块
+            foreach (var other in new[] { offLine, behind })
+            {
+                Assert.IsFalse(fader.IsOccluding(other));
+                Assert.AreEqual(1.0, fader.GetOpacity(other), 0.0);
+                Assert.IsFalse(other.HasPropertyBlock(), "未被挡住的渲染物不写属性块（保持合批）");
+            }
+
+            Assert.AreEqual(1, fader.FadedCount);
+            Assert.AreEqual(1, fader.OccludingCount);
+
+            // 转开镜头：连线不再穿过它 -> 按恢复秒数线性回 1，回到 1 时清掉属性块
+            ThirdPerson(90, 60);
+            _camera.Tick(options.RestoreSeconds * 0.5);
+            Assert.IsFalse(fader.IsOccluding(onLine));
+            Assert.AreEqual(options.FadedOpacity + (1.0 - options.FadedOpacity) * 0.5, fader.GetOpacity(onLine), 1e-6, "恢复半程");
+            _camera.Tick(options.RestoreSeconds);
+            Assert.AreEqual(1.0, fader.GetOpacity(onLine), 0.0);
+            Assert.IsFalse(onLine.HasPropertyBlock(), "恢复到 1 就清属性块，不残留");
+            Assert.AreEqual(0, fader.FadedCount);
+        }
+
+        [Test]
+        public void OcclusionFade_SightRadius_GrazingCountsOnlyWithinTheRadius()
+        {
+            var (cam, focus) = ThirdPerson(0, 60);
+            var options = new CameraOcclusionOptions { SightRadius = 0.6 };
+            var fader = _camera.EnableOcclusionFade(options);
+            var mid = (cam + focus) * 0.5f;
+            var perp = PerpendicularOnGround(cam, focus);
+            const float half = 0.5f; // 立方体半宽；偏航 0 时连线在 YZ 平面内，perp 恰是 X 轴，盒子最近面到连线的距离 = 偏移 - 半宽
+            var inside = MakeCube(mid + perp * (half + (float)options.SightRadius * 0.5f));
+            var outside = MakeCube(mid + perp * (half + (float)options.SightRadius + 0.5f));
+            fader.Add(inside);
+            fader.Add(outside);
+            _camera.Tick(0.0);
+            Assert.IsTrue(fader.IsOccluding(inside), "擦边但在外扩半径内：算挡住（否则角色会被树冠边缘切掉半边）");
+            Assert.IsFalse(fader.IsOccluding(outside), "离连线超过外扩半径：不算");
+        }
+
+        [Test]
+        public void OcclusionFade_ExtraWatchPoint_AnOccluderOnTheLineToTheLockedTargetFades()
+        {
+            var (cam, focus) = ThirdPerson(0, 60);
+            var fader = _camera.EnableOcclusionFade();
+            var target = focus + new Vector3(9f, 6f, 0f); // 锁定目标：相机焦点之外的另一个观察点
+            var onTargetLine = MakeCube((cam + target) * 0.5f);
+            fader.Add(onTargetLine);
+            _camera.Tick(0.0);
+            Assert.IsFalse(fader.IsOccluding(onTargetLine), "只有相机焦点作观察点时，目标连线上的物体不算");
+            fader.SetWatchPoints(new[] { target });
+            _camera.Tick(0.0);
+            Assert.IsTrue(fader.IsOccluding(onTargetLine), "登记额外观察点后，目标连线上的物体被挡住");
+            fader.ClearWatchPoints();
+            _camera.Tick(0.0);
+            Assert.IsFalse(fader.IsOccluding(onTargetLine));
+        }
+
+        [Test]
+        public void OcclusionFade_DisableAndRemoveAndDestroy_RestoreOrDrop()
+        {
+            var (cam, focus) = ThirdPerson(0, 60);
+            var options = new CameraOcclusionOptions();
+            var fader = _camera.EnableOcclusionFade(options);
+            var a = MakeCube((cam + focus) * 0.5f);
+            var b = MakeCube((cam + focus) * 0.5f + new Vector3(0.2f, 0f, 0f));
+            var c = MakeCube((cam + focus) * 0.5f + new Vector3(0f, 0.2f, 0f));
+            fader.Add(new Renderer[] { a, b, c });
+            _camera.Tick(options.FadeOutSeconds * 2);
+            Assert.AreEqual(3, fader.FadedCount);
+
+            Assert.IsTrue(fader.Remove(a));
+            Assert.IsFalse(a.HasPropertyBlock(), "注销立刻恢复");
+            Assert.IsFalse(fader.Remove(a), "重复注销返回 false");
+
+            Object.DestroyImmediate(b.gameObject);
+            _camera.Tick(0.016);
+            Assert.AreEqual(1, fader.Count, "被引擎销毁的渲染物自动注销");
+
+            _camera.DisableOcclusionFade();
+            Assert.IsNull(_camera.OcclusionFade);
+            Assert.IsFalse(c.HasPropertyBlock(), "关闭淡化：全部恢复");
+        }
+
+        [Test]
+        public void OcclusionFade_IllegalOptions_ThrowAtDeclaration()
+        {
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => _camera.EnableOcclusionFade(new CameraOcclusionOptions { FadedOpacity = 1.0 }));
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => _camera.EnableOcclusionFade(new CameraOcclusionOptions { FadedOpacity = -0.1 }));
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => _camera.EnableOcclusionFade(new CameraOcclusionOptions { FadeOutSeconds = 0.0 }));
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => _camera.EnableOcclusionFade(new CameraOcclusionOptions { RestoreSeconds = double.NaN }));
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => _camera.EnableOcclusionFade(new CameraOcclusionOptions { SightRadius = -1.0 }));
+            Assert.Throws<System.ArgumentException>(() => _camera.EnableOcclusionFade(new CameraOcclusionOptions { FadeProperty = "" }));
+            Assert.IsNull(_camera.OcclusionFade, "非法声明不留下半成品");
+        }
+
+        [Test]
+        public void OcclusionFade_SegmentHitsBox_ClosedForm()
+        {
+            var min = new Vector3(-1f, -1f, -1f);
+            var max = new Vector3(1f, 1f, 1f);
+            Assert.IsTrue(CameraOcclusionFader.SegmentHitsBox(new Vector3(-5f, 0f, 0f), new Vector3(5f, 0f, 0f), min, max), "穿过");
+            Assert.IsFalse(CameraOcclusionFader.SegmentHitsBox(new Vector3(-5f, 3f, 0f), new Vector3(5f, 3f, 0f), min, max), "平行错开");
+            Assert.IsFalse(CameraOcclusionFader.SegmentHitsBox(new Vector3(-5f, 0f, 0f), new Vector3(-2f, 0f, 0f), min, max), "线段在盒前面停住（终点是观察点：盒在观察点身后不算）");
+            Assert.IsTrue(CameraOcclusionFader.SegmentHitsBox(new Vector3(0f, 0f, 0f), new Vector3(5f, 0f, 0f), min, max), "起点在盒内");
+            Assert.IsTrue(CameraOcclusionFader.SegmentHitsBox(new Vector3(-5f, 0f, 0f), new Vector3(0f, 0f, 0f), min, max), "终点在盒内");
+            Assert.IsFalse(CameraOcclusionFader.SegmentHitsBox(new Vector3(-5f, -5f, 0f), new Vector3(5f, -5f, 0f), min, max), "斜向不相交");
+            Assert.IsTrue(CameraOcclusionFader.SegmentHitsBox(new Vector3(-5f, -2f, 0f), new Vector3(5f, 2f, 0f), min, max), "斜向相交");
         }
     }
 }
