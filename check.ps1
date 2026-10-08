@@ -1190,7 +1190,7 @@ if ($DocsOnly -or $script:GateStepPlan) {
 #      只在定向模式（有判定结果）下出现；全量门禁由 toolchain 全量 pytest 覆盖，不重复。
 # -----------------------------------------------------------------------------
 if ($script:GateStepPlan) {
-    Invoke-CheckStep "python -m pytest toolchain/tests/test_precommit_tiering_guard.py -q（钩子相关子集，定向）" -Id "hooks_pytest" {
+    Invoke-CheckStep "python -m pytest toolchain/tests/test_precommit_tiering_guard.py + test_commit_msg_hook.py -q（钩子相关子集，定向）" -Id "hooks_pytest" {
         $prevPythonUtf8 = $env:PYTHONUTF8
         $env:PYTHONUTF8 = "1"
         Push-Location $RepoRoot
@@ -1198,6 +1198,7 @@ if ($script:GateStepPlan) {
             Test-NativeExitCode "python" @(
                 "-m", "pytest",
                 "toolchain/tests/test_precommit_tiering_guard.py",
+                "toolchain/tests/test_commit_msg_hook.py",
                 "-q")
         } finally {
             Pop-Location

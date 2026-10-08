@@ -17,7 +17,9 @@
 - **提交信息一律 `git commit -F <UTF-8 无 BOM 文件> -- <路径…>`，不用 `-m` 写中文**：Bash 工具下 `-m` 带中文
   会按系统代码页乱码入库（`0d2eb79c` 就是实例，只能事后用新提交订正）。先把信息写进 scratchpad 里的 UTF-8
   无 BOM 文本文件（尾行署名照写），再用 `-F` 提交；提交后 `git log -1 --format=%B` 核对无乱码。纯 ASCII 信息
-  同样走 `-F`，不留例外。
+  同样走 `-F`，不留例外。**这条现在由 `.githooks/commit-msg` 机制强制**（`toolchain/check_commit_msg.py`）：提交信息含 U+FFFD、
+  非法 UTF-8、典型 GBK/Latin-1 误解码乱码或成串问号时直接拒绝提交，提示改用 `-F`；钩子随 `core.hooksPath` 对所有工作树生效，
+  新克隆先跑一次 `toolchain\install_hooks.ps1`。
 - **生成物不进 git**：回归证据、报告 JSON、日志、截图、场景副本、zip、构建产物一律只留本地并
   确保被 `.gitignore` 覆盖，不许提交。发现已入库的此类文件就地清掉（`git rm` + 忽略规则），
   不要新写"把证据提交上来"的检查或规则。工具顺手改动的无关文件（如被重存的场景）提交前还原。

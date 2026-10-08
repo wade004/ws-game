@@ -197,7 +197,9 @@ CRLF；实测方法见 `.gitattributes` 对应例外条目上方判断记录）�
 powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\install_hooks.ps1
 ```
 
-该脚本把 `git config core.hooksPath` 指向 `.githooks/`（幂等，重复跑不报错）；`-Uninstall` 还原为默认值。
+该脚本把 `git config core.hooksPath` 指向 `.githooks/`（幂等，重复跑不报错）；`-Uninstall` 还原为默认值。`core.hooksPath` 写在共享的 `.git/config` 里，同一仓库的所有工作树自动生效，只有新克隆需要再跑一次。
+
+`.githooks/commit-msg`（2026-10-09）：提交信息乱码拦截。含 U+FFFD、非法 UTF-8、典型 GBK/Latin-1/cp1252 误解码乱码、成串问号（中文被替换成 `?`）时拒绝提交并提示"把提交信息先写进 UTF-8 文件，再 `git commit -F <文件>`"。判定逻辑在 `toolchain/check_commit_msg.py`，用例 `toolchain/tests/test_commit_msg_hook.py`（含经真实 `git commit` 的整链路）；找不到 python 时拒绝而不是放行。
 
 安装后每次 `git commit` 前，`pre-commit` 先按本次暂存改动清单（`git diff --cached --name-only`，含重命名/删除；合并提交同样按这份清单判断，仅在下面 MergeSkip 条件全部满足时才跳过）分级，把判定结果打印成一行说明（档位 + 理由），再决定跑多重的门禁。发布提交（ReleaseSkip）的判定仍是 `toolchain/_precommit_tiering_guard.ps1` 里的纯函数 `Get-PreCommitCheckTier`（`toolchain/tests/test_precommit_tiering_guard.py` 单独覆盖），其余按改动影响集分级：
 
