@@ -275,6 +275,10 @@ namespace Adapter.Unity.Presentation
         private readonly HashSet<string> _warnedAnimDegraded = new HashSet<string>();
         private readonly HashSet<string> _warnedWholeBodyStatic = new HashSet<string>();
 
+        /// <summary>测试出口：把某个 displayId 标记为"整身外形诊断已发过"。示例数据里 loot_pile/箱子/门这类非生物外形是已记录的
+        /// 占位美术限制（data/_sample/README.md 判断记录），竖切用例要用 NoUnexpectedReceived 收尾，又不该被这条已知的警告打断。</summary>
+        internal void MarkWholeBodyStaticWarnedForTests(string displayId) => _warnedWholeBodyStatic.Add(displayId);
+
         /// <summary>诊断转发到引擎控制台（feat/diagnostics-console-forward）：见
         /// PresentationDiagnosticsConsoleForwarding.cs 顶部判断记录——本工厂是唯一持有
         /// <see cref="SpriteCharacterRig"/>（经 <see cref="IHasCharacterRig.Rig"/>）引用的

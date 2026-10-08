@@ -57,6 +57,7 @@ COPIED_FILES = (
     "toolchain/_release_resume.ps1",
     "toolchain/_release_candidate.ps1",
     "toolchain/_gate_package_boundary.ps1",
+    "toolchain/_gate_lock.ps1",
     "toolchain/prune_dist.ps1",
     "toolchain/resource_layout_map.json",
 )

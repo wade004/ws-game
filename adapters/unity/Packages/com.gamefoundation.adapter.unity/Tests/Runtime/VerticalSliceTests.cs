@@ -203,6 +203,8 @@ namespace Adapter.Unity.Tests.Runtime
             // 资源已经真实可加载成功，验证方式见 AssertAnimResourcesLoadedSuccessfully 判断记录
             // （不再是此前"预期加载失败"的写法，那份旧判断记录已随断言前提一起过期）。
             yield return EnterInWorld(shell, "vslice");
+            // 掉落物外形是已记录的占位美术限制（整身精灵集，见 data/_sample/README.md），诊断警告在这里视为已知，不打断下面的 NoUnexpectedReceived 收尾。
+            shell.Framework.ViewFactory.MarkWholeBodyStaticWarnedForTests("display.map.sample_loot_pile");
             yield return AssertAnimResourcesLoadedSuccessfully();
 
             var playerId = shell.Framework.PlayerId;
@@ -387,6 +389,8 @@ namespace Adapter.Unity.Tests.Runtime
             // 顶部）：sprite_anim.sample_hero_* 六个状态本批改动后应当真实加载成功，不再预期"加载
             // 失败"警告。
             yield return EnterInWorld(shell, "pres180");
+            // 掉落物外形是已记录的占位美术限制（整身精灵集，见 data/_sample/README.md），诊断警告在这里视为已知，不打断下面的 NoUnexpectedReceived 收尾。
+            shell.Framework.ViewFactory.MarkWholeBodyStaticWarnedForTests("display.map.sample_loot_pile");
             yield return AssertAnimResourcesLoadedSuccessfully();
 
             Assert.IsTrue(shell.Framework.BeastEntityId.HasValue, "应当已经生成示例生物");
