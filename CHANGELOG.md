@@ -470,6 +470,20 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 - [ADR-0170](architecture/adr/0170-单向平台移动平台与下穿俯冲.md)、[ADR-0171](architecture/adr/0171-投射物命中高度窗口.md)、[ADR-0172](architecture/adr/0172-悬浮生物出生高度.md)：样板游戏 D（横版动作）的缺口，含已知限制各 6 条、2 条与 1 条。
 
+## [2.7.0] - 2026-10-08
+
+### 新增
+
+- **第三人称镜头遮挡淡化（[ADR-0166](architecture/adr/0166-第三人称镜头遮挡淡化.md)，样板游戏 C 截图复核驱动）**：`UnityCamera.EnableOcclusionFade(CameraOcclusionOptions?)` 返回 `CameraOcclusionFader`（缺省关闭，`OcclusionFade` 为 null，不启用时行为逐位不变；`DisableOcclusionFade()` 关闭并恢复）。游戏用 `Add(Renderer)` 登记会挡视线的布景渲染物，用 `SetWatchPoints` 登记锁定目标等额外观察点；相机焦点自动是观察点。镜头到观察点的连线（按 `SightRadius` 外扩）穿过遮挡物包围盒时，其不透明度按 dt 线性降到 `FadedOpacity`（缺省 0.25），离开后恢复到 1；值写进渲染物属性覆盖（属性名 `FadeProperty`，缺省 `_OcclusionFade`，恢复到 1 时清掉），游戏着色器按它做抖动透明或混合。取景与镜头位姿不动。已知限制：包围盒登记时取一次且为轴对齐盒（外扩偏保守）；淡化整个渲染物，合并成一个网格的布景要按物拆分登记；不处理地形遮挡（仍归地面避让）。测试 `UnityCameraTests.OcclusionFade_*`。
+
+### 契约决定
+
+- [ADR-0166](architecture/adr/0166-第三人称镜头遮挡淡化.md)：遮挡物淡化与镜头前推二选一，选淡化。
+
+### 杂项
+
+- 清理 U+FFFD 乱码：`core/carriers/unit/tests/MotionArbiterTests.ReleaseToIdle.cs` 的注释与断言消息按用例逻辑重写（git 历史里该文件自首个提交起即为乱码，原文无法恢复；断言与逻辑未动），`timing/` 三个记录文件里 60 个损坏字段标注无法恢复。
+
 ## [2.6.0] - 2026-10-08
 
 ### 新增

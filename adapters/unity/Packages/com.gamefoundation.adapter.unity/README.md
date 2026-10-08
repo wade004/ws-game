@@ -1661,3 +1661,10 @@ GameBootstrap.cs` 同样两根合并（`data/_framework` + 游戏自己的 `data
 - **`UnityCamera.GroundHeightProvider`**（`Func<double, double, double>?`，缺省 null）：世界平面 (x, y) → 该处地面高度（与 `FocusHeight`、`CameraHeightAboveGround` 同一基准）。设置后 `GroundAvoidance` 走地形版：沿焦点到名义相机位置等分 32 段取样离地高度（`−z − 地面高度`），找到第一个低于余量的取样点后在它与前一点之间二分 24 次，把距离缩到刚好离地余量处；余量取 `min(GroundAvoidanceMargin, 焦点离其下地面的高度)`；不小于 0.01 的最小距离。没有提供者时走原来的 Z = 0 平面解析解，逐位不变。已知限制：比名义距离 1/32 还窄的隆起可能漏过；只约束相机，渲染物（blob 阴影等）由游戏自己按地形放置。复现/不变量：`UnityCameraTests.GroundHeightProvider_SlopeBehindTheFocus_LookUpCameraStaysAboveTheTerrain_FlatGroundAvoidanceDoesNot`（偏航 0/90/180/270 × 俯仰 20～150 全程离地高度 ≥ 余量；清空提供者回到原行为）。
 - **`UnityInput.ConsumeScrollNotches`**：`<Mouse>/scroll` 的 PassThrough 动作累积 y，绝对值 ≥ 20 视为像素单位除以 120；`SimulateScrollForTest(notches)` 供测试。用例 `UnityInputTests.ConsumeScrollNotches_ReturnsAccumulatedNotchesOnceThenZero`。
 
+### 第三人称镜头遮挡淡化（2026-10-08，ADR-0166）
+
+- **`UnityCamera.EnableOcclusionFade(CameraOcclusionOptions?)` / `OcclusionFade` / `DisableOcclusionFade()`**：缺省关闭（`OcclusionFade` 为 null）。启用后返回 `CameraOcclusionFader`，`UnityCamera.Tick` 在姿态刷新之后用 Tick 的 dt 驱动它；俯仰与透视都没开的正交俯视不驱动。
+- **判定与取值（`CameraOcclusionFader` 类型顶部判断记录是细则）**：观察点 = 相机焦点 + `SetWatchPoints` 登记的额外点；连线段按 `SightRadius` 外扩后与登记渲染物的世界轴对齐包围盒（登记时取一次，`Refresh` 重取）相交即算挡住；被挡时不透明度按 `FadeOutSeconds` 线性降到 `FadedOpacity`，不挡时按 `RestoreSeconds` 回 1；值写进渲染物的 `MaterialPropertyBlock`（浮点属性 `FadeProperty`，缺省 `_OcclusionFade`），回到 1 清掉（`SetPropertyBlock(null)`，渲染物重新合批）。本类型拥有被登记渲染物的属性块。
+- **着色器契约**：把 `_OcclusionFade` 声明进 `UnityPerMaterial` 常量缓冲（缺省值 1），片元里按它抖动透明——4×4 拜耳阈值 `(i + 0.5) / 16` 小于淡出量才保留像素（`clip(fade - threshold)`），淡出量为 1 时一个像素都不丢。
+- **已知限制**（同 ADR-0166）：轴对齐包围盒、外扩取立方体（偏保守）；淡化整个渲染物（合并成一个网格的布景要按物拆分登记）；不处理地形遮挡（地面避让负责）。
+- **复现/不变量（引擎 PlayMode）**：`UnityCameraTests.OcclusionFade_*`——连线上的遮挡物按选项算出的步长淡到目标不透明度、属性块里的值等于它；连线外与观察点身后的物体不受影响且不写属性块；转开镜头后恢复到 1 并清属性块；额外观察点；注销/销毁/关闭；非法选项声明期抛错；线段-包围盒闭式解。

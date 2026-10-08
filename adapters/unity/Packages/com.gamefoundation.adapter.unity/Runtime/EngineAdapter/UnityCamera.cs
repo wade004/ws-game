@@ -49,6 +49,10 @@
 //     （EffectiveZoom）；脉冲结束后因子恢复 1，实际可视半高逐位回到基准缩放。镜头冲击的"画面高度比例"幅度按基准缩放换算
 //     （VisibleHalfHeight 不含脉冲），所以同时发生的冲击位移不被脉冲改变。
 //   - 不影响 shake_cap：缩放脉冲是缩放量、不是位移，不计入相机侧的合成位移幅度（CameraHost 判断记录）。
+//
+// 判断记录（遮挡淡化，ADR-0166）：第三人称相机（俯仰或透视打开）可经 EnableOcclusionFade 声明启用遮挡淡化——镜头到焦点（及游戏登记的额外观察点，如锁定目标）的连线上的遮挡物
+//   被淡化、离开后恢复，镜头本身不动；缺省关闭（OcclusionFade 为 null），关闭时行为与引入前逐位一致。淡化器由 Tick 在姿态刷新之后驱动（用 Tick 的 dt），焦点取本帧姿态刷新用的焦点。
+//   细节与着色器契约见 CameraOcclusionFader 类型顶部判断记录。正交俯视（俯仰与透视都没开）没有深度遮挡，Tick 不驱动淡化器。
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
@@ -406,6 +410,30 @@ namespace Adapter.Unity.EngineAdapter
         /// <summary>最近一次姿态刷新里地面避让是否正在起作用（相机被拉近了；测试/诊断用）。</summary>
         public bool GroundAvoidanceEngaged => _groundAvoidanceEngaged;
 
+        private CameraOcclusionFader? _occlusionFade;
+        private Vector3 _lastFocus;
+
+        /// <summary>遮挡淡化器；没有 <see cref="EnableOcclusionFade"/> 之前是 null（缺省关闭）。</summary>
+        public CameraOcclusionFader? OcclusionFade => _occlusionFade;
+
+        /// <summary>
+        /// 可选能力（缺省关闭）：声明启用遮挡淡化（ADR-0166）。返回淡化器，游戏用它登记遮挡物（<see cref="CameraOcclusionFader.Add(Renderer)"/>）与额外观察点；
+        /// 参数声明期校验。重复调用会先恢复并丢弃旧淡化器。只在俯仰或透视打开时（第三人称）被 <see cref="Tick"/> 驱动。
+        /// </summary>
+        public CameraOcclusionFader EnableOcclusionFade(CameraOcclusionOptions? options = null)
+        {
+            _occlusionFade?.Clear();
+            _occlusionFade = new CameraOcclusionFader(options);
+            return _occlusionFade;
+        }
+
+        /// <summary>关闭遮挡淡化：恢复全部遮挡物的不透明度并丢弃淡化器。</summary>
+        public void DisableOcclusionFade()
+        {
+            _occlusionFade?.Clear();
+            _occlusionFade = null;
+        }
+
         /// <summary>
         /// <see cref="ICameraOrientation.YawRadians"/>：相机在世界平面上的实际偏航（弧度，逆时针为正）。<see cref="ApplyYawRotation"/> 没打开时相机
         /// 物理上没有转，如实报 0（配置的偏航只是记录，不是相机的真实朝向）。
@@ -532,6 +560,7 @@ namespace Adapter.Unity.EngineAdapter
             var focus = new Vector3(
                 _basePosition.x + _shakeOffset.x + _impulseOffset.x, _basePosition.y + _shakeOffset.y + _impulseOffset.y,
                 _focusHeight > 0.0 ? -(float)_focusHeight : 0f);
+            _lastFocus = focus;
             var distance = CameraDistance;
             _groundAvoidanceEngaged = false;
             if (_groundAvoidance)
@@ -800,6 +829,7 @@ namespace Adapter.Unity.EngineAdapter
             if (_applyPitch || _perspective)
             {
                 RefreshOrientation();
+                _occlusionFade?.Update(deltaSeconds, _camera.transform.position, _lastFocus);
                 return;
             }
 
