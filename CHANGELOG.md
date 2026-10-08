@@ -464,10 +464,11 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 - **单向平台与移动平台（样板游戏 D 缺口，[ADR-0170](architecture/adr/0170-单向平台移动平台与下穿俯冲.md)）**：可选能力接口 `ITerrainPlatforms2D`（引擎适配层契约）与数据实现 `MapPlatforms`（`world.map.platforms`：`{id, min, max, height, motion?}`，移动平台位姿是平台时钟的解析函数）；`VerticalAxisOptions.Platforms`（缺省 null，逐位不变；声明必须同时声明 `Terrain`）；下落脚下穿过顶面落在平台、走出平台范围边缘下落、移动平台带乘客；`IVerticalMotion` 新增默认接口成员 `DropThrough`（下穿）、`Plunge`（空中向下俯冲，下劈用）、`StandingPlatform`；`VerticalMotionHost.UnitAccess`（`CarriersAssembly` 自动装配）；数据校验检查名 `world_map_platform`。
 - **投射物命中高度窗口 `hit_height`（[ADR-0171](architecture/adr/0171-投射物命中高度窗口.md)）**：投射物参数新增可选对象 `{min?, max?}`（相对发射者发射瞬间脚下高度），只命中脚下高度落在窗口内的单位——地面冲击波让起跳的单位越过；缺省不过滤，既有命中逐位不变。
+- **悬浮生物出生高度 `creature.template.hover_height`（[ADR-0172](architecture/adr/0172-悬浮生物出生高度.md)）**：可选数值（不小于 0），单位出生时 `HeightOffset` 取该值，竖直轴世界里飞行怪出生即悬空且不被地面吸回；`CreatureTemplate.HoverHeight` 只读属性；不声明则行为不变。
 
 ### 契约决定
 
-- [ADR-0170](architecture/adr/0170-单向平台移动平台与下穿俯冲.md)、[ADR-0171](architecture/adr/0171-投射物命中高度窗口.md)：样板游戏 D（横版动作）的缺口，含已知限制各 6 条与 2 条。
+- [ADR-0170](architecture/adr/0170-单向平台移动平台与下穿俯冲.md)、[ADR-0171](architecture/adr/0171-投射物命中高度窗口.md)、[ADR-0172](architecture/adr/0172-悬浮生物出生高度.md)：样板游戏 D（横版动作）的缺口，含已知限制各 6 条、2 条与 1 条。
 
 ## [2.6.0] - 2026-10-08
 

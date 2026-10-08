@@ -78,6 +78,12 @@ namespace Core.Carriers.Creature
         /// 生物模板在"没有启用普通攻击"这一前提下，行为逐位不变）。</summary>
         public double? AttackInterval { get; }
 
+        /// <summary>ADR-0172 新增可选字段 <c>hover_height</c>：悬浮生物（飞行怪、漂浮灯笼）的悬浮高度（世界单位，从脚下起算，缺省 0 = 贴地）。
+        /// <see cref="CreatureFactory"/> 出生时把它写进 <c>Unit.HeightOffset</c>；声明了竖直轴的世界里它是静态高度（不受重力，竖直运动服务
+        /// 把"出生就高于地面的单位"当作悬空靶，地面高于它时才被抬起），没有竖直轴的世界里只是表现层的抬高。纯新增可选字段，不升
+        /// <c>currentSchemaVersion</c>，既有数据行零改动仍合法。</summary>
+        public double HoverHeight { get; private set; }
+
         private static readonly IReadOnlyDictionary<Id, double> EmptyPowerFloors = new Dictionary<Id, double>();
 
         /// <summary>ADR-0106（消费方反馈第五十五批"单一模板受伤但不死"）新增可选字段：单位级资源下限
@@ -238,10 +244,23 @@ namespace Core.Carriers.Creature
                 powerFloors = floors;
             }
 
-            return new CreatureTemplate(
+            var hoverHeight = 0.0;
+            if (record.TryGetNumber("hover_height", out var hh))
+            {
+                if (!(hh >= 0.0) || double.IsInfinity(hh))
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "hover_height", "悬浮高度必须是不小于 0 的有限数");
+                }
+
+                hoverHeight = hh;
+            }
+
+            var template = new CreatureTemplate(
                 id, nameKey, level, tierId, baseStats, statGrowthRef, factionId, npcFlags,
                 aiRotationRef, aiBehaviorRef, lootTableRef, displayRef, immunities,
                 onHitReactionRef, onDeathReactionRef, gossipMenuRef, attackInterval, powerFloors);
+            template.HoverHeight = hoverHeight;
+            return template;
         }
     }
 }

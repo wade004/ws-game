@@ -124,6 +124,11 @@ namespace Core.Carriers.Creature
                     .WithMap(MapSchema.ReferenceKeyTable("arch.power_type",
                         new FieldSchema("value", FieldKind.Number, required: true,
                             description: "该资源类型在本模板生成的单位上的下限覆盖值，须 ≥ arch.power_type.min"))),
+                // ADR-0172 新增：悬浮生物的出生高度。纯新增可选字段，不升 currentSchemaVersion、不需要迁移函数，旧数据行零改动仍合法。
+                new FieldSchema("hover_height", FieldKind.Number, required: false,
+                    description: "悬浮高度（世界单位，从脚下起算，缺省 0 = 贴地）：出生时写进 Unit.HeightOffset（ADR-0172）；" +
+                        "声明了竖直轴的世界里是静态高度（不受重力），没有竖直轴的世界里只是表现层抬高")
+                    .WithRange(FieldRange.Range(min: 0)),
             }).WithOwnership(SchemaLayer.Carriers, "creature");
 
         public static readonly TableSchema TierDefinition = new TableSchema(
