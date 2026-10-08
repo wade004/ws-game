@@ -37,6 +37,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,12 @@ from _git_env import ConfigFingerprint, common_config_path, strip_git_env_from_p
 
 # 必须早于任何收集期/模块级的 git 调用：先剥环境，再记配置指纹（指纹用干净环境查仓库位置）。
 _STRIPPED_GIT_VARS = strip_git_env_from_process()
+
+# �Ž���ռ�����루toolchain/_gate_lock.ps1�������׼������ check.ps1 / build.ps1 �ӽ��̵�������������ʵ��
+# D:\wt\_exclusive_gate.lock Ӱ�죨��ĻỰ����ʱ�����޹������ᱻ�ܾ���������Ҳ���ü̳�����Ž��ĳ��������ݡ�
+# �����������test_gate_lock.py���Լ����ӽ����� WS_GATE_LOCK_PATH��
+os.environ["WS_GATE_LOCK_PATH"] = str(Path(tempfile.gettempdir()) / f"ws_game_pytest_{os.getpid()}.lock")
+os.environ.pop("WS_GATE_LOCK_HOLDER", None)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _config_guard: ConfigFingerprint | None = None
 

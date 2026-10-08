@@ -250,7 +250,8 @@ param(
     [switch]$Resume,
     [switch]$FullRegate,
     [string]$SamplesRepo = "",
-    [switch]$SkipSamplesCandidate
+    [switch]$SkipSamplesCandidate,
+    [string]$AcquireExclusiveLock = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -376,6 +377,18 @@ if ($DistRequested) {
 # 末尾）另起一节，因为它们依赖打包已经产出的 dist/<dir>/ 目录与其中的 DLL 哈希。
 # -----------------------------------------------------------------------------
 $ReleaseRequested = ($Release -ne "")
+
+# ȫ����ռ����toolchain/_gate_lock.ps1����-Release �ĵ� 5 ������ȫ��/�����Ž�������ǰ����������顪����ĳ�����ռ������
+# �ܾ��������� -AcquireExclusiveLock <��������> ʱ�ɱ����̻�ȡ�������̽����Զ��ͷţ���������� check.ps1 ������ֿ�
+# ��ѡ�׶ε� check.ps1 ����������ʶ��Ϊͬһ�����ߣ������Լ������Լ���
+. (Join-Path $RepoRoot "toolchain\_gate_lock.ps1")
+if (($AcquireExclusiveLock -ne "") -and (-not $ReleaseRequested)) {
+    Write-Host "-AcquireExclusiveLock ����ͬ�� -Release <�汾��> ʱ��Ч�����ű� check.ps1 �Լ���ͬ��������" -ForegroundColor Red
+    exit 1
+}
+if ($ReleaseRequested) {
+    if (-not (Enter-GateLockGuard -AcquireName $AcquireExclusiveLock -Context "build.ps1 -Release")) { exit 1 }
+}
 
 if ((-not $ReleaseRequested) -and ($DryRun -or $Publish -or $PublishRegistry)) {
     Write-Host "-DryRun/-Publish/-PublishRegistry 仅在同传 -Release 时有效" -ForegroundColor Red

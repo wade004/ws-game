@@ -137,6 +137,11 @@
 
 ## 4. 构建与门禁
 
+- **门禁并发由独占锁机制强制，不靠自觉**：同时最多 2 个门禁（全机）；合并前全量与发布必须独占机器。`check.ps1`、
+  `build.ps1 -Release`（以及样板仓库 `check.ps1`）启动时自动检查 `D:\wt\_exclusive_gate.lock`（环境变量 `WS_GATE_LOCK_PATH`
+  可覆盖），别的持有者占着就拒绝启动并打印持有者与开始时间；合并前全量/发布用 `-AcquireExclusiveLock <持有者名>` 获取锁
+  （进程结束自动释放，PID 已死的陈旧锁自动接管）。机制与判断记录见 `toolchain/_gate_lock.ps1`，用例 `toolchain/tests/test_gate_lock.py`。
+  没有"忽略锁"开关：锁在就等，不要绕。
 - `dotnet` 命令一律带 `--artifacts-path "<scratchpad>\build_<task>"`，不用仓库根默认路径，避免污染主树/工作树。
   **例外**：改动会编译进 `Runtime/Plugins/Core/` 六个核心 DLL 的代码（`core/`、`presentation/`、
   `adapters/stub/` 等，具体六个程序集见 `build.ps1` 的 `$CoreAssemblies`）、且接下来要跑 Unity
@@ -197,6 +202,7 @@
 - 长时间命令前台执行，只管道 stdout（如 `| Tee-Object -FilePath <scratchpad>\release_X.log`）；绝不 `2>&1`、绝不用 `Start-Process`/隐藏窗口/后台作业驱动发布脚本（会让子进程在无控制台环境下静默中断）。
 - 子 agent 启动的 `build.ps1 -Release` 会随该 agent 回合结束被连带终止（1.39.0 首跑在 `Compress-Archive` 处留下 0 字节 zip 与未打标签的发布提交）；因此**发布脚本只由主会话前台执行**，子 agent 不再直接启动 `-Release`，只做发布前收口与发布后核对。
 - `build.ps1 -Release X -PublishRegistry` 之前，必须先：提交 CHANGELOG `## [X]` 条目、确认 `git status` 干净、确认私服状态（`start_registry.ps1 -Status`/需要时 `-Detach`）。
+- **发布收尾必须等 CI 与 Release 两个工作流（`gh run watch`）都成功才算完成**，红了当场修、补发补丁版本（2.4.0～2.8.0 的 CI 连红五个版本无人发现）。
 - **第 5 步默认复用全量记录，只跑定向门禁（ADR-0156）**：第 3b 步守卫放行（`REGRESSION_LOG.md` 有含 Unity 的全量通过记录，记录提交是 HEAD 或其祖先且其后只改文档类文件）、
   且工作树除第 4 步写回的版本文件外无别的改动时，第 5 步改跑 `check.ps1 -Changed <记录提交> -AbiStrict -FailFast -NoTiming`（版本号写回波及的包清单一致性、DLL 同步、Unity 编译、
   消费方演练仍会跑；规则 `release_version_files`），日志与状态文件写明复用的记录（run_id + 提交）与定向门禁结论行。因此**合并前的全量必须在发布前登记进 `REGRESSION_LOG.md`**
