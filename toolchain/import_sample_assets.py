@@ -256,9 +256,22 @@ DISPLAY_MAP_PATCHES: dict[str, tuple[str, str | None]] = {
     "display.map.sample_chest": ("display.sample_chest", "icon.gobj.sample_chest"),
     "display.map.sample_door": ("display.sample_door", "icon.gobj.sample_door"),
     "display.map.sample_save_point": ("display.sample_save_point", "icon.gobj.sample_save_point"),
-    "display.map.sample_bolt": ("display.sample_blade", None),
+    "display.map.sample_bolt": ("display.sample_bolt", None),
     "display.map.sample_loot_pile": ("display.sample_chest", "icon.gobj.sample_chest"),
+    "display.map.sample_quest_marker": ("display.sample_chest", "icon.gobj.sample_chest"),
 }
+
+# 以分层精灵集（<方向>/body.png）导入、需要把工具产出的 paperdoll_layers 一并回写的行：会在世界里建视图的非生物外形。
+LAYERED_NON_CREATURE_ROWS = frozenset(
+    {
+        "display.map.sample_chest",
+        "display.map.sample_door",
+        "display.map.sample_save_point",
+        "display.map.sample_bolt",
+        "display.map.sample_loot_pile",
+        "display.map.sample_quest_marker",
+    }
+)
 
 
 def _run(argv: list[str]) -> None:
@@ -276,6 +289,19 @@ def _copy_flat_slots(dst_dir: Path, src_file: Path, slots: list[str]) -> None:
     img = Image.open(src_file).convert("RGBA")
     for slot in slots:
         img.save(dst_dir / f"{slot}.png")
+
+
+def _copy_layered_slots(dst_dir: Path, src_file: Path, slots: list[str], layer: str = "body") -> None:
+    """把同一张源图复制为若干方向档位的单层"分层"精灵文件：``<slot>/<layer>.png``。
+
+    非生物外形（gobj/projectile）的静态显示必须走分层精灵集并在 display.map 行写 ``paperdoll_layers``：整身精灵集
+    没有静态底图、只靠动画剪辑显示，而非生物不挂默认动画，视图层画不出任何东西（并会发诊断警告）。
+    """
+    img = Image.open(src_file).convert("RGBA")
+    for slot in slots:
+        slot_dir = dst_dir / slot
+        slot_dir.mkdir(parents=True, exist_ok=True)
+        img.save(slot_dir / f"{layer}.png")
 
 
 def _copy_dir_slots(dst_dir: Path, src_root: Path, slots: list[str]) -> None:
@@ -362,6 +388,10 @@ def _patch_display_map(data_root: Path, tmp_data_root: Path) -> None:
             real_row["mirror_pairs"] = tool_row["mirror_pairs"]
         else:
             real_row.pop("mirror_pairs", None)
+        if real_id in LAYERED_NON_CREATURE_ROWS:
+            if "paperdoll_layers" not in tool_row:
+                raise AssetImportError(f"工具产出行 '{tool_id}' 没有 paperdoll_layers，但 '{real_id}' 要求分层精灵集")
+            real_row["paperdoll_layers"] = tool_row["paperdoll_layers"]
         if icon_id:
             real_row["icon_id"] = icon_id
         else:
@@ -469,9 +499,28 @@ def run(assets_root: Path, data_root: Path, placeholder_root: Path) -> int:
             + common_sprite_args
         )
 
-        # sample_chest：gobj，4 方向，单层。
+        # sample_bolt：projectile，4 方向，单层（分层精灵集，body 层）；源图同 sample_blade 的图标。
+        bolt_stage = stage / "sample_bolt"
+        _copy_layered_slots(bolt_stage, placeholder_root / "icons" / "icon_placeholder_blade.png", CANONICAL_4)
+        _run(
+            [
+                "sprite",
+                str(bolt_stage),
+                "--category",
+                "projectile",
+                "--logical-id",
+                "projectile.sample_bolt",
+                "--direction-count",
+                "4",
+                "--shadow",
+                "none",
+            ]
+            + common_sprite_args
+        )
+
+        # sample_chest：gobj，4 方向，单层（分层精灵集，body 层）。
         chest_stage = stage / "sample_chest"
-        _copy_flat_slots(
+        _copy_layered_slots(
             chest_stage, placeholder_root / "sprites" / "placeholder_chest" / "closed.png", CANONICAL_4
         )
         _run(
@@ -490,9 +539,9 @@ def run(assets_root: Path, data_root: Path, placeholder_root: Path) -> int:
             + common_sprite_args
         )
 
-        # sample_door：gobj，4 方向，单层。
+        # sample_door：gobj，4 方向，单层（分层精灵集，body 层）。
         door_stage = stage / "sample_door"
-        _copy_flat_slots(
+        _copy_layered_slots(
             door_stage, placeholder_root / "sprites" / "placeholder_door" / "closed.png", CANONICAL_4
         )
         _run(
@@ -518,7 +567,7 @@ def run(assets_root: Path, data_root: Path, placeholder_root: Path) -> int:
         save_point_src = generated_dir / "sample_save_point.png"
         save_point_img.save(save_point_src)
         save_point_stage = stage / "sample_save_point"
-        _copy_flat_slots(save_point_stage, save_point_src, CANONICAL_4)
+        _copy_layered_slots(save_point_stage, save_point_src, CANONICAL_4)
         _run(
             [
                 "sprite",
@@ -560,9 +609,9 @@ def run(assets_root: Path, data_root: Path, placeholder_root: Path) -> int:
         icons_gobj_dir = stage / "icons" / "gobj"
         icons_gobj_dir.mkdir(parents=True, exist_ok=True)
         chest_icon_src = icons_gobj_dir / "sample_chest.png"
-        Image.open(chest_stage / "front.png").convert("RGBA").save(chest_icon_src)
+        Image.open(chest_stage / "front" / "body.png").convert("RGBA").save(chest_icon_src)
         door_icon_src = icons_gobj_dir / "sample_door.png"
-        Image.open(door_stage / "front.png").convert("RGBA").save(door_icon_src)
+        Image.open(door_stage / "front" / "body.png").convert("RGBA").save(door_icon_src)
         save_point_icon_src = icons_gobj_dir / "sample_save_point.png"
         Image.open(save_point_src).convert("RGBA").save(save_point_icon_src)
         _run(

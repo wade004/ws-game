@@ -38,12 +38,21 @@
 | `display.map.sample_hero` | `creature.sample_hero` | `sprite.creature.sample_hero` | `icon.creature.sample_hero` | `assets/_sample/sprites/creature_sample_hero/`（8 方向、`body`/`hand_main`/`head` 三层） |
 | `display.map.sample_beast` | `creature.sample_beast` | `sprite.creature.sample_beast` | `icon.creature.sample_beast` | `assets/_sample/sprites/creature_sample_beast/`（8 方向，单层 `body`） |
 | `display.map.sample_blade` | `item.sample_blade` | `sprite.item.sample_blade` | 无 | `assets/_sample/sprites/item_sample_blade/`（4 方向，单层，源图是一张图标复制成 3 个方向档位） |
-| `display.map.sample_bolt` | `projectile.sample_bolt` | `sprite.item.sample_blade`（与 `sample_blade` 共用精灵集） | 无 | 同上 |
-| `display.map.sample_chest` | `gobj.sample_chest` | `sprite.gobj.sample_chest` | `icon.gobj.sample_chest` | `assets/_sample/sprites/gobj_sample_chest/`（4 方向，单层，源图 `placeholder_chest/closed.png`） |
+| `display.map.sample_bolt` | `projectile.sample_bolt` | `sprite.projectile.sample_bolt` | 无 | `assets/_sample/sprites/projectile_sample_bolt/`（4 方向，分层精灵集 `body` 层，源图同 `sample_blade` 的图标；`paperdoll_layers: ["body"]`） |
+| `display.map.sample_chest` | `gobj.sample_chest` | `sprite.gobj.sample_chest` | `icon.gobj.sample_chest` | `assets/_sample/sprites/gobj_sample_chest/`（4 方向，分层精灵集 `body` 层，源图 `placeholder_chest/closed.png`；`paperdoll_layers: ["body"]`） |
 | `display.map.sample_loot_pile` | `loot.generic_pile` | `sprite.gobj.sample_chest`（与 `sample_chest` 共用精灵集） | `icon.gobj.sample_chest` | 同上 |
 | `display.map.sample_quest_marker` | `gobj.sample_quest_marker` | `sprite.gobj.sample_chest`（与 `sample_chest` 共用精灵集） | `icon.gobj.sample_chest` | 同上（消费方反馈第 9 条示例物件，见 `core/gameplay/quest/README.md` 判断记录 21——本行只为满足 `display_map_coverage` 校验项而补，不是一个视觉上独立的新物件，不新增占位素材） |
-| `display.map.sample_door` | `gobj.sample_door` | `sprite.gobj.sample_door` | `icon.gobj.sample_door` | `assets/_sample/sprites/gobj_sample_door/`（4 方向，单层，源图 `placeholder_door/closed.png`） |
-| `display.map.sample_save_point` | `gobj.sample_save_point` | `sprite.gobj.sample_save_point` | `icon.gobj.sample_save_point` | `assets/_sample/sprites/gobj_sample_save_point/`（4 方向，单层，脚本 Pillow 生成的占位立柱图，无占位源） |
+| `display.map.sample_door` | `gobj.sample_door` | `sprite.gobj.sample_door` | `icon.gobj.sample_door` | `assets/_sample/sprites/gobj_sample_door/`（4 方向，分层精灵集 `body` 层，源图 `placeholder_door/closed.png`；`paperdoll_layers: ["body"]`） |
+| `display.map.sample_save_point` | `gobj.sample_save_point` | `sprite.gobj.sample_save_point` | `icon.gobj.sample_save_point` | `assets/_sample/sprites/gobj_sample_save_point/`（4 方向，分层精灵集 `body` 层，脚本 Pillow 生成的占位立柱图，无占位源；`paperdoll_layers: ["body"]`） |
+
+判断记录（非生物世界物件外形一律是分层精灵集，2026-10-09）：箱子/门/存档点/弩矢/任务标记/掉落堆是会在世界里建视图的非生物外形，
+静态显示必须走"分层精灵集（`<方向>/body.png`）+ `display.map` 行 `paperdoll_layers: ["body"]`"——整身精灵集（`<方向>.png`、没有
+`paperdoll_layers`）没有静态底图、只靠动画剪辑显示，而非生物不挂默认动画，视图层画不出任何东西，2.9.0 起还会发诊断警告。此前这几行
+是整身精灵集，竖切用例靠测试出口放行警告（"占位美术限制"）；现在改数据：`toolchain/import_sample_assets.py` 把 gobj 三套精灵集改为分层导入，
+弩矢不再与 `sample_blade` 共用整身精灵集而是独占 `sprite.projectile.sample_bolt`，掉落堆与任务标记继续与箱子共用 `sprite.gobj.sample_chest`
+（同为分层）。item/skill/aura 类行仍共用整身的 `sprite.item.sample_blade`——它们只用图标、从不建视图，视图层对此不报警（见适配层 README
+"整身精灵集用于非生物时的静默不画诊断"）。守门：`toolchain/tests/test_sample_world_view_displays_layered.py`（静态）与引擎侧
+`VerticalSliceTests.SampleData_EveryWorldViewNonCreatureDisplay_CreatesViewWithoutDiagnosticWarnings`（运行时零警告）。
 
 判断记录（箱子/门/存档点/剑/弩矢的 `direction_count`）：`display.map` schema 的 sprite 型必填
 字段组含 `direction_count`（04 第 7.1 节、`DisplayKindFieldGroupRule`），但这几个物件的占位素材

@@ -728,10 +728,11 @@ toolchain/tests -q` 一并跑。
 | `data/_sample` 行 | 占位素材来源 | 产物 |
 | --- | --- | --- |
 | `display.map.sample_hero`/`sample_beast` | `assets/_placeholder/sprites/placeholder_{hero,beast}/` 5 个 canonical 方向档位 | `assets/_sample/sprites/creature_sample_{hero,beast}/` |
-| `display.map.sample_blade`/`sample_bolt`（共用精灵集） | `assets/_placeholder/icons/icon_placeholder_blade.png` | `assets/_sample/sprites/item_sample_blade/` |
-| `display.map.sample_chest`/`sample_loot_pile`（共用精灵集） | `assets/_placeholder/sprites/placeholder_chest/closed.png` | `assets/_sample/sprites/gobj_sample_chest/` |
-| `display.map.sample_door` | `assets/_placeholder/sprites/placeholder_door/closed.png` | `assets/_sample/sprites/gobj_sample_door/` |
-| `display.map.sample_save_point` | 脚本用 Pillow 确定性生成的占位立柱图 | `assets/_sample/sprites/gobj_sample_save_point/` |
+| `display.map.sample_blade`（item，整身精灵集，只用图标） | `assets/_placeholder/icons/icon_placeholder_blade.png` | `assets/_sample/sprites/item_sample_blade/` |
+| `display.map.sample_bolt`（projectile，分层精灵集 `body` 层 + `paperdoll_layers`） | `assets/_placeholder/icons/icon_placeholder_blade.png` | `assets/_sample/sprites/projectile_sample_bolt/` |
+| `display.map.sample_chest`/`sample_loot_pile`/`sample_quest_marker`（共用精灵集，分层 `body` 层 + `paperdoll_layers`） | `assets/_placeholder/sprites/placeholder_chest/closed.png` | `assets/_sample/sprites/gobj_sample_chest/` |
+| `display.map.sample_door`（分层 `body` 层 + `paperdoll_layers`） | `assets/_placeholder/sprites/placeholder_door/closed.png` | `assets/_sample/sprites/gobj_sample_door/` |
+| `display.map.sample_save_point`（分层 `body` 层 + `paperdoll_layers`） | 脚本用 Pillow 确定性生成的占位立柱图 | `assets/_sample/sprites/gobj_sample_save_point/` |
 | `vfx.def.sample_cast_circle`/`sample_hit_spark`/`sample_burn` | `assets/_placeholder/vfx/{cast_circle,hit_spark,burn}/frame_*.png` | `assets/_sample/vfx/sample_*/{atlas.png,frames.json}` |
 | `sfx.def.sample_hit`/`sample_cast`/`sample_ui_click` | `assets/_placeholder/sfx/*.wav` | `assets/_sample/sfx/sample_*_v<N>.wav` |
 | `world.map.sample_field` | `assets/_placeholder/maps/placeholder_field/` | `assets/_sample/maps/sample_field/` |

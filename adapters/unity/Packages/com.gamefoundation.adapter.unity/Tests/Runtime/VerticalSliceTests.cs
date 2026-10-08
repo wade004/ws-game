@@ -203,8 +203,6 @@ namespace Adapter.Unity.Tests.Runtime
             // 资源已经真实可加载成功，验证方式见 AssertAnimResourcesLoadedSuccessfully 判断记录
             // （不再是此前"预期加载失败"的写法，那份旧判断记录已随断言前提一起过期）。
             yield return EnterInWorld(shell, "vslice");
-            // 掉落物外形是已记录的占位美术限制（整身精灵集，见 data/_sample/README.md），诊断警告在这里视为已知，不打断下面的 NoUnexpectedReceived 收尾。
-            shell.Framework.ViewFactory.MarkWholeBodyStaticWarnedForTests("display.map.sample_loot_pile");
             yield return AssertAnimResourcesLoadedSuccessfully();
 
             var playerId = shell.Framework.PlayerId;
@@ -367,6 +365,48 @@ namespace Adapter.Unity.Tests.Runtime
             LogAssert.NoUnexpectedReceived();
         }
 
+        // 示例数据里会在世界里建视图的非生物外形（箱子/门/存档点/弩矢/任务标记/掉落堆）全部是"分层精灵集 + paperdoll_layers"：
+        // 逐个经真实装配出的 UnityViewFactory 创建视图，不得出现任何视图层诊断警告（整身精灵集用于非生物的"静默不画"警告
+        // 此前靠测试出口放行，现已改数据、出口已删）。期望集合由数据算出（分类 gobj/projectile 与 loot.* 逻辑 id），不写死个数。
+        [UnityTest]
+        public IEnumerator SampleData_EveryWorldViewNonCreatureDisplay_CreatesViewWithoutDiagnosticWarnings()
+        {
+            yield return LoadShellScene();
+            var shell = RequireShellRoot();
+
+            var registry = new global::Core.Foundation.DisplayInfo.DisplayInfoRegistry(shell.Framework.Registry, shell.Framework.Bus);
+            var worldViewInfos = registry.All
+                .Where(i => i.Kind == global::Core.Foundation.DisplayInfo.DisplayKind.Sprite
+                    && i.Category != global::Core.Foundation.DisplayInfo.DisplayCategory.Creature
+                    && (i.Category == global::Core.Foundation.DisplayInfo.DisplayCategory.Gobj
+                        || i.Category == global::Core.Foundation.DisplayInfo.DisplayCategory.Projectile
+                        || i.LogicalId.Value.StartsWith("loot.")))
+                .ToList();
+            Assert.GreaterOrEqual(worldViewInfos.Count, 3, "示例数据应当至少有箱子/门/存档点这类世界物件外形，否则本用例什么都没验");
+
+            var warnings = new List<string>();
+            Application.LogCallback handler = (message, _, type) =>
+            {
+                if ((type == LogType.Warning || type == LogType.Error) && message.Contains("[UnityViewFactory]")) warnings.Add(message);
+            };
+            Application.logMessageReceived += handler;
+            try
+            {
+                var index = 0;
+                foreach (var info in worldViewInfos)
+                {
+                    var view = shell.Framework.ViewFactory.CreateView(
+                        global::Presentation.Common.ViewKind.Unit, info.LogicalId, new Id("unit.sample_world_view_" + (index++)));
+                    Assert.IsInstanceOf<Adapter.Unity.Presentation.UnitySpriteView>(view, $"{info.Id.Value} 应当创建真实精灵视图而不是空视图");
+                }
+            }
+            finally
+            {
+                Application.logMessageReceived -= handler;
+            }
+            Assert.IsEmpty(warnings, "示例数据的世界物件外形创建视图不应有任何视图层诊断警告：" + string.Join(" | ", warnings));
+        }
+
         // PRES-180 根治验收（architecture/落地计划/audit-e070e3f-20260908/presentation/
         // presentation-findings.md"存档抑制与掉落物 View 候选"）：同图（不切场景）读档路径下，
         // Core.Foundation.SaveSystem.SaveSystem.Load 把逐段 Load 包在 IEventBus.SuppressDispatch
@@ -389,8 +429,6 @@ namespace Adapter.Unity.Tests.Runtime
             // 顶部）：sprite_anim.sample_hero_* 六个状态本批改动后应当真实加载成功，不再预期"加载
             // 失败"警告。
             yield return EnterInWorld(shell, "pres180");
-            // 掉落物外形是已记录的占位美术限制（整身精灵集，见 data/_sample/README.md），诊断警告在这里视为已知，不打断下面的 NoUnexpectedReceived 收尾。
-            shell.Framework.ViewFactory.MarkWholeBodyStaticWarnedForTests("display.map.sample_loot_pile");
             yield return AssertAnimResourcesLoadedSuccessfully();
 
             Assert.IsTrue(shell.Framework.BeastEntityId.HasValue, "应当已经生成示例生物");

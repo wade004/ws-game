@@ -1,24 +1,24 @@
 {
   "frames": {
-    "back": {
+    "back/body": {
       "x": 0,
       "y": 0,
       "w": 48,
       "h": 48
     },
-    "front": {
+    "front/body": {
       "x": 48,
       "y": 0,
       "w": 48,
       "h": 48
     },
-    "side_l": {
+    "side_l/body": {
       "x": 96,
       "y": 0,
       "w": 48,
       "h": 48
     },
-    "side_r": {
+    "side_r/body": {
       "x": 144,
       "y": 0,
       "w": 48,
