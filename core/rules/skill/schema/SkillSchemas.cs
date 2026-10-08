@@ -237,6 +237,11 @@ namespace Core.Rules.Skill
                     new FieldSchema("arc_height", FieldKind.Number, required: false, description: "缺省 ProjectileOptions.DefaultArcHeight，仅 arc 生效"),
                     new FieldSchema("impact_radius", FieldKind.Number, required: false, description: "缺省 ProjectileOptions.DefaultImpactRadius，仅 impact_on_expiry 生效"),
                     new FieldSchema("max_pierce_count", FieldKind.Int, required: false, description: "仅 pierce 生效，缺省不限"),
+                    new FieldSchema("hit_height", FieldKind.Object, required: false, fields: new[]
+                    {
+                        new FieldSchema("min", FieldKind.Number, required: false, description: "窗口下沿，相对发射者发射瞬间的脚下高度（世界单位）；缺省不限"),
+                        new FieldSchema("max", FieldKind.Number, required: false, description: "窗口上沿，相对发射者发射瞬间的脚下高度（世界单位）；缺省不限"),
+                    }, description: "ADR-0171 命中高度窗口：只命中脚下高度落在 [min, max]（含边界）内的单位，例如地面冲击波 {max: 0.5} 让起跳的单位越过它；缺省不做高度过滤"),
                     new FieldSchema("relation_policy", FieldKind.Enum, required: false, enumValues: ProjectileRelationPolicyValues,
                         description: "ADR-0028，缺省 default（不做阵营过滤，现行行为）"),
                     new FieldSchema("pierce_order", FieldKind.Enum, required: false, enumValues: ProjectilePierceOrderValues,

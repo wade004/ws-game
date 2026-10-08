@@ -212,6 +212,7 @@ namespace Core.Carriers.Creature
                 Level = spawnLevel,
                 LootTableId = template.LootTableRef,
                 OwnerId = ownerId,
+                HeightOffset = template.HoverHeight,   // ADR-0172：悬浮生物出生即悬空（缺省 0，贴地）
             };
 
             foreach (var flag in template.NpcFlags)

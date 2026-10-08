@@ -375,3 +375,8 @@ AI 登记）抛出，此前实体与已完成的登记全部残留。现在只�
 **不覆盖的情形**：`entity.created` 已入队无法撤回（订阅者会先后收到 created/destroyed 一对）；已 `PublishImmediate` 的
 `stat.changed` 等无法撤回；实体 id 序号只增不减；回滚期次生异常被吞以保住原始异常。用例
 `CreatureFactorySpawnAtomicityTests`（AI 登记抛出 / Stats 重复登记 / Powers 重复登记三条复现 + 回滚后再 Spawn 正常）。
+
+
+## 判断记录（悬浮生物出生高度 `hover_height`，2026-10-08，样板游戏 D 缺口，[ADR-0172](../../../architecture/adr/0172-悬浮生物出生高度.md)）
+
+`creature.template` 新增可选字段 `hover_height`（不小于 0 的有限数，缺省 0），`CreatureTemplate.HoverHeight` 解析，`CreatureFactory.SpawnCore` 把它写进新单位的 `HeightOffset`。根因：竖直运动服务把首次观察时高度高于地面的单位当作悬空靶保持高度，出生后才由游戏层写入的高度来不及被"首次观察"看到，下一次位置变化就被拉回地面。复现与回归：`CreatureHoverHeightTests.Gap_HeightSetAfterSpawn_IsPulledBackToTheGround_WhenTheUnitWasAlreadyObservedOnTheGround`（红：出生后写高度被吸回 0）与 `Spawn_WithHoverHeight_StartsAtTheDeclaredHeight_AndKeepsItWhileMoving`（绿）。已知限制：`hover_height` 只决定出生高度，没有飞行或寻路语义：悬浮单位在竖直轴世界里保持该高度水平移动，没有竖直轴的世界里只会显示为精灵被抬高。

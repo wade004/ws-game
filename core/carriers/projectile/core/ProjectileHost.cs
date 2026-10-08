@@ -188,6 +188,17 @@ namespace Core.Carriers.Projectile
             var relationPolicy = ResolveRelationPolicy(GetString(context.Params, "relation_policy", RelationPolicyDefault));
             var pierceOrder = ResolvePierceOrder(GetString(context.Params, "pierce_order", PierceOrderNearest));
 
+            // ADR-0171：命中高度窗口。窗口相对发射者发射瞬间的脚下高度，生成时换算成绝对高度存进簿记；
+            // 缺省（没有 hit_height）不做高度过滤，命中判定与引入之前逐位一致。
+            double? hitHeightMin = null;
+            double? hitHeightMax = null;
+            if (context.Params.TryGetValue("hit_height", out var hitHeightValue) && hitHeightValue is JsonObject hitHeight)
+            {
+                var baseHeight = _units.GetHeightOffset(context.SourceId);
+                if (hitHeight.TryGetValue("min", out var minValue) && minValue is JsonNumber minNumber) hitHeightMin = baseHeight + minNumber.Value;
+                if (hitHeight.TryGetValue("max", out var maxValue) && maxValue is JsonNumber maxNumber) hitHeightMax = baseHeight + maxNumber.Value;
+            }
+
             var sourcePos = _units.GetPosition(context.SourceId);
             var hasTarget = !context.TargetId.Equals(context.SourceId) && _units.Exists(context.TargetId);
             Vec2 aimPoint;
@@ -236,6 +247,8 @@ namespace Core.Carriers.Projectile
                 RelationPolicy = relationPolicy,
                 PierceOrder = pierceOrder,
                 HitHook = hitHook,
+                HitHeightMin = hitHeightMin,
+                HitHeightMax = hitHeightMax,
             };
 
             hitHook?.OnLaunched();
@@ -413,6 +426,7 @@ namespace Core.Carriers.Projectile
                 if (state.HitUnitIds.Contains(candidateId)) continue;
                 if (!_units.Exists(candidateId) || !_units.IsAlive(candidateId)) continue;
                 if (!PassesRelationPolicy(state, candidateId)) continue; // 目标锁定 + 关系筛选。
+                if (!PassesHitHeight(state, candidateId)) continue; // ADR-0171：命中高度窗口（可跳过地面冲击波）。
 
                 var dist = (_units.GetPosition(candidateId) - from).Length;
                 candidates.Add((candidateId, dist));
@@ -468,6 +482,7 @@ namespace Core.Carriers.Projectile
                     if (candidateId.Equals(state.SourceUnitId)) continue; // 施法者排除：同 TryResolveUnitHits。
                     if (!_units.Exists(candidateId) || !_units.IsAlive(candidateId)) continue;
                     if (!PassesRelationPolicy(state, candidateId)) continue; // ADR-0028：目标锁定 + 关系筛选，同一裁决优先级。
+                    if (!PassesHitHeight(state, candidateId)) continue; // ADR-0171：命中高度窗口。
 
                     var away = _units.GetPosition(candidateId) - entity.Position;
                     var awayLength = away.Length;
@@ -693,6 +708,26 @@ namespace Core.Carriers.Projectile
             };
         }
 
+        /// <summary>
+        /// ADR-0171：命中高度窗口。声明了 <c>hit_height</c> 的投射物只命中脚下高度（<see cref="IUnitAccess.GetHeightOffset"/>）落在
+        /// <c>[min, max]</c>（发射时换算成绝对高度，含边界，缺一端即该端不限）里的单位——地面冲击波只打脚下贴地的单位，起跳越过它就不挨打。
+        /// 没有声明窗口恒为 true（既有投射物逐位不变）；没有竖直轴的世界所有单位高度为 0。
+        /// </summary>
+        private bool PassesHitHeight(ProjectileState state, Id candidateId)
+        {
+            if (!state.HitHeightMin.HasValue && !state.HitHeightMax.HasValue)
+            {
+                return true;
+            }
+
+            var height = _units.GetHeightOffset(candidateId);
+            return (!state.HitHeightMin.HasValue || height >= state.HitHeightMin.Value - HitHeightEpsilon)
+                && (!state.HitHeightMax.HasValue || height <= state.HitHeightMax.Value + HitHeightEpsilon);
+        }
+
+        /// <summary>命中高度窗口的浮点容差（不是口味配置）。</summary>
+        private const double HitHeightEpsilon = 1e-9;
+
         // -----------------------------------------------------------------
         // 参数解析帮助方法（惯例同 core/rules/skill/core/ParamsX.cs，但那是 Core.Rules 程序集内部
         // internal 类型，跨程序集不可见，本类自带一份最小子集，只解析本模块实际用到的字段）。
@@ -782,6 +817,11 @@ namespace Core.Carriers.Projectile
 
             /// <summary>手感落地：命中钩子（时间线 <c>release</c> 标记发射的投射物才有；null 即既有路径）。</summary>
             public IProjectileHitHook? HitHook;
+
+            /// <summary>ADR-0171：命中高度窗口（绝对高度；null = 该端不限）。</summary>
+            public double? HitHeightMin;
+
+            public double? HitHeightMax;
         }
     }
 }

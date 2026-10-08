@@ -226,3 +226,7 @@ CarriersAssembly` 装配时从 `Rules.Factions` 回填，见该类型判断记�
 - `ProjectileHitInfo.ContactPoint` = 本 tick 飞行线段上离目标中心最近的点（`impact_on_expiry` 取到期位置）；`FlightDirection` = 本 tick 位移方向（无位移取 +X；`impact_on_expiry` 取到期位置指向目标的方向）；`PierceCount` = 命中前已计的穿透数。
 - **生命周期通知（S12）**：`IProjectileHitHook` 新增两个默认接口成员 `OnLaunched()`（`Spawn` 生成后调用一次）与 `OnEnded(ProjectileEndReason)`（每发恰好一次）；既有实现者不改也能编译与运行（物理签名只加不改，ABI 探针 OK）。结局原因：`Hit`（命中后销毁或穿透次数耗尽，穿透中的命中不算结局）、`Blocked`（被地形挡住）、`Expired`（射程耗尽/到期，含 `impact_on_expiry` 在到期位置结算之后）、`Cleared`（`ClearAll` 或世界侧实体已被清掉）。`ClearAll` 按投射物 Id 顺序通知，保证确定性。动机：反馈侧要等投射物结局才能定"打没打空"（手感设计/03 第 2.5 节）。
 - 复现/不变量：`tests/ProjectileHitHookTests.cs`（`max_pierce_count: 2` 命中前两个目标后投射物消失；被拒绝目标不消耗穿透名额；攻击实例 id 透传；碰撞点与同一发去重；无钩子行为不变；到期范围判定也过钩子；生命周期六条：发射一次、穿透耗尽 Hit、穿透中不报结局到射程尽 Expired、撞墙 Blocked、射程尽无接触 Expired、`ClearAll` 每发 Cleared 一次，以及只实现原三成员的旧钩子仍可用）。
+
+## 判断记录（命中高度窗口 `hit_height`，2026-10-08，样板游戏 D 缺口，[ADR-0171](../../../architecture/adr/0171-投射物命中高度窗口.md)）
+
+投射物参数新增可选对象 `hit_height: {min?, max?}`：相对发射者发射瞬间脚下高度（`IUnitAccess.GetHeightOffset`）的偏移，`Spawn` 时换算成绝对高度存进 `ProjectileState.HitHeightMin/HitHeightMax`；`TryResolveUnitHits`（飞行线段命中，含穿透与命中钩子）和 `ResolveExpiry`（`impact_on_expiry` 范围判定）里的 `PassesHitHeight` 过滤脚下高度不在 `[min, max]`（含边界，容差 1e-9，缺一端即不限）里的单位。不声明时恒通过，既有命中逐位不变；没有竖直轴的世界单位高度恒为 0。取舍：只比较脚下高度，不做体积判定，窗口相对发射瞬间固定。已知限制（原样登记）：窗口只比较候选单位脚下高度，不考虑单位自身高度；发射后发射者再升降不影响已发射的投射物。技能参数登记见 `core/rules/skill/schema`（`SkillSchemas.cs` 的 `hit_height`）。测试：`tests/ProjectileHitHeightTests.cs`（旧行为缺口复现：无窗口时起跳的单位照样被冲击波命中；窗口内命中、起跳越过、上沿边界含、下沿、`impact_on_expiry` 范围判定、空对象不过滤）。

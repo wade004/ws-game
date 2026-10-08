@@ -79,9 +79,23 @@ namespace Core.Carriers.Unit
         /// </summary>
         public double? FallHeight { get; set; }
 
+        /// <summary>
+        /// 单向平台与移动平台（可选，ADR-0170，需要 <see cref="Terrain"/>——平台叠在地形之上；不需要地形起伏的横版关卡用
+        /// <see cref="Core.Foundation.EngineAdapter.FlatTerrainHeight2D.Instance"/>）：<c>null</c>（缺省）= 没有平台，行为逐位不变。非空时：
+        /// 下落中的单位脚下穿过平台顶面会落在平台上（上升中与平台下方的单位不受影响）、站在平台上的单位走出平台范围会离地下落（走出平台边缘，
+        /// 同悬崖，可土狼起跳）、移动平台带走站在上面的单位、<see cref="IVerticalMotion.DropThrough"/> 让站在平台上的单位向下穿过它。
+        /// 数据实现见 <c>MapPlatforms</c>（<c>world.map.platforms</c>）。
+        /// </summary>
+        public Core.Foundation.EngineAdapter.ITerrainPlatforms2D? Platforms { get; set; }
+
         /// <summary>校验取值，非法时抛 <see cref="ArgumentOutOfRangeException"/>（装配期调用，不静默夹取）。</summary>
         public void Validate()
         {
+            if (Platforms != null && Terrain == null)
+            {
+                throw new ArgumentException("声明平台（Platforms）必须同时声明地形（Terrain）；平地关卡用 FlatTerrainHeight2D.Instance", nameof(Platforms));
+            }
+
             if (!(Gravity > 0.0) || double.IsInfinity(Gravity))
             {
                 throw new ArgumentOutOfRangeException(nameof(Gravity), Gravity, "重力必须为正的有限数");
@@ -186,5 +200,24 @@ namespace Core.Carriers.Unit
         /// 空中跳跃次数与空中时间。不在空中或已在下降返回 false，不改变状态。默认接口成员：恒 false。
         /// </summary>
         bool CutAscent(Id unitId, double ratio) => false;
+
+        /// <summary>
+        /// 下穿单向平台（ADR-0170）：单位正站在一块平台上时，离地向下落（初速 0），并在这次飞行里不再被那块平台接住
+        /// （落到下面的地面或别的平台才结束；不是边缘下落，不可土狼起跳）。不在平台上（地面上、空中、没有声明平台能力）返回 false，不改变状态。
+        /// 默认接口成员：恒 false。
+        /// </summary>
+        bool DropThrough(Id unitId) => false;
+
+        /// <summary>
+        /// 向下俯冲（ADR-0170，下劈/俯冲斩一类动作）：<b>空中</b>的单位把竖直速度换成向下的 <paramref name="downSpeed"/>（世界单位/秒，正的有限数），
+        /// 从当前高度继续抛体（重力照常加速），保持空中跳跃次数与空中时间。不在空中、单位不存在或已死亡返回 false，不改变状态；
+        /// <paramref name="downSpeed"/> 不是正的有限数抛 <see cref="ArgumentOutOfRangeException"/>。默认接口成员：恒 false。
+        /// </summary>
+        bool Plunge(Id unitId, double downSpeed) => false;
+
+        /// <summary>
+        /// 单位当前站着的平台 id（<see cref="VerticalAxisOptions.Platforms"/>）；不在平台上返回 null。默认接口成员：恒 null。
+        /// </summary>
+        string? StandingPlatform(Id unitId) => null;
     }
 }

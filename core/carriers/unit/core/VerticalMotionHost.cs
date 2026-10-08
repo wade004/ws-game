@@ -42,6 +42,9 @@ namespace Core.Carriers.Unit
 
             /// <summary>这次飞行是走出平台边缘的自然下落（初速 0，没被抛起过）：土狼时间起跳的前提（ADR-0143）。</summary>
             public bool LedgeFall;
+
+            /// <summary>主动下穿的那块平台（<see cref="DropThrough"/>）：这次飞行里不再被它接住；落地即结束飞行，不需要显式清除。</summary>
+            public string? IgnorePlatform;
         }
 
         /// <summary>地形能力装配后逐单位的"贴地"簿记：上一次观测的位置与是否贴着地面（只在 <see cref="VerticalAxisOptions.Terrain"/> 非空时使用）。</summary>
@@ -49,6 +52,9 @@ namespace Core.Carriers.Unit
         {
             public Vec2 LastPosition;
             public bool Grounded;
+
+            /// <summary>正站着的平台 id（ADR-0170）；站在地面上为 null。</summary>
+            public string? PlatformId;
         }
 
         /// <summary>脚下与地面的距离不超过它视为"贴着地面"（浮点容差，不是口味配置）。</summary>
@@ -77,6 +83,12 @@ namespace Core.Carriers.Unit
         {
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
         }
+
+        /// <summary>
+        /// 单位访问口（可选；<c>CarriersAssembly</c> 装配时回填）：移动平台带走站在上面的单位时经它写位置，空间索引随之同步
+        /// （同 <see cref="WorldUnitAccess.SetPosition"/>）。缺省 null 时只写实体位置（测试与不带空间索引的宿主）。
+        /// </summary>
+        public Core.Rules.Common.IUnitAccess? UnitAccess { get; set; }
 
         /// <summary>当前在空中的单位数（诊断用）。</summary>
         public int AirborneCount => _flights.Count;
@@ -249,6 +261,43 @@ namespace Core.Carriers.Unit
 
         public bool IsLedgeFall(Id unitId) => _flights.TryGetValue(unitId, out var f) && f.LedgeFall;
 
+        public string? StandingPlatform(Id unitId) =>
+            !_flights.ContainsKey(unitId) && _walkers.TryGetValue(unitId, out var w) ? w.PlatformId : null;
+
+        public bool Plunge(Id unitId, double downSpeed)
+        {
+            if (!(downSpeed > 0.0) || double.IsInfinity(downSpeed))
+            {
+                throw new ArgumentOutOfRangeException(nameof(downSpeed), downSpeed, "俯冲速度必须为正的有限数");
+            }
+
+            if (!_flights.ContainsKey(unitId) || !(_world.GetEntity(unitId) is Unit unit) || !unit.Alive)
+            {
+                return false;
+            }
+
+            StartFlight(unitId, unit, -downSpeed);
+            return true;
+        }
+
+        public bool DropThrough(Id unitId)
+        {
+            if (_options.Platforms == null || _flights.ContainsKey(unitId) || !_walkers.TryGetValue(unitId, out var walker) || walker.PlatformId == null)
+            {
+                return false;
+            }
+
+            if (!(_world.GetEntity(unitId) is Unit unit) || !unit.Alive)
+            {
+                return false;
+            }
+
+            var platform = walker.PlatformId;
+            StartFlight(unitId, unit, 0.0);
+            _flights[unitId].IgnorePlatform = platform;
+            return true;
+        }
+
         public bool JumpFromLedge(Id unitId)
         {
             if (!_flights.TryGetValue(unitId, out var existing) || !existing.LedgeFall)
@@ -307,6 +356,7 @@ namespace Core.Carriers.Unit
             if (_walkers.TryGetValue(unitId, out var walker))
             {
                 walker.Grounded = false;
+                walker.PlatformId = null;
             }
         }
 
@@ -321,6 +371,12 @@ namespace Core.Carriers.Unit
                 return;
             }
 
+            if (_options.Platforms != null)
+            {
+                _options.Platforms.Advance(dt);
+                CarryRiders(_options.Platforms);
+            }
+
             if (_flights.Count > 0)
             {
                 AdvanceFlights(dt);
@@ -329,6 +385,67 @@ namespace Core.Carriers.Unit
             if (_options.Terrain != null)
             {
                 FollowGround();
+            }
+        }
+
+        /// <summary>
+        /// 移动平台带走站在上面的单位（ADR-0170）：平台本步的位移（<see cref="ITerrainPlatforms2D.LastMotions"/>）加到每个站在它上面的单位
+        /// 的位置与脚下高度上，并更新"上次位置"簿记（被带走不算自己走动，不会触发悬崖判定）。按 Id 序数遍历，保证确定性。
+        /// </summary>
+        private void CarryRiders(ITerrainPlatforms2D platforms)
+        {
+            var motions = platforms.LastMotions;
+            if (motions.Count == 0 || _walkers.Count == 0)
+            {
+                return;
+            }
+
+            _scratch.Clear();
+            foreach (var pair in _walkers)
+            {
+                if (pair.Value.PlatformId != null)
+                {
+                    _scratch.Add(pair.Key);
+                }
+            }
+
+            if (_scratch.Count == 0)
+            {
+                return;
+            }
+
+            _scratch.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
+            for (var i = 0; i < _scratch.Count; i++)
+            {
+                var id = _scratch[i];
+                var walker = _walkers[id];
+                if (!(_world.GetEntity(id) is Unit unit))
+                {
+                    continue;
+                }
+
+                for (var m = 0; m < motions.Count; m++)
+                {
+                    var motion = motions[m];
+                    if (!string.Equals(motion.PlatformId, walker.PlatformId, StringComparison.Ordinal) || !motion.MapId.Equals(unit.MapId))
+                    {
+                        continue;
+                    }
+
+                    var moved = unit.Position + motion.Delta;
+                    if (UnitAccess != null)
+                    {
+                        UnitAccess.SetPosition(id, moved);
+                    }
+                    else
+                    {
+                        unit.Position = moved;
+                    }
+
+                    unit.HeightOffset += motion.HeightDelta;
+                    walker.LastPosition = unit.Position;
+                    break;
+                }
             }
         }
 
@@ -352,15 +469,29 @@ namespace Core.Carriers.Unit
                 flight.Elapsed += dt;
                 flight.AirTime += dt;
                 var t = flight.Elapsed;
+                var footBefore = unit.HeightOffset;
                 var h = flight.StartHeight + flight.InitialSpeed * t - 0.5 * _options.Gravity * t * t;
                 var ground = terrain != null ? terrain.GetGroundHeight(unit.MapId, unit.Position) : 0.0;
+                var descending = flight.InitialSpeed - _options.Gravity * t <= 0.0;
                 // 落地只发生在下落（竖直速度 ≤ 0）时：上升中飞进不超过台阶高度的更高地面（平台边缘）不算落地，继续上升；
                 // 到达顶点或开始下落之后才落到那块地面上。没有地形能力时地面恒为 0，h ≤ 0 必然已在下落，沿用旧判定（逐位不变）。
-                if (h <= ground && (terrain == null || flight.InitialSpeed - _options.Gravity * t <= 0.0))
+                var landed = h <= ground && (terrain == null || descending);
+                string? landedPlatform = null;
+                if (_options.Platforms != null && descending
+                    && _options.Platforms.TryLand(unit.MapId, unit.Position, footBefore, h, flight.IgnorePlatform, out var contact)
+                    && (!landed || contact.Height >= ground))
+                {
+                    // 单向平台（ADR-0170）：脚下从顶面上方穿到顶面或以下才落在平台上；平台与地面同时满足时落在更高的那个（先碰到的）。
+                    landed = true;
+                    ground = contact.Height;
+                    landedPlatform = contact.PlatformId;
+                }
+
+                if (landed)
                 {
                     unit.HeightOffset = ground;
                     _flights.Remove(id);
-                    MarkGrounded(id, unit);
+                    MarkGrounded(id, unit, landedPlatform);
                     if (_bus != null && _options.EmitLandedEvent)
                     {
                         _bus.Enqueue(new UnitLandedEvent(id, ground, flight.AirTime, -(flight.InitialSpeed - _options.Gravity * t)));
@@ -388,14 +519,14 @@ namespace Core.Carriers.Unit
             }
         }
 
-        private void MarkGrounded(Id id, Unit unit)
+        private void MarkGrounded(Id id, Unit unit, string? platformId = null)
         {
             if (_options.Terrain == null)
             {
                 return;
             }
 
-            _walkers[id] = new Walker { LastPosition = unit.Position, Grounded = true };
+            _walkers[id] = new Walker { LastPosition = unit.Position, Grounded = true, PlatformId = platformId };
         }
 
         /// <summary>
@@ -424,7 +555,41 @@ namespace Core.Carriers.Unit
                         unit.HeightOffset = ground;
                     }
 
-                    _walkers[id] = new Walker { LastPosition = unit.Position, Grounded = unit.HeightOffset - ground <= GroundEpsilon };
+                    var firstWalker = new Walker { LastPosition = unit.Position, Grounded = unit.HeightOffset - ground <= GroundEpsilon };
+                    if (!firstWalker.Grounded && _options.Platforms != null
+                        && _options.Platforms.TryGetSupport(unit.MapId, unit.Position, unit.HeightOffset, out var support))
+                    {
+                        // 出生/传送到平台上：脚下与某块平台顶面齐平，认出支撑（悬空靶的静态高度不会碰巧齐平，不受影响）。
+                        firstWalker.Grounded = true;
+                        firstWalker.PlatformId = support.PlatformId;
+                    }
+
+                    _walkers[id] = firstWalker;
+                    continue;
+                }
+
+                if (walker.PlatformId != null && _options.Platforms != null)
+                {
+                    // 站在平台上（ADR-0170）：平台还托着这个位置就贴着它的顶面；走出了平台范围就离地下落（走出平台边缘），
+                    // 地面比脚下高（走进了高台）则被抬上去。
+                    walker.LastPosition = unit.Position;
+                    if (_options.Platforms.TryGetTop(unit.MapId, walker.PlatformId, unit.Position, out var top) && top >= ground)
+                    {
+                        unit.HeightOffset = top;
+                        continue;
+                    }
+
+                    walker.PlatformId = null;
+                    if (unit.HeightOffset - ground > GroundEpsilon)
+                    {
+                        StartFlight(id, unit, 0.0);
+                        _flights[id].LedgeFall = true;
+                    }
+                    else
+                    {
+                        unit.HeightOffset = ground;
+                    }
+
                     continue;
                 }
 
