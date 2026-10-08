@@ -470,6 +470,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 - [ADR-0170](architecture/adr/0170-单向平台移动平台与下穿俯冲.md)、[ADR-0171](architecture/adr/0171-投射物命中高度窗口.md)、[ADR-0172](architecture/adr/0172-悬浮生物出生高度.md)：样板游戏 D（横版动作）的缺口，含已知限制各 6 条、2 条与 1 条。
 
+### 杂项
+
+- **消费方演练结束即删工作目录**：`toolchain/consumer_smoke.ps1` 演练主体包进 `try/finally`，通过、失败、中途退出都会等本次 Unity 进程退出后删除本次 `%TEMP%\gf_consumer_smoke_<8 位哈希>`（约 3GB；此前每个检出每次门禁留一份，一周积累 36 个、78.5GB）；删除失败只警告、不改变演练结论；演练失败时先把 Unity 日志另存到 `<ArtifactsPath>\consumer_smoke_logs\`。新增调试开关 `-KeepWorkDir` 保留现场。新增泄漏冒烟 `toolchain/consumer_smoke_temp_leak_check.ps1`（跑一次 `check.ps1`，断言 `gf_consumer_smoke_*` 的个数与总字节都不增加）。
+
 ## [2.7.0] - 2026-10-08
 
 ### 新增

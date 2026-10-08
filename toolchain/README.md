@@ -1573,7 +1573,7 @@ build/test 步骤）。
 
 - **抓取**：`_gate_line_unity.ps1` 的编译检查/EditMode/PlayMode/独立版构建/IL2CPP 构建与 `consumer_smoke.ps1` 的首次编译/场景构建器/PlayMode/独立版构建/registry 探针，在引擎退出码非零时调 `Get-UpmEvidenceDetailSuffix`：日志含签名才抓。抓到后在 `<ArtifactsPath>\upm_evidence\<时间>_<步骤>\` 存 `upm_candidate<N>.log`（`upm.log` 的每个存在的候选路径各一份）、`engine_log_excerpt.txt`（包管理器相关行 + 日志末尾 60 行）、`unity_processes.txt`（Unity 相关进程快照，用来对照"是不是别的会话误杀"）、`summary.txt`；步骤 Detail 追加 `包管理器子进程退出码=…（-1/1 疑似外部结束，101 疑似自身崩溃）；现场已存 <路径>`。演练步骤的子进程输出被 `| Out-Null` 吞掉，所以 Unity 线在演练失败时从 `consumer_smoke.log` 里把这些摘要行并进 `consumer_drill` 的 Detail。
 - **判定函数可单测**：`Test-UpmIpcFailureSignature`（退出码非零且日志含签名）、`Get-UpmChildExitCodes`、`Save-UpmFailureEvidence`；用例见 `tests/test_upm_evidence.py`。
-- **演练工作目录**：默认 `<TEMP>\gf_consumer_smoke_<仓库根路径 SHA-256 前 8 位>`（`Get-ConsumerSmokeDefaultWorkDir`，在 `_unity_smoke_wait_scope_guard.ps1`），主检出与各工作树互不清空对方的工程；显式 `-WorkDir` 优先。
+- **演练工作目录**：默认 `<TEMP>\gf_consumer_smoke_<仓库根路径 SHA-256 前 8 位>`（`Get-ConsumerSmokeDefaultWorkDir`，在 `_unity_smoke_wait_scope_guard.ps1`），主检出与各工作树互不清空对方的工程；显式 `-WorkDir` 优先。演练结束（通过、失败、中途退出）即删除本次 WorkDir（约 3GB，此前每个检出留一份死目录），失败时先把 Unity 日志另存到 `<ArtifactsPath>\consumer_smoke_logs\`；调试要保留现场传 `-KeepWorkDir`。回归冒烟：`pwsh toolchain\consumer_smoke_temp_leak_check.ps1`（跑一次 check.ps1，断言 `%TEMP%` 下 `gf_consumer_smoke_*` 个数与总字节都不增加）。
 - **注册表测试的清理**：`tests/_pid_identity.py` 按"映像名 + 启动时间"核对后才结束进程；`start_registry.ps1 -LogDir` 让测试把 verdaccio 日志写进临时目录。
 
 ### 判断记录

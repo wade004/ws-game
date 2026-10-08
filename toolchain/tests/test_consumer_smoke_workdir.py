@@ -60,3 +60,23 @@ def test_consumer_smoke_no_longer_hardcodes_shared_workdir_but_keeps_override() 
     # 显式传参仍然优先：只在 WorkDir 为空时才用派生值。
     assert '[string]$WorkDir = ""' in text
     assert re.search(r'if \(\$WorkDir -eq ""\) \{\s*\$WorkDir = Get-ConsumerSmokeDefaultWorkDir', text)
+
+
+def test_consumer_smoke_removes_workdir_on_every_exit_path_unless_keep_flag() -> None:
+    """演练结束即删本次 WorkDir（2026-10-08）：主体在 try/finally 里，finally 调清理函数；-KeepWorkDir 才保留。
+
+    运行时行为（泄漏冒烟）见 ``toolchain/consumer_smoke_temp_leak_check.ps1``；这里只守住静态结构：
+    清理挂在 finally 上（早退 exit 1、汇总 exit 都经过），且 transcript 只在 finally 里统一停止。
+    """
+    text = CONSUMER_SMOKE.read_text(encoding="utf-8-sig")
+    assert "[switch]$KeepWorkDir" in text
+    assert re.search(
+        r"\} finally \{\s*Remove-ConsumerSmokeWorkDir -ExitCode \$script:SmokeExitCode\s*"
+        r"Stop-TranscriptAndReport -Failed \(\$script:SmokeExitCode -ne 0\)\s*\}\s*$",
+        text,
+    ), "主体的 finally 必须先清理 WorkDir、再停 transcript"
+    assert text.count("Stop-TranscriptAndReport -Failed") == 1, "transcript 只能在 finally 里统一停止"
+    start = text.index("function Remove-ConsumerSmokeWorkDir")
+    cleanup = text[start:text.index("function Write-StepHeader", start)]
+    assert "if ($KeepWorkDir)" in cleanup and "Wait-NoResidualUnityProcess" in cleanup
+    assert "throw" not in cleanup, "清理失败只警告，不得改变演练结论"
