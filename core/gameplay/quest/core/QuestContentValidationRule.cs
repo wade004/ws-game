@@ -115,6 +115,11 @@ namespace Core.Gameplay.Quest
                 {
                     yield return issue;
                 }
+
+                foreach (var issue in ValidateGuide(record))
+                {
+                    yield return issue;
+                }
             }
 
             foreach (var issue in ValidatePrerequisiteGraph(records))
@@ -180,6 +185,45 @@ namespace Core.Gameplay.Quest
                             recordKey: record.Key, field: $"{fieldPrefix}.target_ref");
                     }
                     // target_ref 缺失/格式非法已由 required_field/field_type（FieldKind.Id）报告。
+                }
+            }
+        }
+
+        /// <summary>ADR-0173：<c>guide[].targets[]</c> 三种写法恰好一种（<c>quest_guide_target_form</c>），<c>map_id</c> 与 <c>position</c> 成对。
+        /// 结构性缺失（元素不是对象等）已由 field_type 报告，这里只处理登记表达不了的互斥/成对判断。</summary>
+        private static IEnumerable<ValidationIssue> ValidateGuide(DataRecord record)
+        {
+            if (!record.TryGetArray("guide", out var steps))
+            {
+                yield break;
+            }
+
+            for (var i = 0; i < steps.Count; i++)
+            {
+                if (!(steps[i] is JsonObject step) || !step.TryGetValue("targets", out var tv) || !(tv is JsonArray targets))
+                {
+                    continue;
+                }
+
+                for (var j = 0; j < targets.Count; j++)
+                {
+                    if (!(targets[j] is JsonObject t))
+                    {
+                        continue;
+                    }
+
+                    var hasArea = t.TryGetValue("area_ref", out var a) && a.Kind != JsonKind.Null;
+                    var hasSpawn = t.TryGetValue("spawn_ref", out var sp) && sp.Kind != JsonKind.Null;
+                    var hasMap = t.TryGetValue("map_id", out var m) && m.Kind != JsonKind.Null;
+                    var hasPos = t.TryGetValue("position", out var p) && p.Kind != JsonKind.Null;
+                    var forms = (hasArea ? 1 : 0) + (hasSpawn ? 1 : 0) + (hasMap || hasPos ? 1 : 0);
+                    if (forms != 1 || hasMap != hasPos)
+                    {
+                        yield return new ValidationIssue(
+                            ValidationSeverity.Error, QuestSchemas.Def.Name, "quest_guide_target_form",
+                            "guide[].targets[] 必须恰好选 area_ref、spawn_ref、map_id+position（两者成对）三种写法之一",
+                            recordKey: record.Key, field: $"guide[{i}].targets[{j}]");
+                    }
                 }
             }
         }
