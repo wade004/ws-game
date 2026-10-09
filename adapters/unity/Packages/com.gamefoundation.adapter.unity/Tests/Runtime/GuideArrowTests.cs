@@ -6,6 +6,7 @@ using UnityEngine;
 namespace Adapter.Unity.Tests.Runtime
 {
     /// <summary>ADR-0173：引导箭头的摆放数学与控件显隐。期望值由容器矩形与留白算出，不写死裸坐标。</summary>
+    [Category("module:ui")]
     public sealed class GuideArrowTests
     {
         private static readonly Rect Screen = new Rect(-960f, -540f, 1920f, 1080f);
