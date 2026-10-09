@@ -136,3 +136,22 @@ def test_kit_light_attacks_are_paced_by_the_equipped_weapon_and_dodge_cancellabl
         assert dodge and dodge[0]["open_ms"] == recovery_start, skill
     for skill in ("skill.kit_heavy", "skill.kit_charge", "skill.kit_dodge"):
         assert not rows[skill]["timeline"].get("weapon_paced"), skill
+
+
+def test_kit_player_skills_have_localized_name_and_description_in_both_locales() -> None:
+    """玩家可用的技能（普攻连招、重击、冲锋、翻滚、远程、大招、药水）带 name_key/desc_key，且中英文都有文案（技能栏悬停详情用，ADR-0175/0180）；
+    引用的键都存在，不是空串。"""
+    tables = _tables()
+    texts = {(r["key"], r["locale"]): r["text"] for r in tables["l10n.text"]["rows"]}
+    rows = {r["id"]: r for r in tables["skill.def"]["rows"]}
+    player = [s for s in rows if not any(tag in s for tag in ("grunt", "heavy_slam", "boss"))]
+    assert len(player) >= 10, player
+    for skill in player:
+        for field in ("name_key", "desc_key"):
+            key = rows[skill].get(field)
+            assert key, (skill, field)
+            for locale in (ZH, EN):
+                assert texts.get((key, locale)), (skill, field, locale)
+    for key in ("type_action", "action_time"):
+        for locale in (ZH, EN):
+            assert texts.get(("l10n.ui.skill_tooltip." + key, locale)), (key, locale)

@@ -18,6 +18,8 @@ namespace Tests.PresentationUi
         private static readonly Id Zap = new Id("skill.stt_zap");          // 瞬发、无冷却、无消耗
         private static readonly Id Mend = new Id("skill.stt_mend");        // 自身（射程 0）、读条、治疗
         private static readonly Id Beam = new Id("skill.stt_beam");        // 引导
+        private static readonly Id Swing = new Id("skill.stt_swing");      // 动作技能（timeline）+ 武器节奏
+        private static readonly Id Slam = new Id("skill.stt_slam");        // 动作技能（timeline），不随武器节奏
         private static readonly Id Bare = new Id("skill.stt_bare");        // 没有名称键/描述键/任何可选项
         private static readonly Id Power = new Id("stat.stt_power");
         private static readonly Id Spirit = new Id("stat.stt_spirit");
@@ -31,6 +33,7 @@ namespace Tests.PresentationUi
         private const double BoltPowerCoeff = 1.0;
         private const double BoltSpiritCoeff = 0.25;
         private const double MendBase = 46;
+        private const double SwingDuration = 0.4;
 
         private static IDataRegistryView BuildRegistry()
         {
@@ -49,6 +52,8 @@ namespace Tests.PresentationUi
                     "{\"id\":\"" + Mend.Value + "\",\"name_key\":\"l10n.stt.mend.name\",\"range\":0,\"cast_time\":1.5," +
                     "\"effects\":[{\"kind\":\"heal\",\"params\":{\"base_value\":" + MendBase + ",\"coefficient\":0}}]}," +
                     "{\"id\":\"" + Beam.Value + "\",\"name_key\":\"l10n.stt.beam.name\",\"range\":15,\"cast_time\":0,\"channel_time\":3,\"effects\":[]}," +
+                    "{\"id\":\"" + Swing.Value + "\",\"range\":3,\"cast_time\":" + SwingDuration + ",\"effects\":[],\"timeline\":{\"startup_ms\":100,\"active_ms\":100,\"recovery_ms\":200,\"weapon_paced\":true}}," +
+                    "{\"id\":\"" + Slam.Value + "\",\"range\":3,\"cast_time\":" + SwingDuration + ",\"effects\":[],\"timeline\":{\"startup_ms\":100,\"active_ms\":100,\"recovery_ms\":200}}," +
                     "{\"id\":\"" + Bare.Value + "\",\"range\":0,\"cast_time\":0,\"effects\":[]}]}");
             var registry = new DataRegistry(source, world.EventBus, new DataRegistryOptions { FailOnUnknownTable = false });
             registry.LoadAll();
@@ -82,6 +87,8 @@ namespace Tests.PresentationUi
             [SkillTooltipBuilder.KeyType] = "Type",
             [SkillTooltipBuilder.KeyTypeCast] = "Cast",
             [SkillTooltipBuilder.KeyTypeInstant] = "Instant",
+            [SkillTooltipBuilder.KeyTypeAction] = "Action",
+            [SkillTooltipBuilder.KeyActionTime] = "Action time",
             [SkillTooltipBuilder.KeyCastTime] = "Cast time",
             [SkillTooltipBuilder.KeyCooldown] = "Cooldown",
             [SkillTooltipBuilder.KeyCost] = "Cost",
@@ -206,6 +213,56 @@ namespace Tests.PresentationUi
             Assert.Contains(bolt.Costs, c => c.PowerName == "stt_mana"); // 没传文本函数：资源名退回短名
 
             Assert.Null(SkillTooltipBuilder.Build(registry, new Id("skill.stt_missing"), null));
+        }
+
+        [Fact]
+        public void Build_ActionSkill_TypeIsAction_DurationRowIsActionTime_PacedByWeaponIntervalOverReference()
+        {
+            const double interval = 0.6;
+            const double reference = 1.2;
+            var registry = BuildRegistry();
+
+            var plain = SkillTooltipBuilder.Build(registry, Swing, English(En))!;
+            Assert.False(plain.IsInstant);
+            Assert.Equal("Action", plain.TypeText);
+            Assert.Equal(SwingDuration, plain.CastTime, 9);
+            Assert.Contains(plain.Rows, r => r.Label == "Action time" && r.Value == SwingDuration + " s");
+            Assert.DoesNotContain(plain.Rows, r => r.Label == "Cast time");
+
+            var paced = SkillTooltipBuilder.Build(registry, Swing, English(En),
+                new SkillTooltipContext { WeaponAttackIntervalSeconds = interval, WeaponPaceReferenceSeconds = reference })!;
+            var expected = SwingDuration * interval / reference;
+            Assert.Equal(expected, paced.CastTime, 9);
+            Assert.Contains(paced.Rows, r => r.Label == "Action time" && r.Value == expected.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " s");
+
+            // û���� weapon_paced �Ķ��������ţ���Ч�ļ��/��׼Ҳ�����ţ���ʽ������Чʱ�����ȡ�
+            var slam = SkillTooltipBuilder.Build(registry, Slam, English(En),
+                new SkillTooltipContext { WeaponAttackIntervalSeconds = interval, WeaponPaceReferenceSeconds = reference })!;
+            Assert.Equal(SwingDuration, slam.CastTime, 9);
+            var noWeapon = SkillTooltipBuilder.Build(registry, Swing, English(En), new SkillTooltipContext { WeaponPaceReferenceSeconds = reference })!;
+            Assert.Equal(SwingDuration, noWeapon.CastTime, 9);
+            var badReference = SkillTooltipBuilder.Build(registry, Swing, English(En),
+                new SkillTooltipContext { WeaponAttackIntervalSeconds = interval, WeaponPaceReferenceSeconds = 0 })!;
+            Assert.Equal(SwingDuration, badReference.CastTime, 9);
+            var explicitTime = SkillTooltipBuilder.Build(registry, Swing, English(En),
+                new SkillTooltipContext { CastTime = 0.25, WeaponAttackIntervalSeconds = interval, WeaponPaceReferenceSeconds = reference })!;
+            Assert.Equal(0.25, explicitTime.CastTime, 9);
+        }
+
+        [Fact]
+        public void Invariant_ActionDurationScalesLinearlyWithWeaponInterval()
+        {
+            var registry = BuildRegistry();
+            const double reference = 1.0;
+            var last = 0d;
+            foreach (var interval in new[] { 0.5, 1.0, 1.5, 2.0 })
+            {
+                var content = SkillTooltipBuilder.Build(registry, Swing, English(En),
+                    new SkillTooltipContext { WeaponAttackIntervalSeconds = interval, WeaponPaceReferenceSeconds = reference })!;
+                Assert.Equal(SwingDuration * interval / reference, content.CastTime, 9);
+                Assert.True(content.CastTime > last);
+                last = content.CastTime;
+            }
         }
 
         [Fact]

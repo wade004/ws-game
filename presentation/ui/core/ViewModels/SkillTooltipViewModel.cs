@@ -111,6 +111,16 @@ namespace Presentation.Ui
 
         /// <summary>当前有效读条时长（受急速等影响）；缺省取 <c>skill.def.cast_time</c>。</summary>
         public double? CastTime { get; set; }
+
+        /// <summary>
+        /// 主手武器的挥击间隔（秒，<c>weapon_profile.speed</c>；装备载体的 <c>GetWeaponAttackIntervalSeconds</c>）。动作技能（<c>timeline</c>）声明了
+        /// <c>weapon_paced</c>（ADR-0176）时，动作时长 = 数据时长 × 挥击间隔 ÷ <see cref="WeaponPaceReferenceSeconds"/>，与施法管线同一口径（ADR-0180）。
+        /// 缺省（没有武器、间隔非正）= 不缩放；已显式给出 <see cref="CastTime"/> 时以 <see cref="CastTime"/> 为准。
+        /// </summary>
+        public double? WeaponAttackIntervalSeconds { get; set; }
+
+        /// <summary>武器节奏的基准挥击间隔（秒，<c>SkillOptions.WeaponPaceReferenceSeconds</c>）；非正 = 不缩放。</summary>
+        public double? WeaponPaceReferenceSeconds { get; set; }
     }
 
     /// <summary>技能提示框内容的数据规则（纯数据，不依赖引擎；ADR-0175）。</summary>
@@ -121,6 +131,10 @@ namespace Presentation.Ui
         public static readonly Id KeyTypeCast = new Id("l10n.ui.skill_tooltip.type_cast");
         public static readonly Id KeyTypeInstant = new Id("l10n.ui.skill_tooltip.type_instant");
         public static readonly Id KeyTypeChannel = new Id("l10n.ui.skill_tooltip.type_channel");
+
+        /// <summary>动作类型（ADR-0180）：带 <c>timeline</c> 的动作技能（轻击、重击、翻滚等）显示"动作"而不是"读条"，时间行叫"动作时长"。</summary>
+        public static readonly Id KeyTypeAction = new Id("l10n.ui.skill_tooltip.type_action");
+        public static readonly Id KeyActionTime = new Id("l10n.ui.skill_tooltip.action_time");
         public static readonly Id KeyCastTime = new Id("l10n.ui.skill_tooltip.cast_time");
         public static readonly Id KeyCooldown = new Id("l10n.ui.skill_tooltip.cooldown");
         public static readonly Id KeyCost = new Id("l10n.ui.skill_tooltip.cost");
@@ -135,6 +149,8 @@ namespace Presentation.Ui
         public const string TextTypeCast = "读条";
         public const string TextTypeInstant = "瞬发";
         public const string TextTypeChannel = "引导";
+        public const string TextTypeAction = "动作";
+        public const string LabelActionTime = "动作时长";
         public const string LabelCastTime = "施法时间";
         public const string LabelCooldown = "冷却";
         public const string LabelCost = "消耗";
@@ -178,13 +194,16 @@ namespace Presentation.Ui
             var castTimeData = Number(row, "cast_time");
             var channelTime = Number(row, "channel_time");
             var isChannel = channelTime > 0d;
-            var castTime = context?.CastTime ?? (isChannel ? channelTime : castTimeData);
-            var isInstant = !isChannel && castTimeData <= 0d;
+            var hasTimeline = row.TryGetObject("timeline", out var timeline);
+            var isAction = !isChannel && hasTimeline && castTimeData > 0d;
+            var castTime = context?.CastTime ?? (isChannel ? channelTime : isAction ? castTimeData * WeaponPaceFactor(timeline, context) : castTimeData);
+            var isInstant = !isChannel && !isAction && castTimeData <= 0d;
             var cooldown = context?.CooldownDuration ?? Number(row, "cooldown_duration");
             var range = Number(row, "range");
 
             var typeText = isChannel
                 ? Localize(KeyTypeChannel, TextTypeChannel)
+                : isAction ? Localize(KeyTypeAction, TextTypeAction)
                 : isInstant ? Localize(KeyTypeInstant, TextTypeInstant) : Localize(KeyTypeCast, TextTypeCast);
 
             var costs = new List<SkillTooltipCost>();
@@ -228,7 +247,8 @@ namespace Presentation.Ui
 
             if (!isInstant && castTime > 0d)
             {
-                rows.Add(new SkillTooltipRow(Localize(KeyCastTime, LabelCastTime), Fmt(KeyFmtSeconds, FmtSeconds, castTime)));
+                var timeLabel = isAction ? Localize(KeyActionTime, LabelActionTime) : Localize(KeyCastTime, LabelCastTime);
+                rows.Add(new SkillTooltipRow(timeLabel, Fmt(KeyFmtSeconds, FmtSeconds, castTime)));
             }
 
             if (cooldown > 0d)
@@ -259,6 +279,26 @@ namespace Presentation.Ui
             }
 
             return new SkillTooltipContent(skill, name, typeText, isInstant, castTime, cooldown, range, costs, effectValues, description, rows);
+        }
+
+        /// <summary>武器节奏系数（与施法管线同一口径，ADR-0176/0180）：时间线声明了 <c>weapon_paced</c> 且调用方给了有效的挥击间隔与基准间隔时 = 间隔 ÷ 基准，否则 1。</summary>
+        private static double WeaponPaceFactor(JsonObject? timeline, SkillTooltipContext? context)
+        {
+            if (timeline == null || context == null
+                || !(timeline.TryGetValue("weapon_paced", out var paced) && paced is JsonBool pacedBool && pacedBool.Value))
+            {
+                return 1d;
+            }
+
+            var interval = context.WeaponAttackIntervalSeconds;
+            var reference = context.WeaponPaceReferenceSeconds;
+            if (!interval.HasValue || !reference.HasValue || !(interval.Value > 0d) || !(reference.Value > 0d)
+                || double.IsInfinity(interval.Value) || double.IsInfinity(reference.Value))
+            {
+                return 1d;
+            }
+
+            return interval.Value / reference.Value;
         }
 
         /// <summary>效果值 = 基础值 + Σ(系数 × 施法者当前属性)；没有属性读取函数只算基础值。旧写法（<c>scaling_stat</c> + <c>coefficient</c>）仅在没有 <c>scaling</c> 列表时读取。</summary>

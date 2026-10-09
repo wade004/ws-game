@@ -220,10 +220,40 @@ namespace Presentation.Camera
                 }
             }
 
+            pos = ApplyViewLimit(pos);
             _lastFollowPosition = pos;
             _camera.Follow(pos, smoothing);
             UpdateCombatZoom(feel, dt);
         }
+
+        /// <summary>
+        /// 可视范围限制（ADR-0181，<c>camera_profile.view_limit</c>）：档案声明了且适配层能回答地面可视范围时，把跟随点收到画面不越出限制矩形的区间内；
+        /// 否则原样返回（缺省关闭，行为与没有这个字段时逐位一致）。适配层不支持时只记一条诊断。
+        /// </summary>
+        private Vec2 ApplyViewLimit(Vec2 pos)
+        {
+            var limit = _currentProfile?.ViewLimit;
+            if (!limit.HasValue)
+            {
+                return pos;
+            }
+
+            if (_camera is ICameraGroundFootprint footprint && footprint.SupportsCameraGroundFootprint)
+            {
+                return footprint.TryGetGroundFootprint(out var min, out var max) ? limit.Value.ConstrainView(pos, min, max) : pos;
+            }
+
+            if (!_viewLimitUnsupportedReported)
+            {
+                _viewLimitUnsupportedReported = true;
+                _diagnostics.Warn(
+                    $"镜头档案 \"{_currentProfile!.Id}\" 声明了 view_limit，但适配层不支持 ICameraGroundFootprint，可视范围限制不生效");
+            }
+
+            return pos;
+        }
+
+        private bool _viewLimitUnsupportedReported;
 
         /// <summary>
         /// 启用手感镜头（手感设计/07 第 2 节）：<paramref name="feelSource"/> 按实体 id 给出镜头手感档案（装配根接

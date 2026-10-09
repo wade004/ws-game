@@ -1684,3 +1684,16 @@ GameBootstrap.cs` 同样两根合并（`data/_framework` + 游戏自己的 `data
 - **改法**：`UnityViewFactory.PrewarmWeaponStyleClips(entityId)`——视图挂接动画播放器时、`item.equipped`（主手武器换了）后，对该实体当前武器风格的这些剪辑发起加载（带该实体的精灵集提示，ADR-0095 一致），不登记剪辑、不改占位与升级逻辑；用 `(精灵集, 剪辑)` 去重集合避免重复请求。没有武器风格来源、非 `UnityResourceLoader`、分层精灵（paperdoll）形态的视图不预热。
 - **没有走 `_pendingWeaponClipResourceLoads`**：那张表对应"某实体已登记占位等待升级"，预热只想把资源送进缓存，混进去会让升级回调在没有占位的实体上空转。
 - **复现/不变量（引擎 PlayMode）**：`WeaponClipRegistrationTests.WeaponStyleCastClip_IsPrewarmedAfterAttach_BeforeAnyCastHappens`——不触发任何施法，挂接后读条剪辑进入加载器缓存（修复前永远不进）。
+
+## 技能栏交互：悬停详情、点击施放、不穿透（2026-10-10，[ADR-0180](../../../../architecture/adr/0180-技能栏悬停详情与点击施放.md)）
+
+三个游戏显式启用才有效的控件，缺省行为不变（`Runtime/Ui/`）：
+
+- `SkillTooltipView`：只排版框架 `SkillTooltipContent`（名称、类型、各行、说明），底板与文字不接收射线，摆在被悬停格正上方（放不下翻到下方）并夹在父节点矩形内；`Style` 可调宽度、字号、颜色（缺省取当前皮肤文字色与强调色）。画面文字通过 `NameText` / `RowTexts` / `DescriptionText` 暴露给测试与截图核对。
+- `SkillBarInteraction`：`Install(bar, tipParent, contentFor, onClick)` 给技能栏挂嵌套画布与射线检测器，`Register(frame, index)` 登记每格底框（接收射线，挂悬停进出与左键点击）；悬停期间每帧调 `contentFor(index)` 刷新提示框（冷却时长、属性变了数字跟着变），返回 null 隐藏。控件不认识技能、热键或输入映射。
+- `UiInputBridge`：包装游戏当前的 `IInput`。`PressKey(key, holdPolls)` 把界面发起的按键以虚拟按键事件注入输入流（下一次轮询 KeyDown，`holdPolls` 次轮询后 KeyUp），与真实设备事件走同一条输入映射 → 缓冲 → 技能绑定 → 施法管线，所以点击等于热键（冷却、资源、读条中等限制一致）；鼠标按下落在界面上（`PointerOverUi`，事件系统射线检测）时吞掉这次按下与配对的抬起，世界侧的“左键 = 攻击 / 点选”不会同时触发；世界里按下、移到界面上抬起的操作抬起照常送达。
+- 用例：`SkillBarInteractionPlayModeTests`（悬停 / 离开 / 空格 / 左右键点击 / 射线命中格子且不命中提示框 / 虚拟按键时序 / 同键排队 / 鼠标吞与配对 / 世界按下界面抬起）。
+
+## 镜头地面可视范围（2026-10-10，[ADR-0181](../../../../architecture/adr/0181-镜头可视范围限制.md)）
+
+`UnityCamera` 实现 `ICameraGroundFootprint`（恒支持）：用视口四角射线与地面（Z = 0）的交点求外接矩形，偏移相对“跟随点”（正交为相机 XY，俯仰 / 透视为姿态刷新用的焦点 XY），所以与镜头此刻因跟随平滑、震屏、冲击落在哪无关；缩放脉冲已含在正交半高里。任一角射线指向天空时返回 false。用例 `UnityCameraGroundFootprintTests`。

@@ -1033,6 +1033,116 @@
       "text": "{0} 米"
     },
     {
+      "key": "l10n.ui.skill_tooltip.type_action",
+      "locale": "l10n.locale.zh_cn",
+      "text": "动作"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.action_time",
+      "locale": "l10n.locale.zh_cn",
+      "text": "动作时长"
+    },
+    {
+      "key": "l10n.skill.kit_melee_1.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "斩击"
+    },
+    {
+      "key": "l10n.skill.kit_melee_1.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "快速挥击前方的敌人；接着按攻击键可衔接下一段连击，挥击速度随主手武器。"
+    },
+    {
+      "key": "l10n.skill.kit_melee_2.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "回斩"
+    },
+    {
+      "key": "l10n.skill.kit_melee_2.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "连击的第二段，反向挥出一刀。"
+    },
+    {
+      "key": "l10n.skill.kit_melee_3.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "终结斩"
+    },
+    {
+      "key": "l10n.skill.kit_melee_3.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "连击的收尾一击，比前两段更重。"
+    },
+    {
+      "key": "l10n.skill.kit_heavy.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "重击"
+    },
+    {
+      "key": "l10n.skill.kit_heavy.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "沉重的一击，出手慢、伤害高，消耗体力。"
+    },
+    {
+      "key": "l10n.skill.kit_charge.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "蓄力旋斩"
+    },
+    {
+      "key": "l10n.skill.kit_charge.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "蓄力后向周围旋斩，消耗体力。"
+    },
+    {
+      "key": "l10n.skill.kit_dodge.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "翻滚"
+    },
+    {
+      "key": "l10n.skill.kit_dodge.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "向移动方向翻滚，翻滚时无法被命中，消耗体力。"
+    },
+    {
+      "key": "l10n.skill.kit_ranged_shot.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "远程射击"
+    },
+    {
+      "key": "l10n.skill.kit_ranged_shot.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "向前方射出一发投射物，命中第一个敌人。"
+    },
+    {
+      "key": "l10n.skill.kit_ultimate_aoe.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "终极一击"
+    },
+    {
+      "key": "l10n.skill.kit_ultimate_aoe.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "蓄势后在身边释放一记大范围重击，起手时有短暂的霸体。"
+    },
+    {
+      "key": "l10n.skill.kit_potion_small.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "小治疗药水"
+    },
+    {
+      "key": "l10n.skill.kit_potion_small.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "立即恢复少量生命。"
+    },
+    {
+      "key": "l10n.skill.kit_potion_large.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "大治疗药水"
+    },
+    {
+      "key": "l10n.skill.kit_potion_large.desc",
+      "locale": "l10n.locale.zh_cn",
+      "text": "立即恢复大量生命。"
+    },
+    {
       "key": "l10n.stat.power.name",
       "locale": "l10n.locale.en",
       "text": "Power"
@@ -2061,6 +2171,116 @@
       "key": "l10n.ui.skill_tooltip.fmt_range",
       "locale": "l10n.locale.en",
       "text": "{0} m"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.type_action",
+      "locale": "l10n.locale.en",
+      "text": "Action"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.action_time",
+      "locale": "l10n.locale.en",
+      "text": "Action time"
+    },
+    {
+      "key": "l10n.skill.kit_melee_1.name",
+      "locale": "l10n.locale.en",
+      "text": "Slash"
+    },
+    {
+      "key": "l10n.skill.kit_melee_1.desc",
+      "locale": "l10n.locale.en",
+      "text": "A quick swing at enemies in front of you. Press attack again to chain the next hit; swing speed follows your main-hand weapon."
+    },
+    {
+      "key": "l10n.skill.kit_melee_2.name",
+      "locale": "l10n.locale.en",
+      "text": "Backslash"
+    },
+    {
+      "key": "l10n.skill.kit_melee_2.desc",
+      "locale": "l10n.locale.en",
+      "text": "The second hit of the combo, a swing back the other way."
+    },
+    {
+      "key": "l10n.skill.kit_melee_3.name",
+      "locale": "l10n.locale.en",
+      "text": "Finishing Slash"
+    },
+    {
+      "key": "l10n.skill.kit_melee_3.desc",
+      "locale": "l10n.locale.en",
+      "text": "The finishing hit of the combo, heavier than the first two."
+    },
+    {
+      "key": "l10n.skill.kit_heavy.name",
+      "locale": "l10n.locale.en",
+      "text": "Heavy Strike"
+    },
+    {
+      "key": "l10n.skill.kit_heavy.desc",
+      "locale": "l10n.locale.en",
+      "text": "A slow, heavy blow that hits hard. Costs stamina."
+    },
+    {
+      "key": "l10n.skill.kit_charge.name",
+      "locale": "l10n.locale.en",
+      "text": "Charged Spin"
+    },
+    {
+      "key": "l10n.skill.kit_charge.desc",
+      "locale": "l10n.locale.en",
+      "text": "Wind up, then spin and strike everything around you. Costs stamina."
+    },
+    {
+      "key": "l10n.skill.kit_dodge.name",
+      "locale": "l10n.locale.en",
+      "text": "Roll"
+    },
+    {
+      "key": "l10n.skill.kit_dodge.desc",
+      "locale": "l10n.locale.en",
+      "text": "Roll in your movement direction. You cannot be hit while rolling. Costs stamina."
+    },
+    {
+      "key": "l10n.skill.kit_ranged_shot.name",
+      "locale": "l10n.locale.en",
+      "text": "Ranged Shot"
+    },
+    {
+      "key": "l10n.skill.kit_ranged_shot.desc",
+      "locale": "l10n.locale.en",
+      "text": "Fires a projectile that hits the first enemy in its path."
+    },
+    {
+      "key": "l10n.skill.kit_ultimate_aoe.name",
+      "locale": "l10n.locale.en",
+      "text": "Ultimate Strike"
+    },
+    {
+      "key": "l10n.skill.kit_ultimate_aoe.desc",
+      "locale": "l10n.locale.en",
+      "text": "After a long wind-up, unleash a heavy strike on everything around you. You cannot be staggered during the wind-up."
+    },
+    {
+      "key": "l10n.skill.kit_potion_small.name",
+      "locale": "l10n.locale.en",
+      "text": "Small Healing Potion"
+    },
+    {
+      "key": "l10n.skill.kit_potion_small.desc",
+      "locale": "l10n.locale.en",
+      "text": "Instantly restores a small amount of health."
+    },
+    {
+      "key": "l10n.skill.kit_potion_large.name",
+      "locale": "l10n.locale.en",
+      "text": "Large Healing Potion"
+    },
+    {
+      "key": "l10n.skill.kit_potion_large.desc",
+      "locale": "l10n.locale.en",
+      "text": "Instantly restores a large amount of health."
     }
   ]
 }

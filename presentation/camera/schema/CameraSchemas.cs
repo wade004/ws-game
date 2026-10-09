@@ -34,6 +34,12 @@ namespace Presentation.Camera.Schema
                     new FieldSchema("max", FieldKind.Vec2, required: true, description: "跟随边界右上角世界坐标 {x,y}"),
                 },
                     description: "跟随边界 {min: {x,y}, max: {x,y}}（CameraProfile.FromRecord 对 min/max 缺失即抛异常，均必填）"),
+                new FieldSchema("view_limit", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("min", FieldKind.Vec2, required: true, description: "可视范围限制矩形左下角世界坐标 {x,y}（通常是地图左下角）"),
+                    new FieldSchema("max", FieldKind.Vec2, required: true, description: "可视范围限制矩形右上角世界坐标 {x,y}（通常是地图右上角）"),
+                },
+                    description: "可视范围限制（ADR-0181，缺省关闭）{min: {x,y}, max: {x,y}}：镜头宿主把跟随点收在画面可视的地面区域不越出该矩形的区间内；需要适配层实现 ICameraGroundFootprint"),
                 new FieldSchema("shake_presets", FieldKind.Array, required: false,
                     item: new FieldSchema("<shake_preset>", FieldKind.Object, required: true, fields: new[]
                     {

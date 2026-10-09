@@ -718,3 +718,5 @@ UI 意图方法名语义，不新建第二套词汇表。
 ## 判断记录（技能提示框内容，2026-10-09，[ADR-0175](../../architecture/adr/0175-技能提示框内容与描述文本键.md)）
 
 新增纯数据 `SkillTooltipBuilder.Build(registry, skill, text?, context?)` → `SkillTooltipContent`：名称、类型、读条/冷却（调用方可给当前有效值）、消耗、射程、效果数值（基础值 + Σ系数×当前属性）、描述；文案走 `l10n.ui.skill_tooltip.*` 键并有固定中文兜底（内容起步包提供中英文行）。只列数据里真有的项。技能栏的悬停与点击由游戏界面实现，点击应走与热键相同的输入意图通道。用例 `SkillTooltipBuilderTests`。
+
+**动作类型与武器节奏（2026-10-10，[ADR-0180](../../architecture/adr/0180-技能栏悬停详情与点击施放.md)）**：带 `timeline` 且 `cast_time > 0` 的技能类型显示“动作”、时间行叫“动作时长”（键 `l10n.ui.skill_tooltip.type_action` / `action_time`）；`SkillTooltipContext` 新增 `WeaponAttackIntervalSeconds` / `WeaponPaceReferenceSeconds`，技能声明 `weapon_paced`（ADR-0176）且两者有效时动作时长 = 数据时长 × 间隔 ÷ 基准（调用方取主手武器 `weapon_profile.speed` 与 `SkillOptions.WeaponPaceReferenceSeconds`）。用例 `Build_ActionSkill_*`、`Invariant_ActionDurationScalesLinearlyWithWeaponInterval`。引擎侧的悬停提示框视图、技能栏交互与点击施放见适配层 README“技能栏交互”。
