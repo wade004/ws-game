@@ -462,7 +462,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ### 新增
 
-- **任务目标指引（[ADR-0173](architecture/adr/0173-任务目标指引.md)，样板游戏 A 试玩反馈）**：`quest.def` 新增可选字段 `guide`（引导步骤：`when`/`text_key`/`targets[]`/`progress_flags[]`）与 `guide_priority`；新增 `Core.Gameplay.Quest.QuestGuideHost`（`Evaluate(unitId, mapId, position)` 现算当前步骤、进度、箭头目标，目标在别的地图时沿当前开着的地图切换通道寻路并指向第一条通道）、`IQuestGuideLocator`/`RegistryQuestGuideLocator`、`QuestGuideInfo`；`GameplayAssembly.QuestGuide`/`QuestGuideLocator`；`QuestHost.Definitions`；校验检查名 `quest_guide_target_form`。纯加法，不声明 `guide` 时行为逐位不变，`IQuestHost` 与既有构造签名均未改动。
+- **任务目标指引（[ADR-0173](architecture/adr/0173-任务目标指引.md)，样板游戏 A 试玩反馈）**：`quest.def` 新增可选字段 `guide`（引导步骤：`map_id`/`when`/`text_key`/`targets[]`/`progress_flags[]`）与 `guide_priority`；新增 `Core.Gameplay.Quest.QuestGuideHost`（`Evaluate(unitId, mapId, position)` 现算当前步骤、进度、箭头目标，目标在别的地图时沿当前开着的地图切换通道寻路并指向第一条通道）、`IQuestGuideLocator`/`RegistryQuestGuideLocator`、`QuestGuideInfo`；`GameplayAssembly.QuestGuide`/`QuestGuideLocator`；`QuestHost.Definitions`；校验检查名 `quest_guide_target_form`。纯加法，不声明 `guide` 时行为逐位不变，`IQuestHost` 与既有构造签名均未改动。
 
 ## [2.10.0] - 2026-10-09
 

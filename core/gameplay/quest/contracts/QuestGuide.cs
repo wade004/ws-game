@@ -47,7 +47,7 @@ namespace Core.Gameplay.Quest
 
     /// <summary>
     /// 一条 <c>quest.def.guide[]</c>（ADR-0173）：任务处于某阶段时，玩家"下一步该做什么、去哪里"。
-    /// 同一任务的步骤按数组顺序求值，取第一条"<see cref="When"/> 成立且至少有一个可达目标"的步骤
+    /// 同一任务的步骤按数组顺序求值，取第一条"<see cref="MapId"/>（若声明）等于玩家当前地图、<see cref="When"/> 成立且至少有一个可达目标"的步骤
     /// （没有目标的步骤只显示文案，不要求可达）。<see cref="When"/> 是 Expr（<c>quest.is_active(...)</c>、
     /// <c>world.has(...)</c> 等），为空视为恒真；<see cref="TextKey"/> 是文案键，文案里可含占位符
     /// <c>{done}</c>/<c>{total}</c>（见 <see cref="QuestGuideInfo.FormatText"/>）；
@@ -63,8 +63,13 @@ namespace Core.Gameplay.Quest
 
         public IReadOnlyList<Id> ProgressFlags { get; }
 
-        public QuestGuideStep(ExprNode? when, Id textKey, IReadOnlyList<QuestGuideTargetDef>? targets, IReadOnlyList<Id>? progressFlags)
+        /// <summary>只在玩家当前处于该地图时适用（<c>quest.def.guide[].map_id</c>）；为空表示不限地图。
+        /// 用来写"在小镇：走进拱门进入地牢""在一层：清理房间""在二层：击败首领"这类随玩家所在地图变化的文案。</summary>
+        public Id? MapId { get; }
+
+        public QuestGuideStep(ExprNode? when, Id textKey, IReadOnlyList<QuestGuideTargetDef>? targets, IReadOnlyList<Id>? progressFlags, Id? mapId = null)
         {
+            MapId = mapId;
             When = when;
             TextKey = textKey;
             Targets = targets ?? Array.Empty<QuestGuideTargetDef>();

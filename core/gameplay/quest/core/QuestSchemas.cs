@@ -258,6 +258,8 @@ namespace Core.Gameplay.Quest
         public static readonly FieldSchema GuideItemSchema = new FieldSchema(
             "<guide_step>", FieldKind.Object, required: true, fields: new[]
             {
+                new FieldSchema("map_id", FieldKind.Id, required: false, description: "只在玩家当前处于该地图时适用；缺省不限地图")
+                    .WithSoftReference(table: "world.map"),
                 new FieldSchema("when", FieldKind.Expr, required: false, description: "该步骤适用的条件 Expr（quest.is_active(...)、world.has(...) 等）；缺省恒真"),
                 new FieldSchema("text_key", FieldKind.TextKey, required: true, description: "指引文案键；文案可含 {done}/{total} 占位符"),
                 new FieldSchema("targets", FieldKind.Array, required: false, item: GuideTargetItemSchema,
@@ -266,7 +268,7 @@ namespace Core.Gameplay.Quest
                     item: new FieldSchema("<flag>", FieldKind.Id, required: true, description: "世界标志 id"),
                     description: "[世界标志 id, ...]，已成立个数/总数即进度（{done}/{total}）"),
             },
-            description: "{when?, text_key, targets?, progress_flags?}");
+            description: "{map_id?, when?, text_key, targets?, progress_flags?}");
 
         // -----------------------------------------------------------------
         // quest.def

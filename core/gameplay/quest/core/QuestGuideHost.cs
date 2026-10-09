@@ -17,7 +17,7 @@ namespace Core.Gameplay.Quest
     /// </para>
     /// <para>
     /// 判断记录（求值口径）：任务按 <see cref="QuestDefinition.GuidePriority"/> 降序（同值保持定义顺序）逐个看，每个任务的
-    /// 步骤按数组顺序看；取第一条"<see cref="QuestGuideStep.When"/> 求值为真，且（没有目标，或至少有一个目标可见且可达）"的
+    /// 步骤按数组顺序看；取第一条"<see cref="QuestGuideStep.MapId"/>（若声明）等于玩家当前地图、<see cref="QuestGuideStep.When"/> 求值为真，且（没有目标，或至少有一个目标可见且可达）"的
     /// 步骤。目标全部不可达（例如通往目标地图的唯一通道还关着）的步骤被跳过——因此作者可以把"清理房间"写在"前往首领"之前，
     /// 也可以只写后者让关着的通道自然落到下一条。同一步骤多个目标时取"跳数最少、再取离玩家最近"的一个。
     /// </para>
@@ -66,6 +66,11 @@ namespace Core.Gameplay.Quest
                 for (var s = 0; s < def.GuideSteps.Count; s++)
                 {
                     var step = def.GuideSteps[s];
+                    if (step.MapId.HasValue && !step.MapId.Value.Equals(mapId))
+                    {
+                        continue;
+                    }
+
                     if (step.When != null && !ExprEvaluator.EvaluateBool(step.When, host, _diagnostics))
                     {
                         continue;

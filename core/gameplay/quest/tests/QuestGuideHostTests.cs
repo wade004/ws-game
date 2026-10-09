@@ -223,6 +223,22 @@ namespace Tests.Gameplay.Quest
             Assert.Equal(SideQuest, rig.Guide.Evaluate(Player, Town, Vec2.Zero)!.QuestId);
         }
 
+        [Fact]
+        public void StepMapId_OnlyAppliesWhilePlayerIsOnThatMap()
+        {
+            var q = MainQuest.Value;
+            var steps = new[]
+            {
+                new QuestGuideStep(E($"quest.is_available({q})"), new Id("l10n.g.in_town"), null, null, Town),
+                new QuestGuideStep(E($"quest.is_available({q})"), new Id("l10n.g.in_cave"), null, null, Cave1),
+                new QuestGuideStep(E($"quest.is_available({q})"), new Id("l10n.g.anywhere"), null, null),
+            };
+            var rig = new Rig(Quest(MainQuest, steps));
+            Assert.Equal(new Id("l10n.g.in_town"), rig.Guide.Evaluate(Player, Town, Vec2.Zero)!.TextKey);
+            Assert.Equal(new Id("l10n.g.in_cave"), rig.Guide.Evaluate(Player, Cave1, Vec2.Zero)!.TextKey);
+            Assert.Equal(new Id("l10n.g.anywhere"), rig.Guide.Evaluate(Player, Cave2, Vec2.Zero)!.TextKey);
+        }
+
         // ---------------------------------------------------------------
         // 数据：解析、校验、默认定位器
         // ---------------------------------------------------------------
@@ -249,7 +265,7 @@ namespace Tests.Gameplay.Quest
                 "\"guide_priority\":3,\"guide\":" + guideJson + "}"));
 
         private const string GoodGuide =
-            "[{\"when\":\"quest.is_active(quest.g_data)\",\"text_key\":\"l10n.quest.g.step\"," +
+            "[{\"map_id\":\"world.g_town\",\"when\":\"quest.is_active(quest.g_data)\",\"text_key\":\"l10n.quest.g.step\"," +
             "\"targets\":[{\"area_ref\":\"area.g_b\",\"visible_if\":\"not world.has(world.g_cleared_3)\"},{\"spawn_ref\":\"spawn.g_captain\"},{\"map_id\":\"world.g_town\",\"position\":{\"x\":1,\"y\":2}}]," +
             "\"progress_flags\":[\"world.g_cleared_1\",\"world.g_cleared_3\"]}]";
 
@@ -265,6 +281,7 @@ namespace Tests.Gameplay.Quest
             Assert.Equal(3, def.GuidePriority);
             var step = Assert.Single(def.GuideSteps);
             Assert.NotNull(step.When);
+            Assert.Equal(new Id("world.g_town"), step.MapId);
             Assert.Equal(new Id("l10n.quest.g.step"), step.TextKey);
             Assert.Equal(3, step.Targets.Count);
             Assert.Equal(new Id("area.g_b"), step.Targets[0].AreaRef);

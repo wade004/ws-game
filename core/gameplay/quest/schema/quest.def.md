@@ -120,6 +120,7 @@ dialog 等模块共享同一个 `RewardBundle` 结构，可以直接引用 `Core
 
 | 字段 | 类型 | 必填 | 引用目标 | 判断记录 |
 |---|---|---|---|---|
+| `map_id` | Id | 否 | 软引用 `world.map` | 只在玩家当前处于该地图时适用；缺省不限地图 |
 | `when` | Expr | 否 | 无 | 缺省恒真；按数组顺序取第一条成立且有可达目标的步骤 |
 | `text_key` | TextKey | 是 | `l10n.text` | 文案可含 `{done}`/`{total}` 占位符，由 `QuestGuideInfo.FormatText` 代入 |
 | `targets` | Array\<Object\> | 否 | 见下 | 缺省表示该步骤只显示文案，不要求可达 |

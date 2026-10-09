@@ -208,7 +208,8 @@ namespace Core.Gameplay.Quest
                     }
                 }
 
-                steps.Add(new QuestGuideStep(when, textKey, targets, flags));
+                Id? stepMap = o.TryGetValue("map_id", out var mv) && mv is JsonString mvStr && Id.TryParse(mvStr.Value, out var mvId) ? mvId : (Id?)null;
+                steps.Add(new QuestGuideStep(when, textKey, targets, flags, stepMap));
             }
 
             return steps;
