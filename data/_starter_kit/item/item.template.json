@@ -91,6 +91,22 @@
       ]
     },
     {
+      "id": "item.kit_charm_evasion",
+      "slot": "item.slot.trinket",
+      "quality": "item.quality.uncommon",
+      "item_level": 2,
+      "stack_size": 1,
+      "name_key": "l10n.item.kit_charm_evasion.name",
+      "display_ref": "display.kit_kit_charm_evasion",
+      "stats": [
+        {
+          "stat": "stat.dodge_rating",
+          "op": "flat",
+          "value": 5
+        }
+      ]
+    },
+    {
       "id": "item.kit_potion_small",
       "slot": "item.slot.consumable",
       "quality": "item.quality.common",

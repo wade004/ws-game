@@ -9,7 +9,8 @@
         "base": 0.0
       },
       "dodge": {
-        "enabled": false,
+        "enabled": true,
+        "stat": "stat.dodge_rating",
         "base": 0.0
       },
       "parry": {
