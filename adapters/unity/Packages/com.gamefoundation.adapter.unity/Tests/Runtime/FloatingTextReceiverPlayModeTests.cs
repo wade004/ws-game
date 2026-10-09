@@ -79,6 +79,35 @@ namespace Adapter.Unity.Tests.Runtime
         }
 
         [UnityTest]
+        public IEnumerator NonAsciiText_UsesTheKitCjkFont_WhileDamageNumbersKeepTheDefaultFont()
+        {
+            var root = new GameObject("FloatingTextTestRoot4");
+            try
+            {
+                var receiver = new FloatingTextReceiver(root.transform, _ => Vec2.Zero, Styles());
+                receiver.Show(new Id("unit.a"), NormalStyle, "123");
+                receiver.Show(new Id("unit.a"), DodgeStyle, "闪避");
+                TextMeshPro? number = null, cjk = null;
+                foreach (var t in root.GetComponentsInChildren<TextMeshPro>(true))
+                {
+                    if (t.text == "123") number = t;
+                    if (t.text == "闪避") cjk = t;
+                }
+
+                Assert.IsNotNull(number);
+                Assert.IsNotNull(cjk);
+                Assert.AreSame(TMP_Settings.defaultFontAsset, number!.font, "纯 ASCII 的伤害数字仍用 TMP 默认字体（行为不变）");
+                Assert.AreSame(Adapter.Unity.Ui.UiSkin.Font, cjk!.font, "含中文的飘字用套件字体（TMP 默认字体没有 CJK 字形）");
+            }
+            finally
+            {
+                Object.Destroy(root);
+            }
+
+            yield return null;
+        }
+
+        [UnityTest]
         public IEnumerator DodgeStyle_IsNotTheWhiteOfDamageNumbers()
         {
             var root = new GameObject("FloatingTextTestRoot3");

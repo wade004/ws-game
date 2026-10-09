@@ -11,6 +11,7 @@
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
+using Adapter.Unity.Ui;
 using Presentation.FeedbackBinder.Contracts;
 using TMPro;
 using UnityEngine;
@@ -78,6 +79,7 @@ namespace Adapter.Unity.Presentation
         {
             var tmp = Rent();
             tmp.text = text;
+            tmp.font = ResolveFont(text);
             tmp.color = ResolveColor(styleId);
             if (_worldAnchor != null)
             {
@@ -121,6 +123,40 @@ namespace Adapter.Unity.Presentation
             {
                 text.transform.rotation = camera.transform.rotation;
             }
+        }
+
+        // 判断记录（ADR-0178，中文飘字）：TMP 内置默认字体没有 CJK 字形，「闪避」这类文字字符会显示成方框或空白；
+        // 套件字体（UiSkin.Font：皮肤覆盖字体，缺省为内置 Noto Sans CJK）有。纯 ASCII 文本（伤害数字）仍用 TMP 默认字体，
+        // 与引入此判断之前逐位一致；套件字体取不到时（抛出）退回默认字体，不让飘字因字体问题失败。
+        private static TMP_FontAsset ResolveFont(string text)
+        {
+            var fallback = TMP_Settings.defaultFontAsset;
+            if (!ContainsNonAscii(text))
+            {
+                return fallback;
+            }
+
+            try
+            {
+                return UiSkin.Font ?? fallback;
+            }
+            catch (InvalidOperationException)
+            {
+                return fallback;
+            }
+        }
+
+        private static bool ContainsNonAscii(string text)
+        {
+            foreach (var ch in text)
+            {
+                if (ch > 0x7F)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private Color ResolveColor(Id styleId)
