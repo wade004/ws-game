@@ -1,0 +1,20 @@
+{
+  "table": "feedback.binding",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feedback.kit_dodge_text",
+      "event": "combat.attack_avoided",
+      "condition": "event.hit_result == \"Dodge\"",
+      "actions": [
+        {
+          "kind": "floating_text",
+          "params": {
+            "style_id": "feedback.floating_text_style.kit_dodge",
+            "text_source": "literal:l10n.combat.kit_dodge_text"
+          }
+        }
+      ]
+    }
+  ]
+}

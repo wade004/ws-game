@@ -5,7 +5,7 @@
 // "具体飘字 UI 控件池不属于本框架任何一个 L5 模块的契约范围"）——本类型是"具体游戏/引擎侧"这一层
 // 应该提供的实现之一，不是契约缺口的修补。用世界空间 TextMeshPro（不是 TextMeshProUGUI/Canvas，
 // 飘字直接贴在世界坐标位置上随镜头一起移动，不需要屏幕空间转换）+ 对象池（避免频繁伤害数字造成
-// GC 压力）。颜色只能按 FloatingTextStyleDef.ColorRef 的 Id 字面量做启发式匹配（暴击/普通两色），
+// GC 压力）。颜色只能按 FloatingTextStyleDef.ColorRef 的 Id 字面量做启发式匹配（暴击、闪避、普通三色），
 // 因为 ColorRef 契约本身只是一个"颜色引用 Id"，具体色值解析属于表现资源管理范畴（该类型注释
 // "具体色值由表现资源管理，本类型不解释语义"），框架没有提供 Id -> Color 的查询能力，如实记录。
 using System;
@@ -24,6 +24,13 @@ namespace Adapter.Unity.Presentation
             public TextMeshPro Text = null!;
             public float Remaining;
         }
+
+        // 判断记录（ADR-0178，3D 世界）：默认构造按 2D 约定摆位（逻辑位置 x、y 直接是世界 x、y，抬高 1.2 后放在 z=-0.1），
+        // 世界里「上」不是 +y 的游戏（逻辑坐标铺在地面、世界 z 为负向上）用下面的三维锚点构造：锚点直接给出世界坐标，
+        // 上浮方向与相机另外传入，飘字每帧朝向相机。两种构造共用同一个 Show/Tick 出口，行为只在锚点与朝向上不同。
+        private readonly Func<Id, Vector3?>? _worldAnchor;
+        private readonly Func<Camera?>? _cameraProvider;
+        private readonly Vector3 _riseDirection = Vector3.up;
 
         private const float LifeSeconds = 1.2f;
         private const float RiseSpeed = 0.6f;
@@ -44,17 +51,45 @@ namespace Adapter.Unity.Presentation
             _styles = styles ?? throw new ArgumentNullException(nameof(styles));
         }
 
+        /// <summary>
+        /// 三维锚点构造：<paramref name="worldAnchorResolver"/> 直接返回实体头顶的世界坐标（找不到实体返回 null，则落在根节点位置）；
+        /// 飘字沿 <paramref name="riseDirection"/> 上浮；<paramref name="cameraProvider"/> 返回的相机不为空时，飘字每帧朝向它。
+        /// </summary>
+        public FloatingTextReceiver(
+            Transform root,
+            Func<Id, Vector3?> worldAnchorResolver,
+            IReadOnlyDictionary<Id, FloatingTextStyleDef> styles,
+            Func<Camera?> cameraProvider,
+            Vector3 riseDirection)
+        {
+            _root = root ?? throw new ArgumentNullException(nameof(root));
+            _worldAnchor = worldAnchorResolver ?? throw new ArgumentNullException(nameof(worldAnchorResolver));
+            _positionResolver = _ => null;
+            _styles = styles ?? throw new ArgumentNullException(nameof(styles));
+            _cameraProvider = cameraProvider ?? throw new ArgumentNullException(nameof(cameraProvider));
+            _riseDirection = riseDirection;
+        }
+
         /// <summary>迄今为止成功生成过的飘字数量（PlayMode 测试断言"至少产生一次飘字"用）。</summary>
         public int SpawnedCount { get; private set; }
 
         /// <summary>绑定给 <c>PresentationAssemblyOptions.OnFloatingText</c>。</summary>
         public void Show(Id entityId, Id styleId, string text)
         {
-            var basePos = _positionResolver(entityId) ?? Vec2.Zero;
             var tmp = Rent();
             tmp.text = text;
             tmp.color = ResolveColor(styleId);
-            tmp.transform.position = new Vector3((float)basePos.X, (float)basePos.Y + 1.2f, -0.1f);
+            if (_worldAnchor != null)
+            {
+                tmp.transform.position = _worldAnchor(entityId) ?? _root.position;
+            }
+            else
+            {
+                var basePos = _positionResolver(entityId) ?? Vec2.Zero;
+                tmp.transform.position = new Vector3((float)basePos.X, (float)basePos.Y + 1.2f, -0.1f);
+            }
+
+            FaceCamera(tmp);
             tmp.gameObject.SetActive(true);
             _active.Add(new ActiveText { Text = tmp, Remaining = LifeSeconds });
             SpawnedCount++;
@@ -66,7 +101,8 @@ namespace Adapter.Unity.Presentation
             for (var i = _active.Count - 1; i >= 0; i--)
             {
                 var entry = _active[i];
-                entry.Text.transform.position += new Vector3(0f, RiseSpeed * deltaSeconds, 0f);
+                entry.Text.transform.position += _riseDirection * (RiseSpeed * deltaSeconds);
+                FaceCamera(entry.Text);
                 entry.Remaining -= deltaSeconds;
 
                 if (entry.Remaining <= 0f)
@@ -78,12 +114,31 @@ namespace Adapter.Unity.Presentation
             }
         }
 
+        private void FaceCamera(TextMeshPro text)
+        {
+            var camera = _cameraProvider?.Invoke();
+            if (camera != null)
+            {
+                text.transform.rotation = camera.transform.rotation;
+            }
+        }
+
         private Color ResolveColor(Id styleId)
         {
-            if (_styles.TryGetValue(styleId, out var style) &&
-                style.ColorRef.Value.IndexOf("crit", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (_styles.TryGetValue(styleId, out var style))
             {
-                return new Color(1f, 0.35f, 0.2f, 1f);
+                var colorRef = style.ColorRef.Value;
+                if (colorRef.IndexOf("crit", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return new Color(1f, 0.35f, 0.2f, 1f);
+                }
+
+                // ADR-0178：闪避/未命中这类「没有造成数值」的飘字用淡青色，与白色伤害数字区分。
+                if (colorRef.IndexOf("dodge", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    colorRef.IndexOf("miss", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return new Color(0.55f, 0.9f, 1f, 1f);
+                }
             }
             return Color.white;
         }

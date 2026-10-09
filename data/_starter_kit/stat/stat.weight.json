@@ -6,6 +6,11 @@
       "id": "stat.weight.power",
       "stat": "stat.power",
       "weight": 5.0
+    },
+    {
+      "id": "stat.weight.dodge_rating",
+      "stat": "stat.dodge_rating",
+      "weight": 8.0
     }
   ]
 }

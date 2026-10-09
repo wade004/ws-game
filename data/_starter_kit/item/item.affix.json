@@ -44,6 +44,19 @@
       ],
       "quality_pool": "item.quality.epic",
       "weight": 2
+    },
+    {
+      "id": "item.affix.kit_of_evasion",
+      "name_key": "l10n.item.affix.kit_of_evasion.name",
+      "budget_share": 0.25,
+      "stat_mix": [
+        {
+          "stat": "stat.dodge_rating",
+          "ratio": 1.0
+        }
+      ],
+      "quality_pool": "item.quality.rare",
+      "weight": 4
     }
   ]
 }

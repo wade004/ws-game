@@ -1,0 +1,19 @@
+{
+  "table": "stat.rating_conversion",
+  "schema_version": 2,
+  "rows": [
+    {
+      "id": "stat.rating.kit_dodge",
+      "entries": [
+        {
+          "x": 1,
+          "y": 100
+        },
+        {
+          "x": 10,
+          "y": 100
+        }
+      ]
+    }
+  ]
+}

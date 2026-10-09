@@ -235,6 +235,10 @@ namespace Tests.Rules.Combat
         /// <c>hit_stat</c> 字段测试用（见 <see cref="Core.Rules.Combat.HitTableBranch.HitStat"/>）。</summary>
         public static readonly Id StatHitRating = new Id("stat.hit_rating");
 
+        /// <summary>ADR-0178：被动闪避属性，供 <c>combat.hit_table.dodge_stat</c> 的 dodge 分支 <c>stat</c> 字段测试用
+        /// （属性当前值直接作为闪避概率）。</summary>
+        public static readonly Id StatDodgeRating = new Id("stat.dodge_rating");
+
         public static readonly Id SchoolPhysical = new Id("school.physical");
 
         private const string StatDefinitionJson = @"
@@ -251,7 +255,8 @@ namespace Tests.Rules.Combat
                 { ""id"": ""stat.resil_damage_taken_any_pct"", ""name_key"": ""l10n.stat.resil_damage_taken_any_pct.name"", ""category"": ""defense"", ""scope"": ""any"", ""default_base"": 0 },
                 { ""id"": ""stat.resil_crit_taken_from_player_pct"", ""name_key"": ""l10n.stat.resil_crit_taken_from_player_pct.name"", ""category"": ""defense"", ""scope"": ""from_player"", ""default_base"": 0 },
                 { ""id"": ""stat.resil_crit_taken_any_pct"", ""name_key"": ""l10n.stat.resil_crit_taken_any_pct.name"", ""category"": ""defense"", ""scope"": ""any"", ""default_base"": 0 },
-                { ""id"": ""stat.hit_rating"", ""name_key"": ""l10n.stat.hit_rating.name"", ""group"": ""secondary"", ""default_base"": 0 }
+                { ""id"": ""stat.hit_rating"", ""name_key"": ""l10n.stat.hit_rating.name"", ""group"": ""secondary"", ""default_base"": 0 },
+                { ""id"": ""stat.dodge_rating"", ""name_key"": ""l10n.stat.dodge_rating.name"", ""group"": ""secondary"", ""default_base"": 0 }
             ]
         }";
 
@@ -366,6 +371,12 @@ namespace Tests.Rules.Combat
 
                 { ""id"": ""combat.hit_table.level_diff_probe"",
                   ""miss"": {""enabled"": true, ""base"": 0.5}, ""dodge"": {""enabled"": false, ""base"": 0},
+                  ""parry"": {""enabled"": false, ""base"": 0}, ""glancing_blow"": {""enabled"": false, ""base"": 0},
+                  ""block"": {""enabled"": false, ""base"": 0}, ""crit"": {""enabled"": false, ""base"": 0},
+                  ""crit_multiplier_base"": 2.0 },
+
+                { ""id"": ""combat.hit_table.dodge_stat"",
+                  ""miss"": {""enabled"": false, ""base"": 0}, ""dodge"": {""enabled"": true, ""stat"": ""stat.dodge_rating"", ""base"": 0},
                   ""parry"": {""enabled"": false, ""base"": 0}, ""glancing_blow"": {""enabled"": false, ""base"": 0},
                   ""block"": {""enabled"": false, ""base"": 0}, ""crit"": {""enabled"": false, ""base"": 0},
                   ""crit_multiplier_base"": 2.0 },

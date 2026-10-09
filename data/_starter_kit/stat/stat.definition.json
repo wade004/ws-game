@@ -63,6 +63,18 @@
       "clamp": {
         "min": 0
       }
+    },
+    {
+      "id": "stat.dodge_rating",
+      "name_key": "l10n.stat.dodge_rating.name",
+      "category": "percent",
+      "group": "secondary",
+      "default_base": 5,
+      "conversion_ref": "stat.rating.kit_dodge",
+      "clamp": {
+        "min": 0,
+        "max": 0.5
+      }
     }
   ]
 }

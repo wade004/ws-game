@@ -281,11 +281,14 @@ def _git(cwd: Path, *args: str) -> str:
     return proc.stdout
 
 
-def _make_real_samples_repo(tmp: Path, *, gate_exit: int) -> Path:
-    """真实 git 仓库形态的样板：升级脚本改 unity/Packages/manifest.json 并写标记文件，门禁脚本打印结论行。"""
+def _make_real_samples_repo(tmp: Path, *, gate_exit: int, leak_into_main: bool = False) -> Path:
+    """真实 git 仓库形态的样板：升级脚本改 unity/Packages/manifest.json 并写标记文件，门禁脚本打印结论行。
+    ``leak_into_main``：升级脚本另外往样板主工作树写一个文件（模拟「升级/门禁意外写到了用户的试玩目录」）。"""
     from _git_env import init_temp_repo
 
     samples = init_temp_repo(tmp / "ws-game-samples")
+    if leak_into_main:
+        (samples / "leak_target.txt").write_text(str(samples), encoding="utf-8", newline="\n")
     (samples / "tools").mkdir()
     (samples / "unity" / "Packages").mkdir(parents=True)
     (samples / "unity" / "Packages" / "manifest.json").write_text('{"dependencies": {"x": "1.0.0"}}\n', encoding="utf-8", newline="\n")
@@ -297,6 +300,8 @@ def _make_real_samples_repo(tmp: Path, *, gate_exit: int) -> Path:
             "$root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)\n"
             "[System.IO.File]::WriteAllText((Join-Path $root 'unity\\Packages\\manifest.json'), ('{\"dependencies\": {\"x\": \"' + $Version + '\"}}' + \"`n\"))\n"
             "[System.IO.File]::WriteAllText((Join-Path $root 'upgraded.marker'), $root)\n"
+            "$leak = Join-Path $root 'leak_target.txt'\n"
+            "if (Test-Path -LiteralPath $leak) { [System.IO.File]::WriteAllText((Join-Path ([System.IO.File]::ReadAllText($leak).Trim()) 'leaked.marker'), 'x') }\n"
         ).encode("utf-8")
     )
     (samples / "check.ps1").write_bytes(
@@ -350,6 +355,56 @@ def test_real_git_red_gate_keeps_the_temp_worktree_as_evidence_and_still_leaves_
     assert '"x": "2.0.0-rc.1"' in (kept[0] / "unity" / "Packages" / "manifest.json").read_text(encoding="utf-8")
     assert Path((kept[0] / "gate.marker").read_text(encoding="utf-8")).resolve() == kept[0].resolve()
     assert kept[0].name in r["thrown"]
+
+
+def _run_real_stage_in_linked_worktree(tmp: Path, *, leak_into_main: bool) -> tuple[dict, Path, Path]:
+    """-SamplesRepo 传样板仓库的已关联工作树（不是主工作树）：阶段直接在它上面升级与跑门禁。"""
+    repo = _make_repo(tmp)
+    samples = _make_real_samples_repo(tmp, gate_exit=0, leak_into_main=leak_into_main)
+    linked = tmp / "samples-linked"
+    _git(samples, "worktree", "add", "--detach", str(linked), "HEAD")
+    body = _preamble() + _REAL_GIT_DRIVER.format(
+        repo=ps_quote(repo), samples=ps_quote(linked), names=",".join(ps_quote(n) for n in PACKAGES), wtroot=ps_quote(tmp / "wtroot")
+    )
+    return run_ps_json(tmp, body, name="cand_linked"), samples, linked
+
+
+def test_main_worktree_path_is_the_parent_of_the_common_git_dir_for_a_linked_worktree(tmp_path: Path) -> None:
+    samples = _make_real_samples_repo(tmp_path, gate_exit=0)
+    linked = tmp_path / "samples-linked"
+    _git(samples, "worktree", "add", "--detach", str(linked), "HEAD")
+    not_git = tmp_path / "not_a_repo"
+    not_git.mkdir()
+    body = _preamble() + (
+        "$main = Get-SamplesMainWorktreePath -SamplesRepo " + ps_quote(samples) + "\n"
+        "$fromLinked = Get-SamplesMainWorktreePath -SamplesRepo " + ps_quote(linked) + "\n"
+        "$notGit = Get-SamplesMainWorktreePath -SamplesRepo " + ps_quote(not_git) + "\n"
+        "@{ main = $main; fromLinked = $fromLinked; notGit = $notGit } | ConvertTo-Json | Out-File -LiteralPath $ResultPath -Encoding utf8\n"
+    )
+    r = run_ps_json(tmp_path, body, name="cand_main_path")
+    assert Path(r["main"]).resolve() == samples.resolve(), "传主工作树本身：原样返回"
+    assert Path(r["fromLinked"]).resolve() == samples.resolve(), "传已关联工作树：返回真正的主工作树"
+    assert Path(r["notGit"]).resolve() == not_git.resolve(), "不是 git 仓库：原样返回，不做对比"
+
+
+def test_real_git_linked_worktree_as_samples_repo_passes_and_upgrades_in_it_while_main_stays_untouched(tmp_path: Path) -> None:
+    r, samples, linked = _run_real_stage_in_linked_worktree(tmp_path, leak_into_main=False)
+    # 修复前：快照拍的是传入的已关联工作树，阶段在它上面升级必然前后不同，绿了的候选阶段被误报失败。
+    assert r["thrown"] == "", r["thrown"]
+    assert r["status"] == "Passed"
+    # 升级写进了传入的已关联工作树（合法），工作树保留；主工作树 HEAD、git status、用户改过的文件逐字节不变。
+    assert '"x": "2.0.0-rc.1"' in (linked / "unity" / "Packages" / "manifest.json").read_text(encoding="utf-8")
+    assert (linked / "gate.marker").exists()
+    assert _git(samples, "status", "--porcelain").splitlines() == [" M unity/Packages/manifest.json", "?? scratch_play_note.txt"]
+    assert (samples / "unity" / "Packages" / "manifest.json").read_text(encoding="utf-8") == '{"dependencies": {"x": "1.0.0", "user_edit": "1"}}\n'
+    assert not (samples / "upgraded.marker").exists() and not (samples / "gate.marker").exists()
+
+
+def test_real_git_linked_worktree_still_fails_when_the_real_main_worktree_is_touched(tmp_path: Path) -> None:
+    r, samples, linked = _run_real_stage_in_linked_worktree(tmp_path, leak_into_main=True)
+    assert (samples / "leaked.marker").exists(), "用例前提：升级脚本确实写到了主工作树"
+    assert "候选阶段改动了样板主工作树" in r["thrown"], r["thrown"]
+    assert samples.name in r["thrown"], "报错要指向真正的主工作树"
 
 
 def test_missing_samples_repo_refuses_unless_explicitly_opted_out(tmp_path: Path) -> None:

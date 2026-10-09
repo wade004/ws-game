@@ -93,6 +93,21 @@
       ]
     },
     {
+      "id": "display.kit_kit_charm_evasion",
+      "category": "item",
+      "logical_id": "item.kit_charm_evasion",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.kit_placeholder",
+      "direction_count": 4,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
       "id": "display.kit_kit_potion_small",
       "category": "item",
       "logical_id": "item.kit_potion_small",

@@ -1,0 +1,12 @@
+{
+  "table": "feedback.floating_text_style",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feedback.floating_text_style.kit_dodge",
+      "color_ref": "color.kit_dodge",
+      "size_scale": 1.0,
+      "motion_profile": "feedback.motion.kit_float_up"
+    }
+  ]
+}

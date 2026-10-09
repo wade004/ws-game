@@ -43,6 +43,16 @@
       "text": "护甲"
     },
     {
+      "key": "l10n.stat.dodge_rating.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "闪避"
+    },
+    {
+      "key": "l10n.combat.kit_dodge_text",
+      "locale": "l10n.locale.zh_cn",
+      "text": "闪避"
+    },
+    {
       "key": "l10n.power.health.name",
       "locale": "l10n.locale.zh_cn",
       "text": "生命"
@@ -138,6 +148,11 @@
       "text": "之韧"
     },
     {
+      "key": "l10n.item.affix.kit_of_evasion.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "之敏"
+    },
+    {
       "key": "l10n.item.affix.kit_of_the_bulwark.name",
       "locale": "l10n.locale.zh_cn",
       "text": "之壁"
@@ -166,6 +181,11 @@
       "key": "l10n.item.kit_charm_basic.name",
       "locale": "l10n.locale.zh_cn",
       "text": "护符"
+    },
+    {
+      "key": "l10n.item.kit_charm_evasion.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "迅捷护符"
     },
     {
       "key": "l10n.item.kit_potion_small.name",
@@ -1073,6 +1093,16 @@
       "text": "Armor"
     },
     {
+      "key": "l10n.stat.dodge_rating.name",
+      "locale": "l10n.locale.en",
+      "text": "Dodge"
+    },
+    {
+      "key": "l10n.combat.kit_dodge_text",
+      "locale": "l10n.locale.en",
+      "text": "Dodge"
+    },
+    {
       "key": "l10n.power.health.name",
       "locale": "l10n.locale.en",
       "text": "Health"
@@ -1168,6 +1198,11 @@
       "text": "of Vigor"
     },
     {
+      "key": "l10n.item.affix.kit_of_evasion.name",
+      "locale": "l10n.locale.en",
+      "text": "of Evasion"
+    },
+    {
       "key": "l10n.item.affix.kit_of_the_bulwark.name",
       "locale": "l10n.locale.en",
       "text": "of the Bulwark"
@@ -1196,6 +1231,11 @@
       "key": "l10n.item.kit_charm_basic.name",
       "locale": "l10n.locale.en",
       "text": "Charm"
+    },
+    {
+      "key": "l10n.item.kit_charm_evasion.name",
+      "locale": "l10n.locale.en",
+      "text": "Swift Charm"
     },
     {
       "key": "l10n.item.kit_potion_small.name",

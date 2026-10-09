@@ -1109,7 +1109,7 @@ namespace FeelLab.Unity
                     }
                     else
                     {
-                        GUI.Label(new UnityEngine.Rect(12, Screen.height / scale - 28, 600, 24), "F1 显示面板　J 攻击　K 闪避　L 技能　U 蓄力（按住）　WASD/方向键 移动");
+                        GUI.Label(new UnityEngine.Rect(12, Screen.height / scale - 28, 600, 24), "F1 显示面板　J 攻击　K 翻滚　L 技能　U 蓄力（按住）　WASD/方向键 移动");
                     }
 
                     return;
@@ -1351,7 +1351,7 @@ namespace FeelLab.Unity
             var dodge = _poller?.Describe("input.action.lab_a_dodge") ?? string.Empty;
             var skill = _poller?.Describe("input.action.lab_a_skill") ?? string.Empty;
             var charge = _poller?.Describe("input.action.lab_a_charge") ?? string.Empty;
-            return "移动 WASD/方向键/左摇杆\n攻击(三连击) " + attack + "\n闪避 " + dodge + "\n技能(重击) " + skill + "\n蓄力(按住) " + charge
+            return "移动 WASD/方向键/左摇杆\n攻击(三连击) " + attack + "\n翻滚 " + dodge + "\n技能(重击) " + skill + "\n蓄力(按住) " + charge
                 + (HasOrbitCamera ? "\n镜头 右键拖动转镜头（水平 = 偏航，垂直 = 俯角），滚轮缩放；面板“镜头”段可切回固定、复位镜头；移动随镜头偏航（W 朝屏幕上方）" : string.Empty)
                 + "\n数字键 1.. 出靶子（按住 Shift = 出一群）\nF3 换武器　F4 换体型　Tab A/B　F5 存脚本　F12 切页（场景/调参/时间轴/轨迹/评分）\nF6 震屏　F7 闪白　F8 顿帧　F9 音效　F10 镜头冲击　F11 角落闪块\n[ ] 时间尺度　P 暂停　. 单步 tick　, 单步帧　G 精英出手";
         }

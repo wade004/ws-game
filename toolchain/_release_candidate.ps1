@@ -134,6 +134,20 @@ function Resolve-SamplesWorktreeRoot {
     return "D:\wt"
 }
 
+# 样板仓库的真正主工作树（用户的试玩目录）。传入路径本身可能是已关联的工作树，此时主工作树是 `git rev-parse --git-common-dir`
+# （公共 .git 目录）的上级目录；传入的就是主工作树（或不是可用的 git 仓库、或是裸仓库）时原样返回传入路径。
+function Get-SamplesMainWorktreePath {
+    param([Parameter(Mandatory = $true)][string]$SamplesRepo)
+    $common = Invoke-ReleaseNative -Exe "git" -NativeArgs @("-C", $SamplesRepo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if ($common.ExitCode -ne 0) { return $SamplesRepo }
+    $dir = ($common.Out -join "").Trim()
+    if ($dir -eq "") { return $SamplesRepo }
+    if ((Split-Path -Leaf $dir) -ne ".git") { return $SamplesRepo }
+    $parent = Split-Path -Parent $dir
+    if ($parent -eq "" -or -not (Test-Path -LiteralPath $parent -PathType Container)) { return $SamplesRepo }
+    return $parent
+}
+
 # 样板主工作树的状态快照（HEAD + 未提交/未跟踪改动清单）；不是可用的 git 仓库时返回 $null（不做对比）。
 function Get-SamplesMainSnapshot {
     param([Parameter(Mandatory = $true)][string]$SamplesRepo)
@@ -297,7 +311,10 @@ function Invoke-ReleaseCandidateStage {
     }
 
     # 升级与样板门禁一律在临时工作树（或调用方显式给的已关联工作树）里做，样板主工作树不动（判断记录 6）。
-    $mainSnapshotBefore = Get-SamplesMainSnapshot -SamplesRepo $samples
+    # 快照对象是真正的主工作树，不是传入的路径：传入的可能是已关联的工作树（直接在它上面升级与跑门禁是合法的，会改它），
+    # 判断记录 6 保护的是用户的试玩目录。
+    $mainRepo = Get-SamplesMainWorktreePath -SamplesRepo $samples
+    $mainSnapshotBefore = Get-SamplesMainSnapshot -SamplesRepo $mainRepo
     $workSamples = $samples
     $tempWorktree = ""
     if (Test-SamplesPathIsLinkedWorktree -Path $samples) {
@@ -313,10 +330,10 @@ function Invoke-ReleaseCandidateStage {
     $gate = & $RunSamplesGate $workSamples
     $gate = @($gate)[-1]
 
-    $mainSnapshotAfter = Get-SamplesMainSnapshot -SamplesRepo $samples
+    $mainSnapshotAfter = Get-SamplesMainSnapshot -SamplesRepo $mainRepo
     if ($null -ne $mainSnapshotBefore -and $mainSnapshotBefore -ne $mainSnapshotAfter) {
         throw ("候选阶段改动了样板主工作树（HEAD 或未提交改动清单与阶段开始前不同），这违反判断记录 6：主工作树是用户的试玩目录。" +
-            "请检查样板仓库 $samples 的 git status，并排查升级脚本/样板门禁为什么写到了主工作树。")
+            "请检查样板主工作树 $mainRepo 的 git status，并排查升级脚本/样板门禁为什么写到了主工作树。")
     }
 
     if ([int]$gate.ExitCode -ne 0) {
