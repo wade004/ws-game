@@ -458,13 +458,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **手感落地 M4（1.96.0）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[1.96.0]` 正文。
 - **非手感已知限制清扫（1.96.0，[ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）**：数据与契约只增不改，编辑器按需跟进——`item.slot_definition` 新增可选布尔字段 `has_appearance`（缺省 `true`，写 `false` 的槽位物品不要求 `display.equip_visual` 行）；表达式可读事件 `combat.attack_avoided`、`combat.hit_confirmed` 的 `attackInstanceId` 现在可经表达式读取（为空时查不到）；`LootExpectedCurrencyOutcome.ExpectedRoundedAmount`（含取整与非正值跳过的精确货币期望，线性的 `ExpectedAmount` 保留，"理论与观测"面板应读前者）与 `LootTableAnalyzer.ExpectedAffixInclusion` 的 5 参数重载（大词缀池精确解，计算量预算 `exactMaxWork`）；`item.set` 数据重载后套装门槛立即对账（热重载后不必再等装备变化才见效果）；`simrunner fight` 子命令与 `--fight-log` 日志文件（`{schema_version, truncated, entries}`）；游戏模板 `GameOptions.PathFailurePolicy`/`BlockingChangePolicy`。详见下方 `[1.96.0]`"非手感已知限制清扫"。
 
-## [Unreleased]
+## [2.12.0] - 2026-10-09
 
 ### 新增
 
 - **武器节奏动作 `weapon_paced`（ADR-0176，样板游戏 C 攻速反馈）**：`skill.def.timeline` 新增可选布尔字段 `weapon_paced`（缺省 false）；为真的动作在开始时按"主手武器 `weapon_profile.speed`（挥击间隔，秒）÷ `SkillOptions.WeaponPaceReferenceSeconds`（缺省 1.0，不大于 0 关闭）"拉伸整段时长（三相、标记、窗口起点同一系数，窗口长度不缩放，与急速、`phase_scale` 相乘），动画速率随之对齐；动作开始时快照，无武器/无有效 speed 时系数为 1。`TimelineDef` 新增带 `weaponPaced` 的构造重载与只读属性 `WeaponPaced`（原构造转发为 false，物理签名不变）。不声明的技能逐位不变。
 - **内容起步包三段近战 `kit_melee_1~3` 标 `weapon_paced` 并各开一个后摇起点的闪避取消窗口**：缺省影响——使用起步包近战的游戏，连点上限现在由武器攻速决定（此前约 5 次/秒，与武器 speed 无关）。想保持旧节奏：`WeaponPaceReferenceSeconds = 0`，或覆盖数据把 `weapon_paced` 改回 false。重击、蓄力、闪避不变。
 - 用例：`WeaponPacedTimelineTests`（12 条，含连点上限、比例、连招窗口）、`WeaponPacedAttackEndToEndTests`（装配侧，真实输入缓冲与装备）、`test_starter_kit_data.py::test_kit_light_attacks_are_paced_by_the_equipped_weapon_and_dodge_cancellable`。
+## [2.11.0] - 2026-10-09
+
+### 新增
+
+- **任务目标指引（[ADR-0173](architecture/adr/0173-任务目标指引.md)，样板游戏 A 试玩反馈）**：`quest.def` 新增可选字段 `guide`（引导步骤：`map_id`/`when`/`text_key`/`targets[]`/`progress_flags[]`）与 `guide_priority`；新增 `Core.Gameplay.Quest.QuestGuideHost`（`Evaluate(unitId, mapId, position)` 现算当前步骤、进度、箭头目标，目标在别的地图时沿当前开着的地图切换通道寻路并指向第一条通道）、`IQuestGuideLocator`/`RegistryQuestGuideLocator`、`QuestGuideInfo`；`GameplayAssembly.QuestGuide`/`QuestGuideLocator`；`QuestHost.Definitions`；校验检查名 `quest_guide_target_form`。纯加法，不声明 `guide` 时行为逐位不变，`IQuestHost` 与既有构造签名均未改动。引擎适配层新增 `Adapter.Unity.Ui.GuideArrow`（屏幕边缘引导箭头控件，不接入就不出现）。详见 [消费方反馈-2026-10-09-样板游戏A-任务目标指引.md](docs/消费方反馈/消费方反馈-2026-10-09-样板游戏A-任务目标指引.md)。
 
 ## [2.10.0] - 2026-10-09
 

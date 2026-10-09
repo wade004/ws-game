@@ -38,6 +38,7 @@ quest/
     QuestEnums.cs                  StartMethod/TurnInMethod/Repeatable/State 四枚举 + wire 名互转
     QuestExprSchemaEntries.cs     quest/player 分组的精确签名登记表 + BuildParsingSchema（额外合并
                                   world_state 三键、放宽 event 分组）
+    QuestGuide.cs                 任务目标指引的契约类型（步骤/目标/落点/通道/结果，IQuestGuideLocator）
     QuestObjective.cs             单条任务目标强类型模型（type 按属性拆解 param）
     QuestObjectiveType.cs         八种目标类型 + targetRef 域名/count==1 规则
     QuestOptions.cs               AllowFail 等构造期策略配置
@@ -49,6 +50,7 @@ quest/
                                   纯业务判断，见判断记录 12）
     QuestExprGroupProvider.cs     quest 分组的 IExprGroupProvider 实现（is_active/is_completed/
                                   is_available/objective_progress）
+    QuestGuideHost.cs             任务目标指引只读查询（ADR-0173）：当前步骤、进度、箭头目标、跨地图寻路
     QuestHost.cs                   IQuestHost 唯一实现：状态机 + 固定订阅事件驱动进度
     QuestPersistable.cs           player.quest_state 段
     QuestSchemas.cs                quest.def 的 TableSchema（ADR-0019/F1b 起 objectives/rewards
