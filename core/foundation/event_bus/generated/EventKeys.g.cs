@@ -369,6 +369,9 @@ namespace Core.Foundation.EventBus
         /// <summary>unit.stride_completed — 字段：unitId, position。ADR-0078：表现层 StrideEmitter 组件订阅 unit.moved，按该单位 display.map.stride_distance（可选字段——步幅是外形/体型属性，未登记或 &lt;=0 时该单位完全不发本事件）累计位移，累计达到一个步幅距离即发一次并扣减累计值（保留余数，不清零）；单次位移超过步幅距离 8 倍视为瞬移，只发一条并把累计清零。本事件只陈述“该单位的累计位移达到了一个步幅距离”这一几何事实，不预设任何呈现含义（是否配脚步声、扬尘特效、地面痕迹等均由具体游戏的 feedback.binding/表现代码决定，框架不登记默认绑定）；由表现层派生，不进入仿真主循环、不写回任何逻辑状态。</summary>
         public static readonly Id UnitStrideCompleted = new Id("unit.stride_completed");
 
+        /// <summary>unit.target_changed — 字段：unitId, targetId, previousTargetId, cause, sourceId。单位的当前目标变化时触发（ADR-0177：core/carriers/unit.ITargetLockHost；游戏显式设置/清除，或 creature.template.target_lock 声明的受击自动选中，或目标死亡/离开世界自动清除）；targetId 为空表示目标被清除；cause 取 manual|auto_hit|target_died|target_gone；sourceId 仅 auto_hit 携带（触发自动选中的那次伤害的原始来源，归到施放者之前）。</summary>
+        public static readonly Id UnitTargetChanged = new Id("unit.target_changed");
+
         /// <summary>world.flag_changed — 字段：flagKey, oldValue, newValue, writerId。WorldState.set 写入标志后触发（见 05 第 8.2 节，字段原文给出）。</summary>
         public static readonly Id WorldFlagChanged = new Id("world.flag_changed");
 
@@ -495,6 +498,7 @@ namespace Core.Foundation.EventBus
             UnitSkillBindingChanged,
             UnitStateChanged,
             UnitStrideCompleted,
+            UnitTargetChanged,
             WorldFlagChanged,
         };
     }

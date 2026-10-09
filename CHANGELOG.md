@@ -465,6 +465,20 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **武器节奏动作 `weapon_paced`（ADR-0176，样板游戏 C 攻速反馈）**：`skill.def.timeline` 新增可选布尔字段 `weapon_paced`（缺省 false）；为真的动作在开始时按"主手武器 `weapon_profile.speed`（挥击间隔，秒）÷ `SkillOptions.WeaponPaceReferenceSeconds`（缺省 1.0，不大于 0 关闭）"拉伸整段时长（三相、标记、窗口起点同一系数，窗口长度不缩放，与急速、`phase_scale` 相乘），动画速率随之对齐；动作开始时快照，无武器/无有效 speed 时系数为 1。`TimelineDef` 新增带 `weaponPaced` 的构造重载与只读属性 `WeaponPaced`（原构造转发为 false，物理签名不变）。不声明的技能逐位不变。
 - **内容起步包三段近战 `kit_melee_1~3` 标 `weapon_paced` 并各开一个后摇起点的闪避取消窗口**：缺省影响——使用起步包近战的游戏，连点上限现在由武器攻速决定（此前约 5 次/秒，与武器 speed 无关）。想保持旧节奏：`WeaponPaceReferenceSeconds = 0`，或覆盖数据把 `weapon_paced` 改回 false。重击、蓄力、闪避不变。
 - 用例：`WeaponPacedTimelineTests`（12 条，含连点上限、比例、连招窗口）、`WeaponPacedAttackEndToEndTests`（装配侧，真实输入缓冲与装备）、`test_starter_kit_data.py::test_kit_light_attacks_are_paced_by_the_equipped_weapon_and_dodge_cancellable`。
+- **受击自动选中与目标持有宿主（[ADR-0177](architecture/adr/0177-受击自动选中与目标持有宿主.md)，样板游戏 B 缺口）**：载体层新增 `ITargetLockHost`/`TargetLockHost`（装配根 `CarriersAssembly.TargetLock`）持有单位当前目标；新增事件 `unit.target_changed`；`creature.template` 新增可选对象 `target_lock { auto_select_on_hit, modes }`，缺省关闭。开启后单位没有有效目标时被敌对单位（召唤物/投射物归到施放者）打中，自动选中攻击者；已有有效目标不抢，友方误伤、环境伤害、来源已死亡的持续伤害不选中；同批多个攻击者先派发先选中。
+- **施法三段动作（[ADR-0174](architecture/adr/0174-施法三段动作读条循环释放与瞬发释放.md)）**：`display.weapon_style` 新增可选 `release_anim_override`（技能 id → 释放动作剪辑）：读条期间循环读条剪辑、读条完成播释放、被打断直接回落；瞬发技能直接播释放。`WeaponStyleDef.ReleaseAnimOverride`（新构造重载）、`AnimStateMachine.ReleaseAnimProbe`。
+- **技能提示框内容（[ADR-0175](architecture/adr/0175-技能提示框内容与描述文本键.md)）**：`skill.def` 新增可选 `desc_key`；纯数据 `SkillTooltipBuilder.Build`/`SkillTooltipContent`（名称、类型、读条、冷却、消耗、射程、效果数值含属性缩放、描述）；内容起步包补 `l10n.ui.skill_tooltip.*` 中英文行。
+
+### 修复
+
+- **读条途中被受击姿势顶掉后，受击结束回到施法姿势**（ADR-0174 决策 4）：此前回到运动态，读条剩余时间里角色没有施法姿势。
+- **读条期间别的施法请求被拒，不再收回读条姿势**（ADR-0174 决策 7）：动画状态机按读条实例 id 区分；此前敌人 AI 每个决策间隔的再次请求（Busy）或玩家读条时按别的技能键，都会让读条姿势提前站回待机。
+- **武器风格剪辑预热**（ADR-0174 决策 6）：视图挂接与装备武器变更后提前加载该实体武器风格的攻击/施法/释放剪辑；此前第一次用到时先显示约 2 秒的 1x1 白色占位帧。
+
+### 契约决定
+
+- [ADR-0177](architecture/adr/0177-受击自动选中与目标持有宿主.md)、[ADR-0174](architecture/adr/0174-施法三段动作读条循环释放与瞬发释放.md)、[ADR-0175](architecture/adr/0175-技能提示框内容与描述文本键.md)：样板游戏 B（目标选择式 RPG）的缺口。
+
 ## [2.11.0] - 2026-10-09
 
 ### 新增

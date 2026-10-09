@@ -129,6 +129,21 @@ namespace Core.Carriers.Creature
                     description: "悬浮高度（世界单位，从脚下起算，缺省 0 = 贴地）：出生时写进 Unit.HeightOffset（ADR-0172）；" +
                         "声明了竖直轴的世界里是静态高度（不受重力），没有竖直轴的世界里只是表现层抬高")
                     .WithRange(FieldRange.Range(min: 0)),
+                // ADR-0177 新增：目标选择规则。纯新增可选字段，不升 currentSchemaVersion、不需要迁移函数，旧数据行零改动仍合法
+                // （缺省 = 没有任何规则 = 与此前行为逐位一致）。由 Core.Carriers.Unit.TargetLockHost 读取。
+                new FieldSchema("target_lock", FieldKind.Object, required: false,
+                    description: "目标选择规则（ADR-0177）：本模板生成的单位（玩家也是 creature.template 生成的）的\"当前目标\"如何自动变化；缺省 = 无规则",
+                    fields: new[]
+                    {
+                        new FieldSchema("auto_select_on_hit", FieldKind.Bool, required: false,
+                            description: "受击自动选中：单位没有有效目标（从未选过 / 目标已死亡或不存在 / 目标不在同一地图）时被敌对单位打中，" +
+                                "把攻击者（伤害来源沿召唤者归属链归到的最终单位）设为目标；已有有效目标不被抢；友方、环境伤害、已死亡来源不选中。缺省 false"),
+                        new FieldSchema("modes", FieldKind.Array, required: false,
+                            item: new FieldSchema("<mode>", FieldKind.String, required: true,
+                                description: "操控模式标签，与游戏经 ITargetLockHost.SetControlMode 设置的标签精确匹配（区分大小写）"),
+                            description: "只在单位的操控模式标签属于此列表时受击自动选中才生效（如目标选择式只填 [\"tab\"]，动作式不抢目标）；缺省或空 = 任何模式都生效。" +
+                                "声明了非空列表而单位没有设置过模式标签时不生效"),
+                    }),
             }).WithOwnership(SchemaLayer.Carriers, "creature");
 
         public static readonly TableSchema TierDefinition = new TableSchema(

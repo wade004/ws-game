@@ -601,6 +601,8 @@ namespace Adapter.Unity.Presentation
                 // 判断记录——二者不能合并成一个处理方法，清理范围不同（销毁清空播放器引用，复活不）。
                 _bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, OnEntityDestroyedForAnim);
                 _bus.Subscribe<UnitRespawnedEvent>(RulesEventKeys.UnitRespawned, OnUnitRespawnedForAnim);
+                // ADR-0174 追加决定：主手武器换了（装备/卸下）时预热新武器风格的剪辑（见 PrewarmWeaponStyleClips）。
+                _bus.Subscribe<ItemEquippedEvent>(CarriersEventKeys.ItemEquipped, evt => PrewarmWeaponStyleClips(evt.UnitId));
             }
         }
 
@@ -973,6 +975,9 @@ namespace Adapter.Unity.Presentation
             {
                 PrewarmDirections(entityId);
             }
+
+            // ADR-0174 追加决定：该实体当前武器风格声明的全部动作剪辑在挂接这一刻就开始加载（见 PrewarmWeaponStyleClips）。
+            PrewarmWeaponStyleClips(entityId);
         }
 
         /// <summary>ADR-0111：<see cref="_stateProbesInFlight"/> 计数 +1（一条默认剪辑逐层探测链开始）。</summary>
@@ -2435,6 +2440,70 @@ namespace Adapter.Unity.Presentation
                 });
 
             return resolvedSync;
+        }
+
+        /// <summary>
+        /// ADR-0174 追加决定（武器风格剪辑预热）：武器风格（<c>display.weapon_style</c>）声明的剪辑（自动攻击剪辑、按技能的读条剪辑与释放剪辑）
+        /// 不在 <c>display.anim_set</c> 的默认状态键里，此前第一次用到才登记单帧占位（<see cref="FallbackFrame"/>，1x1 白点）并发起异步加载——
+        /// 加载完成前（加载器按主线程时间预算分帧，装配期排队的加载多时可达数秒）角色在播这条剪辑的那段时间只剩一个白点：
+        /// 每个技能的第一次施法"没有施法动作"。本方法在该实体挂接动画的这一刻与每次换主手武器时，把当前武器风格声明的剪辑提前读进加载器缓存
+        /// （只加载、不登记、不播放）；第一次用到时 <see cref="EnsureSpriteClipRegistered"/> 命中缓存直接登记真实多帧剪辑。
+        /// <para>
+        /// 判断记录：只对整身 sprite 外形做（纸娃娃层外形的覆盖剪辑走逐层 + 方向探测，资源 id 与整身不同，预热整身资源没有意义，行为保持原样）；
+        /// 带该实体精灵集的提示加载（资源 id 对应唯一一份解码结果，枢轴/像素密度由首次解码的提示定下，ADR-0095 决策 5，所以预热必须带与首次使用相同的提示，
+        /// 这也是不做"全部武器风格全部预热"的原因）；不进 <see cref="_pendingWeaponClipResourceLoads"/>（那是"有等待方的升级加载"的去重表，
+        /// 预热没有等待方，进了它会让此后真正需要升级的请求被误判为已发起）。同一 (精灵集, 剪辑) 只预热一次。
+        /// 武器风格来源（<c>EquipmentWeaponStyleSource</c>）订阅装备事件先失效缓存，工厂后订阅，所以装备事件里读到的已是新武器的风格。
+        /// </para>
+        /// </summary>
+        private void PrewarmWeaponStyleClips(Id entityId)
+        {
+            if (_weaponStyleSource == null || !_animPlayersByEntity.ContainsKey(entityId)
+                || !(_resourceLoader is Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader)
+                || IsPaperdollShapeWithAnimContext(entityId))
+            {
+                return;
+            }
+
+            var catalog = ResolveWeaponStyleCatalog();
+            var styleRef = _weaponStyleSource.GetWeaponStyleRef(entityId);
+            if (catalog == null || !styleRef.HasValue || !catalog.TryGetValue(styleRef.Value, out var style))
+            {
+                return;
+            }
+
+            var spriteSetId = _spriteSetIdsByEntity.TryGetValue(entityId, out var ssid) ? ssid : null;
+            PrewarmWeaponClip(unityLoader, style.AutoAttackAnim, spriteSetId);
+
+            foreach (var clip in style.CastAnimOverride.Values)
+            {
+                PrewarmWeaponClip(unityLoader, clip, spriteSetId);
+            }
+
+            foreach (var clip in style.ReleaseAnimOverride.Values)
+            {
+                PrewarmWeaponClip(unityLoader, clip, spriteSetId);
+            }
+        }
+
+        private readonly HashSet<(Id? SpriteSet, Id Clip)> _prewarmedWeaponClips = new HashSet<(Id?, Id)>();
+
+        private void PrewarmWeaponClip(Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id clipId, Id? spriteSetId)
+        {
+            if (unityLoader.TryGetEffect(clipId, out _) || !_prewarmedWeaponClips.Add((spriteSetId, clipId)))
+            {
+                return;
+            }
+
+            // 加载失败（没有这份美术）静默：与第一次使用时的"加载失败，继续使用单帧占位"同一口径，由那一处记诊断。
+            if (spriteSetId.HasValue)
+            {
+                unityLoader.LoadAsync(clipId, ResourceKind.Effect, new Core.Foundation.EngineAdapter.ResourceLoadHints(spriteSetId), (_, __) => { });
+            }
+            else
+            {
+                unityLoader.LoadAsync(clipId, ResourceKind.Effect, (_, __) => { });
+            }
         }
 
         /// <summary>见 <see cref="EnsureSpriteClipRegistered"/> 判断记录：按 <paramref name="clipId"/>

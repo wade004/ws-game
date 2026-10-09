@@ -427,3 +427,7 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     `MapMusicHost`——场景加载完成时读 `world.map.music_ref` 经播放器播放；地图没有 `music_ref` 时不动当前音乐；`PresentationAssemblyOptions.MapMusicEnabled`（默认 true）关闭后不构造。`PresentationAssembly.Music`/`MapMusic`。用例：`tests/MusicPlayerTests.cs`（10 条）。
 
 33. **`vfx.def.upright`：序列帧特效转到与相机平行（2026-10-08，样板游戏 B 缺口，[ADR-0164](../../architecture/adr/0164-样板游戏B缺口-斜透视公告牌与朝向弧.md)）**：新增可选布尔字段 `upright`（默认假）。为真时 `VfxPlayer.Spawn` 在发射参数里并入 `upright=1`，由引擎适配层把序列帧播放器转到与公告牌相机平行（火球、冰锥这类"立着"的特效）；默认假保持贴地平放（光环、地面标记）。`VfxDef` 新增八参数构造重载（七参数旧构造转发、`Upright=false`）。复现与不变量：`tests/VfxPlayerTests.cs`（并入参数、默认不并入）、`tests/VfxSfxFromRecordTests.cs`（字段解析）。**已知边界**：没有公告牌相机时该参数被忽略（平放行为不变）。
+
+## 判断记录（`release_anim_override`，2026-10-09，[ADR-0174](../../architecture/adr/0174-施法三段动作读条循环释放与瞬发释放.md)）
+
+`display.weapon_style` 新增可选映射 `release_anim_override`（技能 id → 释放动作剪辑，格式与前缀限定同 `cast_anim_override`），`WeaponStyleDef.ReleaseAnimOverride` 如实携带（新构造重载，旧五参构造不变）；语义由动画状态机与剪辑解析方消费，本模块不解释。

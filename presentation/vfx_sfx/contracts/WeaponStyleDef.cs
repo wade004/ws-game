@@ -20,6 +20,13 @@ namespace Presentation.VfxSfx.Contracts
         /// <summary>按技能 id 覆盖施法动作剪辑；未声明视为空字典。</summary>
         public IReadOnlyDictionary<Id, Id> CastAnimOverride { get; }
 
+        /// <summary>
+        /// 按技能 id 声明"释放动作"剪辑（ADR-0174）；未声明视为空字典。声明了的技能：①读条型（<c>cast_time &gt; 0</c>）——读条期间
+        /// <see cref="CastAnimOverride"/> 的剪辑<b>循环</b>播放，读条正常完成时播一遍本剪辑再回落，被打断/失败直接回落；
+        /// ②瞬发型——施放时直接播本剪辑（取代普攻剪辑 <see cref="AutoAttackAnim"/>）。没声明的技能行为不变（读条剪辑播一遍、瞬发用普攻剪辑）。
+        /// </summary>
+        public IReadOnlyDictionary<Id, Id> ReleaseAnimOverride { get; }
+
         /// <summary>挥舞轨迹特效，指向 <c>vfx.def</c>；可选。</summary>
         public Id? SwingVfx { get; }
 
@@ -32,12 +39,25 @@ namespace Presentation.VfxSfx.Contracts
             IReadOnlyDictionary<Id, Id>? castAnimOverride,
             Id? swingVfx,
             IReadOnlyDictionary<Id, Id>? impactVfxOverride)
+            : this(id, autoAttackAnim, castAnimOverride, swingVfx, impactVfxOverride, null)
+        {
+        }
+
+        /// <summary>带释放动作覆盖（ADR-0174）的构造重载；<paramref name="releaseAnimOverride"/> 为 null 与五参构造逐位一致。</summary>
+        public WeaponStyleDef(
+            Id id,
+            Id autoAttackAnim,
+            IReadOnlyDictionary<Id, Id>? castAnimOverride,
+            Id? swingVfx,
+            IReadOnlyDictionary<Id, Id>? impactVfxOverride,
+            IReadOnlyDictionary<Id, Id>? releaseAnimOverride)
         {
             Id = id;
             AutoAttackAnim = autoAttackAnim;
             CastAnimOverride = castAnimOverride ?? new Dictionary<Id, Id>();
             SwingVfx = swingVfx;
             ImpactVfxOverride = impactVfxOverride ?? new Dictionary<Id, Id>();
+            ReleaseAnimOverride = releaseAnimOverride ?? new Dictionary<Id, Id>();
         }
 
         /// <summary>从一条已加载的 <c>display.weapon_style</c> <see cref="DataRecord"/> 构造。</summary>
@@ -48,7 +68,8 @@ namespace Presentation.VfxSfx.Contracts
             var swingVfx = record.TryGetId("swing_vfx", out var swingVal) ? (Id?)swingVal : null;
             var castAnimOverride = ParseIdMap(record, "cast_anim_override");
             var impactVfxOverride = ParseIdMap(record, "impact_vfx_override");
-            return new WeaponStyleDef(id, autoAttackAnim, castAnimOverride, swingVfx, impactVfxOverride);
+            var releaseAnimOverride = ParseIdMap(record, "release_anim_override");
+            return new WeaponStyleDef(id, autoAttackAnim, castAnimOverride, swingVfx, impactVfxOverride, releaseAnimOverride);
         }
 
         private static Dictionary<Id, Id> ParseIdMap(DataRecord record, string field)

@@ -367,3 +367,7 @@ T-N3-9/T-N3-10 在真正消费这份集合时解析落实，详见该类型顶�
 形状全部由 `SkillSchemas.Def`/`AuraDef` 的 `Fields`/`Variants` 递归登记 + `DataRegistry` 的
 `required_field`/`field_type`/`variant_discriminator` 覆盖，不再需要平行的手写规则（详见
 `SkillValidationRules.cs` 顶部判断记录、`../README.md` 判断记录 39）。
+
+## 判断记录（`skill.def.desc_key`，2026-10-09，[ADR-0175](../../../../architecture/adr/0175-技能提示框内容与描述文本键.md)）
+
+`skill.def` 新增可选 `desc_key`（`TextKey`，同 `name_key` 惯例），供技能提示框显示描述段；缺省不显示。纯新增可选字段，不提 schema_version。

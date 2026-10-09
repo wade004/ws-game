@@ -32,6 +32,7 @@ namespace Core.Carriers.Common
         public static readonly Id UnitLanded = new Id("unit.landed");
         public static readonly Id UnitStateChanged = new Id("unit.state_changed");
         public static readonly Id UnitSkillBindingChanged = new Id("unit.skill_binding_changed");
+        public static readonly Id UnitTargetChanged = new Id("unit.target_changed");
     }
 
     /// <summary>物品加入背包时触发（见 found.event_catalog <c>item.added</c> 行、07 第 1.3 节
@@ -563,6 +564,56 @@ namespace Core.Carriers.Common
                         value = ExprValue.OfId(SkillId.Value);
                         return true;
                     }
+                    value = default;
+                    return false;
+                default: value = default; return false;
+            }
+        }
+    }
+
+    /// <summary>单位的当前目标变化时触发（ADR-0177：<c>Core.Carriers.Unit.ITargetLockHost</c>，见 found.event_catalog
+    /// <c>unit.target_changed</c> 行）。<see cref="TargetId"/> 为空表示目标被清除；<see cref="Cause"/> 取值见
+    /// <c>Core.Carriers.Unit.TargetChangeCause</c>（manual / auto_hit / target_died / target_gone）；
+    /// <see cref="SourceId"/> 仅 <c>auto_hit</c> 携带——触发自动选中的那次伤害的原始来源单位（召唤物 / 投射物归到施放者之前的 id），其余为空。</summary>
+    public sealed class UnitTargetChangedEvent : IEvent, IExprReadableEvent
+    {
+        public Id Key => CarriersEventKeys.UnitTargetChanged;
+
+        public Id UnitId { get; }
+
+        public Id? TargetId { get; }
+
+        public Id? PreviousTargetId { get; }
+
+        public string Cause { get; }
+
+        public Id? SourceId { get; }
+
+        public UnitTargetChangedEvent(Id unitId, Id? targetId, Id? previousTargetId, string cause, Id? sourceId = null)
+        {
+            UnitId = unitId;
+            TargetId = targetId;
+            PreviousTargetId = previousTargetId;
+            Cause = cause ?? throw new ArgumentNullException(nameof(cause));
+            SourceId = sourceId;
+        }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "cause": value = ExprValue.OfString(Cause); return true;
+                case "targetId":
+                    if (TargetId.HasValue) { value = ExprValue.OfId(TargetId.Value); return true; }
+                    value = default;
+                    return false;
+                case "previousTargetId":
+                    if (PreviousTargetId.HasValue) { value = ExprValue.OfId(PreviousTargetId.Value); return true; }
+                    value = default;
+                    return false;
+                case "sourceId":
+                    if (SourceId.HasValue) { value = ExprValue.OfId(SourceId.Value); return true; }
                     value = default;
                     return false;
                 default: value = default; return false;

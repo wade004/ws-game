@@ -99,6 +99,12 @@ namespace Core.Carriers.Assembly
         public SkillBindingHost SkillBindings { get; }
 
         /// <summary>
+        /// ADR-0177：单位"当前目标"持有者与受击自动选中规则（见 <see cref="ITargetLockHost"/> / <see cref="TargetLockHost"/>）。
+        /// 恒装配；规则由 <c>creature.template.target_lock</c> 声明，缺省关闭，不声明的游戏行为不变。
+        /// </summary>
+        public TargetLockHost TargetLock { get; }
+
+        /// <summary>
         /// 参与 <see cref="ISpatialQuery"/> 空间索引登记的 <see cref="Entity.Kind"/> 清单默认值
         /// （见 <see cref="EntitySpatialSyncHost"/> 判断记录）：默认只登记 <c>creature</c>/
         /// <c>player</c> 两类 Unit（打 <c>"unit"</c> 标签），半径统一默认 0.1（同此前
@@ -634,6 +640,9 @@ namespace Core.Carriers.Assembly
                 new Core.Carriers.Creature.CreatureInteractIntentTickHandler(CreatureInteractions));
 
             // 手感落地 S10：手感系统最后接线（依赖上面全部宿主；输入缓冲处理器此时才注册到 IntentCollection，该阶段没有别的处理器）。
+            // ADR-0177：目标持有者 + 受击自动选中。放在最后装配：它只订阅事件、读 Units/Rules.Factions/Summons，不改任何既有宿主的行为。
+            TargetLock = new TargetLockHost(bus, registry, Units, Rules.Factions, Summons);
+
             if (feelOptions != null)
             {
                 Feel = CarriersFeelAssembly.Attach(this, registry, bus, world, feelOptions, feelStepSeconds);

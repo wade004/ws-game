@@ -59,6 +59,33 @@ namespace Tests.Presentation.VfxSfx
                 i.Check == "field_id_format" && i.Field == "cast_anim_override[skill.cov_fireball]");
         }
 
+        /// <summary>ADR-0174：<c>release_anim_override</c> 值不是合法 Id 时同样报 <c>field_id_format</c>，路径带键。</summary>
+        [Fact]
+        public void ReleaseAnimOverride_WellFormedLoads_ValueNotValidIdReportsFieldIdFormat()
+        {
+            var good = "[{\"id\":\"display.weapon_style.cov_rel\",\"auto_attack_anim\":\"anim.cov_swing\"," +
+                "\"release_anim_override\":{\"skill.cov_fireball\":\"anim.cov_release\"}}]";
+            var bad = good.Replace("anim.cov_release", "not a valid id");
+
+            foreach (var (rows, expectBlocking) in new[] { (good, false), (bad, true) })
+            {
+                var source = new InMemoryDataSource().Add(
+                    VfxSfxSchemas.WeaponStyle.Name,
+                    Envelope(VfxSfxSchemas.WeaponStyle.Name, rows));
+                var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+                registry.RegisterSchema(VfxSfxSchemas.WeaponStyle);
+
+                var report = registry.LoadAll();
+
+                Assert.Equal(expectBlocking, report.IsBlocking);
+                if (expectBlocking)
+                {
+                    Assert.Contains(report.Issues, i =>
+                        i.Check == "field_id_format" && i.Field == "release_anim_override[skill.cov_fireball]");
+                }
+            }
+        }
+
         [Fact]
         public void ImpactVfxOverride_ArbitraryKey_NoUnknownSubfieldReported()
         {

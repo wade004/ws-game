@@ -165,6 +165,29 @@ namespace Tests.Presentation.VfxSfx
             Assert.Equal(new Id("anim.greatsword.cleave"), def.CastAnimOverride[new Id("skill.cleave")]);
         }
 
+        /// <summary>ADR-0174：<c>release_anim_override</c> 解析为技能 → 释放动作剪辑；未声明为空字典（既有行为不变）。</summary>
+        [Fact]
+        public void WeaponStyleDef_FromRecord_ParsesReleaseAnimOverride_EmptyWhenAbsent()
+        {
+            var withRelease = VfxSfxTestSupport.GreatswordWeaponStyleRow.Replace(
+                "\"swing_vfx\"", "\"release_anim_override\": {\"skill.cleave\": \"anim.greatsword.cleave_release\"}, \"swing_vfx\"");
+            var (registry, report) = VfxSfxTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["display.weapon_style"] = "[" + withRelease + "]",
+            });
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+            var def = WeaponStyleDef.FromRecord(registry.Get("display.weapon_style", "display.weapon_style.greatsword")!);
+            Assert.Equal(new Id("anim.greatsword.cleave_release"), def.ReleaseAnimOverride[new Id("skill.cleave")]);
+
+            var (registry2, report2) = VfxSfxTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["display.weapon_style"] = "[" + VfxSfxTestSupport.GreatswordWeaponStyleRow + "]",
+            });
+            Assert.False(report2.IsBlocking);
+            var plain = WeaponStyleDef.FromRecord(registry2.Get("display.weapon_style", "display.weapon_style.greatsword")!);
+            Assert.Empty(plain.ReleaseAnimOverride);
+        }
+
         // ------------------------------------------------------------------
         // T-M14（ADR-0125）：错误路径。直接用 DataRecord 构造函数喂绕过校验的坏行。
         // ------------------------------------------------------------------

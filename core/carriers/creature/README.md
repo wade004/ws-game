@@ -380,3 +380,7 @@ AI 登记）抛出，此前实体与已完成的登记全部残留。现在只�
 ## 判断记录（悬浮生物出生高度 `hover_height`，2026-10-08，样板游戏 D 缺口，[ADR-0172](../../../architecture/adr/0172-悬浮生物出生高度.md)）
 
 `creature.template` 新增可选字段 `hover_height`（不小于 0 的有限数，缺省 0），`CreatureTemplate.HoverHeight` 解析，`CreatureFactory.SpawnCore` 把它写进新单位的 `HeightOffset`。根因：竖直运动服务把首次观察时高度高于地面的单位当作悬空靶保持高度，出生后才由游戏层写入的高度来不及被"首次观察"看到，下一次位置变化就被拉回地面。复现与回归：`CreatureHoverHeightTests.Gap_HeightSetAfterSpawn_IsPulledBackToTheGround_WhenTheUnitWasAlreadyObservedOnTheGround`（红：出生后写高度被吸回 0）与 `Spawn_WithHoverHeight_StartsAtTheDeclaredHeight_AndKeepsItWhileMoving`（绿）。已知限制：`hover_height` 只决定出生高度，没有飞行或寻路语义：悬浮单位在竖直轴世界里保持该高度水平移动，没有竖直轴的世界里只会显示为精灵被抬高。
+
+## 判断记录（`creature.template.target_lock`，2026-10-09，[ADR-0177](../../../architecture/adr/0177-受击自动选中与目标持有宿主.md)）
+
+`creature.template` 新增可选对象 `target_lock`：`auto_select_on_hit`（布尔，缺省 false）与 `modes`（可选字符串列表）。本模块只登记 schema，规则由载体层 unit 模块的 `TargetLockHost` 读取执行；玩家单位同样由模板生成，一个字段覆盖玩家与怪物。
