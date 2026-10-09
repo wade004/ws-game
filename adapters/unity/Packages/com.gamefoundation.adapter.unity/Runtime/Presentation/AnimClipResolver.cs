@@ -219,6 +219,29 @@ namespace Adapter.Unity.Presentation
             {
                 _playbackRates.RateChanged += OnRateChanged;
             }
+            if (_weaponStyles != null && _weaponStyleSource != null)
+            {
+                _stateMachine.ReleaseAnimProbe = HasReleaseAnim;
+            }
+        }
+
+        /// <summary>ADR-0174：<paramref name="entityId"/> 的武器风格是否为 <paramref name="skillId"/> 声明了释放动作剪辑
+        /// （<see cref="WeaponStyleDef.ReleaseAnimOverride"/>）；状态机据此决定读条完成时是否进入释放，解析方据此决定读条剪辑是否循环。</summary>
+        private bool HasReleaseAnim(Id entityId, Id skillId) =>
+            TryGetReleaseAnim(entityId, skillId, out _);
+
+        private bool TryGetReleaseAnim(Id entityId, Id skillId, out Id clipId)
+        {
+            clipId = default;
+            if (_weaponStyles == null || _weaponStyleSource == null)
+            {
+                return false;
+            }
+
+            var weaponStyleRef = _weaponStyleSource.GetWeaponStyleRef(entityId);
+            return weaponStyleRef.HasValue
+                && _weaponStyles.TryGetValue(weaponStyleRef.Value, out var def)
+                && def.ReleaseAnimOverride.TryGetValue(skillId, out clipId);
         }
 
         /// <summary>ADR-0147：速率变化（动作相位切换、移动速度变化、动作结束）后，对该实体正在播的剪辑改速率；已经是这个速率则不下发。</summary>
@@ -358,6 +381,7 @@ namespace Adapter.Unity.Presentation
         private void PlayResolvedClip(Id entityId, AnimState to, Id? triggerSkillId, AnimState? from)
         {
             Id? clipId = null;
+            var loop = DefaultLoop(to);
 
             if (_weaponStyles != null && _weaponStyleSource != null)
             {
@@ -366,12 +390,17 @@ namespace Adapter.Unity.Presentation
                 {
                     if (to == AnimState.Attack)
                     {
-                        clipId = def.AutoAttackAnim;
+                        // ADR-0174：释放动作（读条完成 / 瞬发技能）优先于普攻剪辑；普攻（无技能 id）与未声明的技能照旧。
+                        clipId = triggerSkillId.HasValue && def.ReleaseAnimOverride.TryGetValue(triggerSkillId.Value, out var releaseOverride)
+                            ? releaseOverride
+                            : def.AutoAttackAnim;
                     }
                     else if (to == AnimState.Cast && triggerSkillId.HasValue
                         && def.CastAnimOverride.TryGetValue(triggerSkillId.Value, out var castOverride))
                     {
                         clipId = castOverride;
+                        // ADR-0174：声明了释放动作的技能，读条剪辑是"读条姿势"，循环到读条结束；没声明的照旧播一遍。
+                        loop = def.ReleaseAnimOverride.ContainsKey(triggerSkillId.Value);
                     }
                 }
             }
@@ -393,7 +422,7 @@ namespace Adapter.Unity.Presentation
                 {
                     _hintBlend(entityId, blendSeconds);
                 }
-                PlayAndRecord(entityId, clipId.Value, DefaultLoop(to));
+                PlayAndRecord(entityId, clipId.Value, loop);
             }
         }
 

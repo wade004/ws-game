@@ -332,3 +332,7 @@ M4-G 留下的四条限制已在 M4-W3 逐条收口（见下一节）；本节�
 4. **AI 经缓冲（评审 A6，缺省关闭）**：`CarriersFeelOptions.AiIntentsThroughBuffer`。打开时装配 `BufferedAiCastRouter`（实现 `IAiCastRouter`）并注册合成动作 `input.action.ai_cast`（绑定占位 `key:ai_cast` 只为满足"绑定非空"校验，没有物理键），`rules.Ai.CastRouter` 指向它：`RotationEvaluator` 在就绪判断之后调用 `TrySubmit`，成功则经 `buffer.SubmitSkill` 入缓冲。有路由时只被 `ActionLocked`/`GlobalCooldown` 挡住的条目也提交（缓冲窗口内等待），冷却与充能不足仍跳过；路由拒绝时回落直接施放。**一个 tick 的延迟**且 AI 的提前量受缓冲窗口约束，所以缺省关闭——打开会改变既有 AI 基线。评审原文"自动攻击也不经缓冲"不成立的部分：自动攻击走直接施放，不在此项范围。
 5. **`trigger_action` 参数**：缓冲出口对维持型技能加 `trigger_action` 与 `ExtraArgs` 合并后的参数；`Dispose` 取消订阅。
 6. **复现与不变量**：`core/gameplay/assembly/tests/InputCompletionAssemblyTests.cs`（点按/按住分流、蓄力自动释放与 `below_min`、跳跃缓冲落地起跳、土狼窗口内外、可变跳高裁切、AI 经缓冲的一 tick 延迟与回落）。
+
+## 判断记录（`CarriersAssembly.TargetLock`，2026-10-09，[ADR-0177](../../../architecture/adr/0177-受击自动选中与目标持有宿主.md)）
+
+装配根新增只读属性 `TargetLock`（`TargetLockHost`，订阅 `combat.damage_dealt`/`unit.died`/`entity.destroyed`），用同一份阵营矩阵（`Rules.Factions`）与召唤宿主（`Summons`）；放在构造末尾、手感装配之前，不改变既有宿主的创建顺序与事件订阅顺序。不声明 `creature.template.target_lock` 的游戏没有任何行为变化。

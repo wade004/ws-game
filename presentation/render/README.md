@@ -488,3 +488,9 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     的窗口钉住，期望只有一条：任何时刻存活的层只属于当前地图、至多一整套）。
 
 34. **相机偏航提供器 `RenderOptions.CameraYawRadiansProvider`（2026-10-08，样板游戏 B 缺口，[ADR-0164](../../architecture/adr/0164-样板游戏B缺口-斜透视公告牌与朝向弧.md)）**：斜透视相机绕竖轴转动后，"屏幕上更靠下的先画"与"精灵朝向跟随相机"都要把偏航算进去。提供该委托时 `RenderConventionHost.ComputeSortY` 沿屏幕上方向投影（`-x·sin(yaw) + y·cos(yaw) + 偏移`），`ApplyFacingConvention` 的结果减去偏航；不提供时两处与此前逐位一致（默认路径零变化）。约定与 `ICameraOrientation.YawRadians` 相同（相机右方向 = (cos yaw, sin yaw)）。复现与不变量：`tests/RenderConventionHostTests.cs` 新增四条（无提供器逐位不变、偏航 0 与无提供器等价、朝向相对相机且每次调用都重读提供器、排序键为屏幕上方向的投影）。**已知边界**：只改排序键与朝向换算，不改世界坐标；公告牌旋转在引擎适配层（见适配层 README），提供器由游戏自己在每帧把相机偏航送进来。
+
+## 判断记录（施法三段动作，2026-10-09，[ADR-0174](../../architecture/adr/0174-施法三段动作读条循环释放与瞬发释放.md)）
+
+`AnimStateMachine` 新增 `ReleaseAnimProbe`（`(施法者, 技能) → 是否声明释放动作`，缺省空 = 行为不变）：读条正常完成且为真时 Cast 切到 Attack（携带技能 id）去播释放剪辑，被打断/失败仍立即回落；瞬发沿用 N19 口径（收尾事件不回落，由播放完成回调驱动）。新增 `Entry.CastingSkill` 记录正在读条的技能：读条途中被 Hit（优先级更高）顶掉后，Hit 结束回到 Cast（携带技能 id）而不是运动态——读条已收尾后的 Hit 结束仍回运动态。用例 `ADR0174_CastReleaseAnimTests`（含固定种子随机序列的"读条收尾后不停在 Cast"不变量）。已知限制：回到 Cast 时读条剪辑从头播。
+
+- **读条期间别的施法请求被拒不收读条姿势（ADR-0174 决策 7）**：`Entry.CastInstance` 记录读条的 `CastInstanceId`；`skill.cast_failed` 的实例 id 与之不同（含校验阶段失败、无实例 id）就忽略，相同或无可比较 id 仍按收尾处理。复现/不变量：`ADR0174_CastReleaseAnimTests.AnotherRequestRefusedDuringCast_DoesNotEndTheRunningCastPose_ThenReleaseStillPlays`、`RunningCastItselfFails_SameInstanceId_RevertsAsBefore`。

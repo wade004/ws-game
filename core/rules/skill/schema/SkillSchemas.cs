@@ -1034,6 +1034,9 @@ namespace Core.Rules.Skill
                 // 缺省时表现层隐藏不渲染、不回退占位文案），不新造一套命名——见 SkillDef.NameKey 判断
                 // 记录。纯新增可选字段，不提 schema_version，既有全部 skill.def 行零改动仍合法。
                 new FieldSchema("name_key", FieldKind.TextKey, required: false, description: "技能名称文本键，缺省时表现层不渲染名称（不回退占位文案），见 ADR-0048"),
+                // 新增（ADR-0175）：技能描述文本键，供技能提示框（Presentation.Ui.SkillTooltipBuilder）显示一段说明文字；
+                // 命名与类型同 name_key（TextKey、可选）；缺省时提示框不显示描述段。纯新增可选字段，不提 schema_version。
+                new FieldSchema("desc_key", FieldKind.TextKey, required: false, description: "技能描述文本键，缺省时技能提示框不显示描述段，见 ADR-0175"),
                 new FieldSchema("school", FieldKind.Id, required: true, description: "学派"),
                 new FieldSchema("kind", FieldKind.Enum, required: true, enumValues: SkillKindValues,
                     description: "active|passive"),

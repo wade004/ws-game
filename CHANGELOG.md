@@ -458,6 +458,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **手感落地 M4（1.96.0）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[1.96.0]` 正文。
 - **非手感已知限制清扫（1.96.0，[ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）**：数据与契约只增不改，编辑器按需跟进——`item.slot_definition` 新增可选布尔字段 `has_appearance`（缺省 `true`，写 `false` 的槽位物品不要求 `display.equip_visual` 行）；表达式可读事件 `combat.attack_avoided`、`combat.hit_confirmed` 的 `attackInstanceId` 现在可经表达式读取（为空时查不到）；`LootExpectedCurrencyOutcome.ExpectedRoundedAmount`（含取整与非正值跳过的精确货币期望，线性的 `ExpectedAmount` 保留，"理论与观测"面板应读前者）与 `LootTableAnalyzer.ExpectedAffixInclusion` 的 5 参数重载（大词缀池精确解，计算量预算 `exactMaxWork`）；`item.set` 数据重载后套装门槛立即对账（热重载后不必再等装备变化才见效果）；`simrunner fight` 子命令与 `--fight-log` 日志文件（`{schema_version, truncated, entries}`）；游戏模板 `GameOptions.PathFailurePolicy`/`BlockingChangePolicy`。详见下方 `[1.96.0]`"非手感已知限制清扫"。
 
+## [Unreleased]
+
+### 新增
+
+- **受击自动选中与目标持有宿主（[ADR-0177](architecture/adr/0177-受击自动选中与目标持有宿主.md)，样板游戏 B 缺口）**：载体层新增 `ITargetLockHost`/`TargetLockHost`（装配根 `CarriersAssembly.TargetLock`）持有单位当前目标；新增事件 `unit.target_changed`；`creature.template` 新增可选对象 `target_lock { auto_select_on_hit, modes }`，缺省关闭。开启后单位没有有效目标时被敌对单位（召唤物/投射物归到施放者）打中，自动选中攻击者；已有有效目标不抢，友方误伤、环境伤害、来源已死亡的持续伤害不选中；同批多个攻击者先派发先选中。
+- **施法三段动作（[ADR-0174](architecture/adr/0174-施法三段动作读条循环释放与瞬发释放.md)）**：`display.weapon_style` 新增可选 `release_anim_override`（技能 id → 释放动作剪辑）：读条期间循环读条剪辑、读条完成播释放、被打断直接回落；瞬发技能直接播释放。`WeaponStyleDef.ReleaseAnimOverride`（新构造重载）、`AnimStateMachine.ReleaseAnimProbe`。
+- **技能提示框内容（[ADR-0175](architecture/adr/0175-技能提示框内容与描述文本键.md)）**：`skill.def` 新增可选 `desc_key`；纯数据 `SkillTooltipBuilder.Build`/`SkillTooltipContent`（名称、类型、读条、冷却、消耗、射程、效果数值含属性缩放、描述）；内容起步包补 `l10n.ui.skill_tooltip.*` 中英文行。
+
+### 修复
+
+- **读条途中被受击姿势顶掉后，受击结束回到施法姿势**（ADR-0174 决策 4）：此前回到运动态，读条剩余时间里角色没有施法姿势。
+- **读条期间别的施法请求被拒，不再收回读条姿势**（ADR-0174 决策 7）：动画状态机按读条实例 id 区分；此前敌人 AI 每个决策间隔的再次请求（Busy）或玩家读条时按别的技能键，都会让读条姿势提前站回待机。
+- **武器风格剪辑预热**（ADR-0174 决策 6）：视图挂接与装备武器变更后提前加载该实体武器风格的攻击/施法/释放剪辑；此前第一次用到时先显示约 2 秒的 1x1 白色占位帧。
+
+### 契约决定
+
+- [ADR-0177](architecture/adr/0177-受击自动选中与目标持有宿主.md)、[ADR-0174](architecture/adr/0174-施法三段动作读条循环释放与瞬发释放.md)、[ADR-0175](architecture/adr/0175-技能提示框内容与描述文本键.md)：样板游戏 B（目标选择式 RPG）的缺口。
+
 ## [2.10.0] - 2026-10-09
 
 ### 新增

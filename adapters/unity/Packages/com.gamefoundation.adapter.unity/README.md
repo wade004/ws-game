@@ -1677,3 +1677,10 @@ GameBootstrap.cs` 同样两根合并（`data/_framework` + 游戏自己的 `data
 - **修法提示（警告文案里就写了）**：静态显示的非生物外形用分层精灵集（`<槽位>/body.png`）并在 `display.map` 行写 `paperdoll_layers: ["body"]`。
 - **示例数据已按提示修好（2026-10-09）**：`data/_sample` 里箱子/门/存档点/弩矢/任务标记/掉落堆原先是整身精灵集（2.9.0 起会触发本警告，竖切用例靠 `MarkWholeBodyStaticWarnedForTests` 放行），现已改为分层精灵集 + `paperdoll_layers: ["body"]`，测试出口已删除；运行时零警告由 `VerticalSliceTests.SampleData_EveryWorldViewNonCreatureDisplay_CreatesViewWithoutDiagnosticWarnings` 守住。
 - **复现/不变量（引擎 PlayMode）**：`UnityViewFactoryDefaultAnimationTests.CreateView_WholeBodySpriteSetForNonCreature_WarnsOnceWithDisplayIdAndSpriteSetId`（整身 + gobj：三次创建只一条警告，含 displayId 与精灵集 id）、`CreateView_WholeBodySpriteSetForProjectile_AlsoWarns`、`CreateView_LayeredSpriteSetForNonCreature_DoesNotWarn`、`CreateView_WholeBodySpriteSetForCreature_DoesNotWarn`。
+
+## 判断记录（武器风格剪辑预热，2026-10-09，ADR-0174 决策 6）
+
+- **现象**：不在动画集默认状态里的武器风格剪辑（`auto_attack_anim`、`cast_anim_override`/`release_anim_override` 的取值）原先在第一次被用到时才异步加载；加载完成前该状态呈现 1x1 白色占位帧（实测约 2 秒，受加载器逐帧时间预算影响），玩家第一次施法看到白点。第二次起命中缓存、同步登记真实剪辑，所以只有第一次出问题，最容易被漏过。
+- **改法**：`UnityViewFactory.PrewarmWeaponStyleClips(entityId)`——视图挂接动画播放器时、`item.equipped`（主手武器换了）后，对该实体当前武器风格的这些剪辑发起加载（带该实体的精灵集提示，ADR-0095 一致），不登记剪辑、不改占位与升级逻辑；用 `(精灵集, 剪辑)` 去重集合避免重复请求。没有武器风格来源、非 `UnityResourceLoader`、分层精灵（paperdoll）形态的视图不预热。
+- **没有走 `_pendingWeaponClipResourceLoads`**：那张表对应"某实体已登记占位等待升级"，预热只想把资源送进缓存，混进去会让升级回调在没有占位的实体上空转。
+- **复现/不变量（引擎 PlayMode）**：`WeaponClipRegistrationTests.WeaponStyleCastClip_IsPrewarmedAfterAttach_BeforeAnyCastHappens`——不触发任何施法，挂接后读条剪辑进入加载器缓存（修复前永远不进）。

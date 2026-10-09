@@ -968,6 +968,71 @@
       "text": "需要等级"
     },
     {
+      "key": "l10n.ui.skill_tooltip.type",
+      "locale": "l10n.locale.zh_cn",
+      "text": "类型"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.type_cast",
+      "locale": "l10n.locale.zh_cn",
+      "text": "读条"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.type_instant",
+      "locale": "l10n.locale.zh_cn",
+      "text": "瞬发"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.type_channel",
+      "locale": "l10n.locale.zh_cn",
+      "text": "引导"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.cast_time",
+      "locale": "l10n.locale.zh_cn",
+      "text": "施法时间"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.cooldown",
+      "locale": "l10n.locale.zh_cn",
+      "text": "冷却"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.cost",
+      "locale": "l10n.locale.zh_cn",
+      "text": "消耗"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.range",
+      "locale": "l10n.locale.zh_cn",
+      "text": "射程"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.range_self",
+      "locale": "l10n.locale.zh_cn",
+      "text": "自身"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.damage",
+      "locale": "l10n.locale.zh_cn",
+      "text": "伤害"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.heal",
+      "locale": "l10n.locale.zh_cn",
+      "text": "治疗"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.fmt_seconds",
+      "locale": "l10n.locale.zh_cn",
+      "text": "{0} 秒"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.fmt_range",
+      "locale": "l10n.locale.zh_cn",
+      "text": "{0} 米"
+    },
+    {
       "key": "l10n.stat.power.name",
       "locale": "l10n.locale.en",
       "text": "Power"
@@ -1931,6 +1996,71 @@
       "key": "l10n.ui.tooltip.required_level",
       "locale": "l10n.locale.en",
       "text": "Required level"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.type",
+      "locale": "l10n.locale.en",
+      "text": "Type"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.type_cast",
+      "locale": "l10n.locale.en",
+      "text": "Cast"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.type_instant",
+      "locale": "l10n.locale.en",
+      "text": "Instant"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.type_channel",
+      "locale": "l10n.locale.en",
+      "text": "Channel"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.cast_time",
+      "locale": "l10n.locale.en",
+      "text": "Cast time"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.cooldown",
+      "locale": "l10n.locale.en",
+      "text": "Cooldown"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.cost",
+      "locale": "l10n.locale.en",
+      "text": "Cost"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.range",
+      "locale": "l10n.locale.en",
+      "text": "Range"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.range_self",
+      "locale": "l10n.locale.en",
+      "text": "Self"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.damage",
+      "locale": "l10n.locale.en",
+      "text": "Damage"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.heal",
+      "locale": "l10n.locale.en",
+      "text": "Healing"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.fmt_seconds",
+      "locale": "l10n.locale.en",
+      "text": "{0} s"
+    },
+    {
+      "key": "l10n.ui.skill_tooltip.fmt_range",
+      "locale": "l10n.locale.en",
+      "text": "{0} m"
     }
   ]
 }
