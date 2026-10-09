@@ -57,6 +57,10 @@ namespace Core.Gameplay.Quest
         private readonly Func<long> _dayProvider;
         private readonly IExprDiagnostics _exprDiagnostics;
 
+        /// <summary>当前已登记的全部任务定义（含 <see cref="Reload"/> 后的最新集合；只读视图，随 Reload 更新）。
+        /// ADR-0173：供 <see cref="QuestGuideHost"/> 读取各任务的目标指引步骤，不属于 <see cref="IQuestHost"/> 契约。</summary>
+        public IReadOnlyCollection<QuestDefinition> Definitions => _definitions.Values;
+
         public QuestHost(
             IEnumerable<QuestDefinition> definitions,
             IEventBus eventBus,

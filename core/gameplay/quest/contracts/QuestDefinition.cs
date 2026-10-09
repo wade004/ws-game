@@ -38,6 +38,12 @@ namespace Core.Gameplay.Quest
 
         public Id? DescriptionKey { get; }
 
+        /// <summary>任务目标指引步骤（ADR-0173，<c>quest.def.guide</c>）；未声明时为空列表。</summary>
+        public IReadOnlyList<QuestGuideStep> GuideSteps { get; }
+
+        /// <summary>多个任务同时有可用指引时的先后：值大的先看，缺省 0（<c>quest.def.guide_priority</c>）。</summary>
+        public int GuidePriority { get; }
+
         public QuestDefinition(
             Id id,
             IReadOnlyList<QuestObjective> objectives,
@@ -64,6 +70,27 @@ namespace Core.Gameplay.Quest
             Repeatable = repeatable;
             TitleKey = titleKey;
             DescriptionKey = descriptionKey;
+            GuideSteps = Array.Empty<QuestGuideStep>();
+        }
+
+        /// <summary>ADR-0173：带目标指引步骤的构造重载（既有构造函数签名不变，保持二进制兼容）。</summary>
+        public QuestDefinition(
+            Id id,
+            IReadOnlyList<QuestObjective> objectives,
+            QuestStartMethod startMethod,
+            QuestTurnInMethod turnInMethod,
+            QuestRepeatable repeatable,
+            ExprNode? prerequisite,
+            Id? exclusiveGroup,
+            RewardBundle? rewards,
+            Id? titleKey,
+            Id? descriptionKey,
+            IReadOnlyList<QuestGuideStep>? guideSteps,
+            int guidePriority = 0)
+            : this(id, objectives, startMethod, turnInMethod, repeatable, prerequisite, exclusiveGroup, rewards, titleKey, descriptionKey)
+        {
+            GuideSteps = guideSteps ?? Array.Empty<QuestGuideStep>();
+            GuidePriority = guidePriority;
         }
 
         /// <summary>
@@ -125,7 +152,94 @@ namespace Core.Gameplay.Quest
             Id? titleKey = record.TryGetId("title_key", out var tk) ? tk : (Id?)null;
             Id? descKey = record.TryGetId("description_key", out var dk) ? dk : (Id?)null;
 
-            return new QuestDefinition(id, objectives, startMethod, turnInMethod, repeatable, prerequisite, exclusiveGroup, rewards, titleKey, descKey);
+            var guideSteps = record.TryGetArray("guide", out var guideArray) ? ParseGuide(id, guideArray, exprSchema) : Array.Empty<QuestGuideStep>();
+            var guidePriority = record.TryGetNumber("guide_priority", out var gp) ? (int)gp : 0;
+
+            return new QuestDefinition(id, objectives, startMethod, turnInMethod, repeatable, prerequisite, exclusiveGroup, rewards, titleKey, descKey,
+                guideSteps, guidePriority);
+        }
+
+        private static IReadOnlyList<QuestGuideStep> ParseGuide(Id questId, JsonArray array, IExprSchema exprSchema)
+        {
+            var steps = new List<QuestGuideStep>(array.Count);
+            foreach (var item in array)
+            {
+                if (!(item is JsonObject o))
+                {
+                    throw new FormatException($"quest.def[{questId}].guide 的元素必须是对象");
+                }
+
+                ExprNode? when = null;
+                if (o.TryGetValue("when", out var whenVal) && whenVal is JsonString whenStr && !string.IsNullOrEmpty(whenStr.Value))
+                {
+                    when = ExprParser.Parse(whenStr.Value, exprSchema);
+                }
+
+                if (!o.TryGetValue("text_key", out var tk) || !(tk is JsonString tkStr) || !Id.TryParse(tkStr.Value, out var textKey))
+                {
+                    throw new FormatException($"quest.def[{questId}].guide[].text_key 缺失或不是合法 Id");
+                }
+
+                var targets = new List<QuestGuideTargetDef>();
+                if (o.TryGetValue("targets", out var tv) && tv is JsonArray targetArray)
+                {
+                    foreach (var t in targetArray)
+                    {
+                        if (!(t is JsonObject to))
+                        {
+                            throw new FormatException($"quest.def[{questId}].guide[].targets 的元素必须是对象");
+                        }
+
+                        targets.Add(ParseGuideTarget(questId, to, exprSchema));
+                    }
+                }
+
+                var flags = new List<Id>();
+                if (o.TryGetValue("progress_flags", out var pf) && pf is JsonArray flagArray)
+                {
+                    foreach (var f in flagArray)
+                    {
+                        if (!(f is JsonString fs) || !Id.TryParse(fs.Value, out var flagId))
+                        {
+                            throw new FormatException($"quest.def[{questId}].guide[].progress_flags 的元素必须是合法 Id");
+                        }
+
+                        flags.Add(flagId);
+                    }
+                }
+
+                steps.Add(new QuestGuideStep(when, textKey, targets, flags));
+            }
+
+            return steps;
+        }
+
+        private static QuestGuideTargetDef ParseGuideTarget(Id questId, JsonObject o, IExprSchema exprSchema)
+        {
+            Id? areaRef = o.TryGetValue("area_ref", out var a) && a is JsonString aStr && Id.TryParse(aStr.Value, out var aId) ? aId : (Id?)null;
+            Id? spawnRef = o.TryGetValue("spawn_ref", out var sp) && sp is JsonString sStr && Id.TryParse(sStr.Value, out var sId) ? sId : (Id?)null;
+            Id? mapId = o.TryGetValue("map_id", out var m) && m is JsonString mStr && Id.TryParse(mStr.Value, out var mId) ? mId : (Id?)null;
+            Vec2? position = null;
+            if (o.TryGetValue("position", out var pv) && pv is JsonObject po &&
+                po.TryGetValue("x", out var px) && px is JsonNumber pxn && po.TryGetValue("y", out var py) && py is JsonNumber pyn)
+            {
+                position = new Vec2(pxn.Value, pyn.Value);
+            }
+
+            ExprNode? visibleIf = null;
+            if (o.TryGetValue("visible_if", out var vi) && vi is JsonString viStr && !string.IsNullOrEmpty(viStr.Value))
+            {
+                visibleIf = ExprParser.Parse(viStr.Value, exprSchema);
+            }
+
+            try
+            {
+                return new QuestGuideTargetDef(areaRef, spawnRef, mapId, position, visibleIf);
+            }
+            catch (ArgumentException ex)
+            {
+                throw new FormatException($"quest.def[{questId}].guide[].targets[]：{ex.Message}");
+            }
         }
 
         private static QuestObjective ParseObjective(Id questId, JsonObject o, IExprSchema exprSchema)

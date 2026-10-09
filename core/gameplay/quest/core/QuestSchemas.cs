@@ -228,6 +228,46 @@ namespace Core.Gameplay.Quest
                 description: "缺省 0；不能为负数（RewardBundle 构造期硬约束，业务判断见 QuestContentValidationRule）"),
         };
 
+
+        // -----------------------------------------------------------------
+        // guide[]（ADR-0173：任务目标指引步骤）
+        // -----------------------------------------------------------------
+
+        /// <summary><c>guide[].targets[]</c> 的元素结构：<c>area_ref</c>/<c>spawn_ref</c>/<c>map_id</c>+<c>position</c> 三种写法恰好选
+        /// 一种（互斥与成对约束是 <see cref="FieldSchema"/> 表达不了的业务判断，见 <see cref="QuestContentValidationRule"/> 的
+        /// <c>quest_guide_target_form</c>）；<c>visible_if</c> 是 Expr。</summary>
+        public static readonly FieldSchema GuideTargetItemSchema = new FieldSchema(
+            "<guide_target>", FieldKind.Object, required: true, fields: new[]
+            {
+                new FieldSchema("area_ref", FieldKind.Reference, required: false, referenceTable: "area.trigger_def",
+                    description: "指向该区域触发器的形状中心，Reference(area.trigger_def)"),
+                new FieldSchema("spawn_ref", FieldKind.Reference, required: false, referenceTable: "spawn.table",
+                    description: "指向该刷新点的位置，Reference(spawn.table)"),
+                new FieldSchema("map_id", FieldKind.Id, required: false, description: "字面坐标写法的所在地图（与 position 成对）")
+                    .WithSoftReference(table: "world.map"),
+                new FieldSchema("position", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("x", FieldKind.Number, required: true, description: "世界坐标 x"),
+                    new FieldSchema("y", FieldKind.Number, required: true, description: "世界坐标 y"),
+                }, description: "{x, y}，字面坐标写法（与 map_id 成对）"),
+                new FieldSchema("visible_if", FieldKind.Expr, required: false, description: "目标可见条件 Expr；缺省恒可见"),
+            },
+            description: "{area_ref | spawn_ref | map_id+position, visible_if?}");
+
+        /// <summary><c>guide[]</c> 的元素结构。</summary>
+        public static readonly FieldSchema GuideItemSchema = new FieldSchema(
+            "<guide_step>", FieldKind.Object, required: true, fields: new[]
+            {
+                new FieldSchema("when", FieldKind.Expr, required: false, description: "该步骤适用的条件 Expr（quest.is_active(...)、world.has(...) 等）；缺省恒真"),
+                new FieldSchema("text_key", FieldKind.TextKey, required: true, description: "指引文案键；文案可含 {done}/{total} 占位符"),
+                new FieldSchema("targets", FieldKind.Array, required: false, item: GuideTargetItemSchema,
+                    description: "箭头可指向的目标列表；缺省空（只显示文案）；多个目标取跳数最少、再取离玩家最近的一个"),
+                new FieldSchema("progress_flags", FieldKind.Array, required: false,
+                    item: new FieldSchema("<flag>", FieldKind.Id, required: true, description: "世界标志 id"),
+                    description: "[世界标志 id, ...]，已成立个数/总数即进度（{done}/{total}）"),
+            },
+            description: "{when?, text_key, targets?, progress_flags?}");
+
         // -----------------------------------------------------------------
         // quest.def
         // -----------------------------------------------------------------
@@ -254,6 +294,10 @@ namespace Core.Gameplay.Quest
                     description: "{items, xp（已废弃）, xp_equivalent, level, currency, skills, world_flags, talent_points}，见 Core.Gameplay.Common.RewardBundle；ADR-0019/F1b 起登记 Fields（见 QuestSchemas.RewardsFields 判断记录），T-N4-4 新增 xp_equivalent/level"),
                 new FieldSchema("repeatable", FieldKind.Enum, required: true, enumValues: QuestEnumWireNames.RepeatableValues,
                     description: "任务可重复接取的规则，见 QuestEnumWireNames.RepeatableValues"),
+                new FieldSchema("guide", FieldKind.Array, required: false, item: GuideItemSchema,
+                    description: "目标指引步骤（ADR-0173）：按数组顺序取第一条 when 成立且目标可达的步骤；缺省不提供指引"),
+                new FieldSchema("guide_priority", FieldKind.Int, required: false,
+                    description: "多个任务同时有可用指引时值大的先看，缺省 0（ADR-0173）"),
             }).WithOwnership(SchemaLayer.Gameplay, "quest");
     }
 }
