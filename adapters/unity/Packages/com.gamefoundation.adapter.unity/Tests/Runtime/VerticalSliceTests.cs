@@ -70,8 +70,6 @@ namespace Adapter.Unity.Tests.Runtime
 
         private static void Cast(ShellRoot shell, string skillId) => shell.Framework.CastSkill(new Id(skillId));
 
-        }
-
         private static readonly string[] AnimStates = { "idle", "move", "attack", "cast", "hit", "death" };
 
         // 判断记录（PlayMode 全量门禁失败 2/3、3/3 根治，分诊报告
