@@ -11,7 +11,7 @@
 
 | 家族 | 表 | 内容 |
 |---|---|---|
-| 技能模板 | `skill.def`、`skill.book`、`target.chain_def`、`skill.base_curve`、`skill.budget_rule` | 三段近战连招 `kit_melee_1~3`、重击 `kit_heavy`、蓄力 `kit_charge`、闪避 `kit_dodge`（无敌帧 + 位移）、远程射击 `kit_ranged_shot`、带预警的范围大招 `kit_ultimate_aoe`（1.5 秒前摇 + 前摇霸体）、小兵/重型/首领敌方招式、两档治疗药水；6 条目标链（自身、最近敌人、窄/宽扇形、圆形环绕、圆形范围）；起步职业技能书 `skill.book.kit_hero` |
+| 技能模板 | `skill.def`、`skill.book`、`target.chain_def`、`skill.base_curve`、`skill.budget_rule` | 三段近战连招 `kit_melee_1~3`（标 `weapon_paced`，节奏随主手武器攻速缩放，后摇起点可被闪避取消；ADR-0176）、重击 `kit_heavy`、蓄力 `kit_charge`、闪避 `kit_dodge`（无敌帧 + 位移）、远程射击 `kit_ranged_shot`、带预警的范围大招 `kit_ultimate_aoe`（1.5 秒前摇 + 前摇霸体）、小兵/重型/首领敌方招式、两档治疗药水；6 条目标链（自身、最近敌人、窄/宽扇形、圆形环绕、圆形范围）；起步职业技能书 `skill.book.kit_hero` |
 | 敌人原型 | `creature.template`、`creature.tier_definition`、`ai.behavior_profile`、`ai.rotation`、`fac.*` | 近战小兵、远程射手、重型精英、首领骨架，各自带 AI 配置与出招表；普通/精英/首领三档；玩家/敌对/镇民三个阵营与敌我关系；任务发布者、商人、存档点三类 NPC |
 | 装备 | `item.slot_definition`、`item.quality_definition`、`item.affix`、`item.template`、`item.*_curve` | 主手/胸甲/饰品/消耗品/材料五个槽位；普通/优秀/精良/史诗四档品质（预算倍率、词缀数递增）；三条词缀结构（预算份额 + 属性混合 + 品质池）；八个通用示例装备与消耗品；预算/护甲/需求等级/武器 DPS 曲线 |
 | 掉落 | `loot.table` | 每个敌人一张表：`chance_each`（按概率各掷一次）与 `weighted_pick_one`（加权必掉一件）两种结构的示例 |

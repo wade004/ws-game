@@ -437,6 +437,13 @@ namespace Core.Rules.Skill
         /// <summary>按住维持型动作声明（<c>active_until_release</c>）；null 即定长动作（既有行为，ADR-0143）。</summary>
         public TimelineSustain? ActiveUntilRelease { get; }
 
+        /// <summary>
+        /// 武器节奏动作（<c>weapon_paced</c>，ADR-0176）：真时，动作开始时按行动者主手武器的挥击间隔
+        /// （<c>weapon_profile.speed</c>）÷ <c>SkillOptions.WeaponPaceReferenceSeconds</c> 缩放整段时长（三相、标记、窗口起点同系数）；
+        /// 假（缺省）时武器攻速不参与，行为与此前逐位一致。
+        /// </summary>
+        public bool WeaponPaced { get; }
+
         /// <summary>三相之和（毫秒，不含蓄力）。</summary>
         public double TotalMs => StartupMs + ActiveMs + RecoveryMs;
 
@@ -584,7 +591,37 @@ namespace Core.Rules.Skill
             bool? isAttack,
             TimelineHitAnchor hitAnchor,
             TimelineSustain? activeUntilRelease)
+            : this(
+                source, charge, startupMs, activeMs, recoveryMs, markers, cancelWindows, combo, hitPolicy, costAt, cooldownAt,
+                motion, feelRef, hitMode, sampleStepMs, rehitIntervalMs, targetAssist, isAttack, hitAnchor, activeUntilRelease, false)
         {
+        }
+
+        /// <summary>武器节奏重载（ADR-0176）：携带 <see cref="WeaponPaced"/>（新增重载，不改既有物理签名）。</summary>
+        public TimelineDef(
+            TimelineSource source,
+            TimelineCharge? charge,
+            double startupMs,
+            double activeMs,
+            double recoveryMs,
+            IReadOnlyList<TimelineMarker> markers,
+            IReadOnlyList<TimelineCancelWindow> cancelWindows,
+            TimelineCombo? combo,
+            TimelineHitPolicy hitPolicy,
+            TimelineCostAt costAt,
+            TimelineCooldownAt cooldownAt,
+            ActionMotion? motion,
+            string? feelRef,
+            TimelineHitMode hitMode,
+            double sampleStepMs,
+            double rehitIntervalMs,
+            TimelineTargetAssist? targetAssist,
+            bool? isAttack,
+            TimelineHitAnchor hitAnchor,
+            TimelineSustain? activeUntilRelease,
+            bool weaponPaced)
+        {
+            WeaponPaced = weaponPaced;
             HitAnchor = hitAnchor;
             ActiveUntilRelease = activeUntilRelease;
             IsAttack = isAttack;
@@ -765,7 +802,8 @@ namespace Core.Rules.Skill
                 hitMode, Num(obj, "sample_step_ms"), Num(obj, "rehit_interval_ms"), assist,
                 obj.TryGetValue("is_attack", out var isAttackVal) && isAttackVal is JsonBool isAttackBool ? isAttackBool.Value : (bool?)null,
                 hitAnchor,
-                sustain);
+                sustain,
+                obj.TryGetValue("weapon_paced", out var pacedVal) && pacedVal is JsonBool pacedBool && pacedBool.Value);
         }
 
         private static TimelineWindowRequires ParseRequires(string? text) => text switch

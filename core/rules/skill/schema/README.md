@@ -55,6 +55,7 @@
 | `motion` | Object | 否 | 位移块 `{driver, kind, distance, curve?, direction, max_turn_deg?, blocking}`（运动仲裁切片消费，经 `ActionState.Motion`；`max_turn_deg` 缺省 180，`curve` 缺省 `linear`） |
 | `feel_ref` | Id | 否 | 动作层手感覆盖行（`feel.action`） |
 | `hit_anchor` | Enum(`caster`\|`ground_point`) | 否 | M5-S2a：只对声明了 `ground_target` 的技能有意义——声明后经地面坐标施法请求施放时进入时间线，命中形状以施法者位姿（`caster`）或落点（`ground_point`，朝向指向落点）为锚点；缺省不声明保持既有行为（`timeline` 被忽略并给警告）；没有 `ground_target` 却写了它给警告 `timeline_hit_anchor_without_ground_target` |
+| `weapon_paced` | Bool | 否 | 缺省 false（[ADR-0176](../../../../architecture/adr/0176-武器节奏动作.md)）：武器节奏动作——动作开始时整段时长乘主手武器挥击间隔（`weapon_profile.speed`，秒）÷ `SkillOptions.WeaponPaceReferenceSeconds`（缺省 1.0），三相、标记与窗口起点同一系数，窗口长度不缩放；无武器或无有效 speed 时系数为 1。用于轻击/连段，重击、蓄力、闪避不写 |
 
 语义校验由 `SkillTimelineRule`（`RulesSchemaCatalog` 登记）负责，Error 检查名：`timeline_zero_duration`、`timeline_cast_time_mismatch`、
 `timeline_on_passive`、`timeline_channel_time_exclusive`、`timeline_charge_range`、`timeline_marker_{segment,out_of_range,derived,unknown,duplicate_segment}`、

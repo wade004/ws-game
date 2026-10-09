@@ -274,6 +274,9 @@ namespace Core.Rules.Skill
         private int _updateSeq;
         private bool _inUpdate;
 
+        /// <summary>武器挥击间隔查询（ADR-0176，供 <c>weapon_paced</c> 动作取主手武器的 <c>weapon_profile.speed</c>）；<see cref="SkillHost"/> 构造时回填，没有则不缩放。</summary>
+        internal IWeaponDamageQuery? WeaponQuery { get; set; }
+
         /// <summary>组装期注入时间线的协作者（见 <see cref="TimelineServices"/>）；可重复调用，后一次覆盖前一次。</summary>
         internal void AttachTimelineServices(TimelineServices services)
         {
@@ -510,6 +513,27 @@ namespace Core.Rules.Skill
             def = nextDef;
         }
 
+        /// <summary>
+        /// 武器节奏系数（ADR-0176）：未声明 <c>weapon_paced</c>、没有武器查询、行动者没有带 <c>speed</c> 的主手武器、基准间隔非正时恒为 1（不缩放）；
+        /// 否则 = 主手武器挥击间隔（秒）÷ <see cref="SkillOptions.WeaponPaceReferenceSeconds"/>。
+        /// </summary>
+        private double WeaponPaceFactor(Id casterId, TimelineDef tl)
+        {
+            if (!tl.WeaponPaced || WeaponQuery == null)
+            {
+                return 1.0;
+            }
+
+            var interval = WeaponQuery.GetWeaponAttackIntervalSeconds(casterId);
+            var reference = _options.WeaponPaceReferenceSeconds;
+            if (!interval.HasValue || !(interval.Value > 0.0) || !(reference > 0.0))
+            {
+                return 1.0;
+            }
+
+            return interval.Value / reference;
+        }
+
         private static double FeelNumber(ResolvedFeel feel, string field, double fallback) =>
             feel.Judging.TryGetNumber(field, out var v) ? v : fallback;
 
@@ -562,6 +586,8 @@ namespace Core.Rules.Skill
             // 速率重映射（手感设计/01 第 3.5 节）：系数 = 经 SpellMod 与急速折算后的动作时长 / 声明时长。
             // 复用既有 ComputeCastTime（含 HasteAffectsActionTime 开关、MaxHastePct 与 MinActionSeconds 下限），不另起一套。
             var factor = def.CastTime > 0 ? ComputeCastTime(casterId, def) / def.CastTime : 1.0;
+            // 武器节奏（ADR-0176）：声明了 weapon_paced 的动作再乘“主手武器挥击间隔 ÷ 基准间隔”，与急速系数相乘；动作开始时快照，换装不影响进行中的动作。
+            factor *= WeaponPaceFactor(casterId, tl);
             var schedule = TimelineSchedule.Build(tl, step, factor, scaling);
 
             var chargeRatio = 0.0;

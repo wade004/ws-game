@@ -122,3 +122,17 @@ def test_kit_defines_every_percent_stat_the_combat_resolver_reads_by_default() -
     assert {"stat.damage_done_pct", "stat.damage_taken_pct", "stat.healing_done_pct"} <= wanted, wanted
     defined = {r["id"] for r in _tables()["stat.definition"]["rows"]}
     assert wanted <= defined, sorted(wanted - defined)
+
+
+def test_kit_light_attacks_are_paced_by_the_equipped_weapon_and_dodge_cancellable() -> None:
+    """三段普攻的挥击节奏由主手武器的挥击间隔缩放（ADR-0176）：不标 weapon_paced 时连点只受动作自身时长限制，武器攻速字段形同虚设；
+    收招期可被闪避取消（取消窗口开在后摇起点 = 前摇 + 有效），重击/蓄力沿用各自技能数据的节奏。"""
+    rows = {r["id"]: r for r in _tables()["skill.def"]["rows"]}
+    for skill in ("skill.kit_melee_1", "skill.kit_melee_2", "skill.kit_melee_3"):
+        timeline = rows[skill]["timeline"]
+        assert timeline.get("weapon_paced") is True, skill
+        recovery_start = timeline["startup_ms"] + timeline["active_ms"]
+        dodge = [w for w in timeline.get("cancel_windows", []) if w["class"] == "dodge"]
+        assert dodge and dodge[0]["open_ms"] == recovery_start, skill
+    for skill in ("skill.kit_heavy", "skill.kit_charge", "skill.kit_dodge"):
+        assert not rows[skill]["timeline"].get("weapon_paced"), skill

@@ -172,6 +172,15 @@ namespace Core.Rules.Skill
         public double MinActionSeconds { get; set; } = 0.0;
 
         /// <summary>
+        /// 武器节奏的基准挥击间隔（秒，ADR-0176）：声明了 <c>timeline.weapon_paced</c> 的动作，动作开始时把整段时长乘
+        /// <c>主手武器 weapon_profile.speed ÷ 本值</c>（速度 = 本值的武器按动作数据原速播放，更慢的武器拉长、更快的缩短）。
+        /// 缺省 1.0，与 <c>skill.budget_rule.beat_seconds</c> 的缺省“一拍”同值——一拍速度的武器就是动作数据的原速；
+        /// 游戏改了一拍常数、或想让某档武器速度对应原速时同步改本值。≤ 0 视为不缩放。只影响声明了 <c>weapon_paced</c> 的动作，
+        /// 不声明则武器攻速不参与动作时长（与此前逐位一致）。
+        /// </summary>
+        public double WeaponPaceReferenceSeconds { get; set; } = 1.0;
+
+        /// <summary>
         /// T-N3-5（ADR-0031 决策 10"急速是否缩短动作时长及其下限"；
         /// [ADR-0032](../../../../architecture/adr/0032-装备预算消耗与词缀份额.md) 决策 4"成长由急速
         /// 属性作用于动作时长，上限为急速硬上限"）：急速对动作时长生效的硬上限，单位同

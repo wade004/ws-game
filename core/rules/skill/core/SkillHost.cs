@@ -206,6 +206,8 @@ namespace Core.Rules.Skill
             _pipeline = new CastPipeline(
                 _defs, _cooldowns, _auraHost, _effectDispatcher, targetHost, _units, spatialQuery,
                 powerHost, _spellMods, eventBus, options1, _diagnostics, navigation, exprHostFactory, statHost);
+            // ADR-0176：weapon_paced 动作取主手武器挥击间隔用（与效果分发器同一个查询实例；没有则不缩放）。
+            _pipeline.WeaponQuery = weaponDamageQuery;
 
             // R05 收边补齐（外部审计 5e779c6，P2；见 Core.Rules.Common.TimeModelRescaledEvent
             // 类型判断记录）：本类型是 CooldownTracker/AuraHost 的组合根，在这里订阅一次、原子

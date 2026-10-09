@@ -40,7 +40,14 @@
           "next": "skill.kit_melee_2",
           "open_ms": 170,
           "close_ms": 340
-        }
+        },
+        "weapon_paced": true,
+        "cancel_windows": [
+          {
+            "class": "dodge",
+            "open_ms": 170
+          }
+        ]
       }
     },
     {
@@ -81,7 +88,14 @@
           "next": "skill.kit_melee_3",
           "open_ms": 170,
           "close_ms": 350
-        }
+        },
+        "weapon_paced": true,
+        "cancel_windows": [
+          {
+            "class": "dodge",
+            "open_ms": 170
+          }
+        ]
       }
     },
     {
@@ -116,6 +130,13 @@
           {
             "name": "hit",
             "at_ms": 140
+          }
+        ],
+        "weapon_paced": true,
+        "cancel_windows": [
+          {
+            "class": "dodge",
+            "open_ms": 240
           }
         ]
       }
