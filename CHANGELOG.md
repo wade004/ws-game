@@ -458,6 +458,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **手感落地 M4（1.96.0）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[1.96.0]` 正文。
 - **非手感已知限制清扫（1.96.0，[ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）**：数据与契约只增不改，编辑器按需跟进——`item.slot_definition` 新增可选布尔字段 `has_appearance`（缺省 `true`，写 `false` 的槽位物品不要求 `display.equip_visual` 行）；表达式可读事件 `combat.attack_avoided`、`combat.hit_confirmed` 的 `attackInstanceId` 现在可经表达式读取（为空时查不到）；`LootExpectedCurrencyOutcome.ExpectedRoundedAmount`（含取整与非正值跳过的精确货币期望，线性的 `ExpectedAmount` 保留，"理论与观测"面板应读前者）与 `LootTableAnalyzer.ExpectedAffixInclusion` 的 5 参数重载（大词缀池精确解，计算量预算 `exactMaxWork`）；`item.set` 数据重载后套装门槛立即对账（热重载后不必再等装备变化才见效果）；`simrunner fight` 子命令与 `--fight-log` 日志文件（`{schema_version, truncated, entries}`）；游戏模板 `GameOptions.PathFailurePolicy`/`BlockingChangePolicy`。详见下方 `[1.96.0]`"非手感已知限制清扫"。
 
+## [2.15.0] - 2026-10-10
+
+### 新增
+
+- **技能栏悬停详情与点击施放（[ADR-0180](architecture/adr/0180-技能栏悬停详情与点击施放.md)，样板游戏反馈"技能栏点不了、看不到技能说明"）**：(1) 引擎适配层新增 `Adapter.Unity.Ui.SkillBarInteraction`（挂在界面上，逐格登记技能格，悬停出详情提示框，左键点击把该格对应的热键注入输入流）、`SkillTooltipView`（提示框排版）、`UiInputBridge`（包装 `IInput`：注入虚拟按键，且鼠标按下落在界面上时吞掉该事件，不再穿透到世界动作，解决"鼠标左键本身就是攻击键"的游戏里点技能栏又挥一刀）。点击与按键走同一条输入通道，冷却、消耗、动作进行中的拒绝与按键完全一致。(2) 技能提示框内容：`SkillTooltipBuilder` 对带 `timeline` 的动作技能显示"类型 = 动作"与"动作时长"；`SkillTooltipContext` 新增武器挥击间隔与基准间隔，技能声明 `weapon_paced`（ADR-0176）时时长按 间隔 ÷ 基准 缩放，显示的就是实际挥击时长。(3) 内容起步包玩家技能补齐 `name_key`/`desc_key` 与中英文文案，提示框新增"动作"类型键。
+- **镜头可视范围限制 `view_limit`（[ADR-0181](architecture/adr/0181-镜头可视范围限制.md)，样板游戏反馈"镜头边缘一片蓝"）**：`camera_profile` 新增可选字段 `view_limit`（地图矩形 `min`/`max`），**缺省关闭，不写则行为与以前完全一致**；写了之后 `CameraHost` 按适配层新契约 `ICameraGroundFootprint`（视口四角射线与地面交点的外接矩形）把跟随点收在"画面不出地图"的区间，某方向画面比地图还大时在该方向与地图居中重合。`UnityCamera`、`StubCamera` 均已实现该契约；数据只写地图矩形，不再手写镜头中心的活动范围。
+- 用例：`SkillTooltipBuilderTests`（动作类型与武器节奏时长两条）、`CameraViewLimitTests`（Core 层）、`SkillBarInteractionPlayModeTests`（悬停、点击、拒绝、吞鼠标按下）、`UnityCameraGroundFootprintTests`（真实相机四角射线落在地图内）、`test_starter_kit_data.py`（技能文案键中英文齐全）。
+
+### 契约决定
+
+- [ADR-0180](architecture/adr/0180-技能栏悬停详情与点击施放.md)：技能栏交互的分工（控件在适配层、内容由数据算出）、点击等价于按键、界面上的鼠标按下被吞。
+- [ADR-0181](architecture/adr/0181-镜头可视范围限制.md)：`view_limit` 缺省关闭、按画面实际落地范围收跟随点、无解时居中。
+
 ## [2.14.0] - 2026-10-10
 
 ### 新增
