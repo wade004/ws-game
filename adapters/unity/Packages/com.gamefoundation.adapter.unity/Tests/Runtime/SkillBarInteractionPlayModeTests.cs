@@ -188,7 +188,14 @@ namespace Adapter.Unity.Tests.Runtime
             var tipCorners = new Vector3[4];
             interaction.Tooltip.Root.GetWorldCorners(tipCorners);
             var overTip = RectTransformUtility.WorldToScreenPoint(null, (tipCorners[0] + tipCorners[2]) * 0.5f);
-            Assert.IsFalse(UiInputBridge.PointerOverUi(overTip), "提示框不挡鼠标");
+            // 只看提示框自己：同一进程里别的用例留下的界面可能恰好盖在这个位置，不能要求这里一片空白。
+            var system = EventSystem.current;
+            var hits = new List<RaycastResult>();
+            system.RaycastAll(new PointerEventData(system) { position = overTip }, hits);
+            foreach (var hit in hits)
+            {
+                Assert.IsFalse(hit.gameObject.transform.IsChildOf(interaction.Tooltip.Root.transform), "提示框不挡鼠标：射线不应命中 " + hit.gameObject.name);
+            }
             Assert.IsFalse(UiInputBridge.PointerOverUi(new Vector2(2f, Screen.height - 2f)), "空白处不在界面上");
         }
 
