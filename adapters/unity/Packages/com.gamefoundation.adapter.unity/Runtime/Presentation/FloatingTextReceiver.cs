@@ -33,6 +33,11 @@ namespace Adapter.Unity.Presentation
         private readonly Func<Camera?>? _cameraProvider;
         private readonly Vector3 _riseDirection = Vector3.up;
 
+        // 判断记录（ADR-0178，绘制序）：世界空间文字的绘制序默认是 0，而精灵按「图层 × 1000 − 排序 Y」落绘制序（见 UnityRenderer2D 的排序约定），
+        // 单位、地面、远景层的绘制序都比 0 大时，飘字会被它们盖住（样板游戏截图里「闪避」整句看不见）。飘字是叠在场景之上的反馈，
+        // 绘制序取排序约定能用到的最大档之上（精灵层 -32..32 × 1000 + ±500，短整型上限 32767），两种构造一致。
+        public const int FloatingTextSortingOrder = 32000;
+
         private const float LifeSeconds = 1.2f;
         private const float RiseSpeed = 0.6f;
 
@@ -193,6 +198,7 @@ namespace Adapter.Unity.Presentation
             tmp.fontSize = 3.5f;
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.textWrappingMode = TextWrappingModes.NoWrap;
+            tmp.sortingOrder = FloatingTextSortingOrder;
             return tmp;
         }
     }
