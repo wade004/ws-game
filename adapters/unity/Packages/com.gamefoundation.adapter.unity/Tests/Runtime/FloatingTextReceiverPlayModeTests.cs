@@ -108,6 +108,36 @@ namespace Adapter.Unity.Tests.Runtime
         }
 
         [UnityTest]
+        public IEnumerator FloatingText_DrawsAboveEverySpriteSortingOrder_InBothConstructors()
+        {
+            var root = new GameObject("FloatingTextTestRoot5");
+            var cameraObject = new GameObject("FloatingTextTestCamera5", typeof(Camera));
+            try
+            {
+                var flat = new FloatingTextReceiver(root.transform, _ => Vec2.Zero, Styles());
+                var world = new FloatingTextReceiver(root.transform, _ => Vector3.zero, Styles(), () => cameraObject.GetComponent<Camera>(), Vector3.up);
+                flat.Show(new Id("unit.a"), NormalStyle, "flat");
+                world.Show(new Id("unit.a"), NormalStyle, "world");
+                var texts = root.GetComponentsInChildren<TextMeshPro>(true);
+                Assert.AreEqual(2, texts.Length);
+                // 精灵绘制序 = 图层 × 1000 − 排序 Y（UnityRenderer2D 的排序约定）；样板游戏用到的图层都在 10 以内。
+                const int tenthLayerTopOrder = 10 * 1000 + 500;
+                foreach (var t in texts)
+                {
+                    Assert.AreEqual(FloatingTextReceiver.FloatingTextSortingOrder, t.sortingOrder, t.text);
+                    Assert.Greater(t.sortingOrder, tenthLayerTopOrder, t.text + " 的绘制序要高于场景精灵");
+                }
+            }
+            finally
+            {
+                Object.Destroy(root);
+                Object.Destroy(cameraObject);
+            }
+
+            yield return null;
+        }
+
+        [UnityTest]
         public IEnumerator DodgeStyle_IsNotTheWhiteOfDamageNumbers()
         {
             var root = new GameObject("FloatingTextTestRoot3");
