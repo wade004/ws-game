@@ -458,6 +458,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **手感落地 M4（1.96.0）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[1.96.0]` 正文。
 - **非手感已知限制清扫（1.96.0，[ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）**：数据与契约只增不改，编辑器按需跟进——`item.slot_definition` 新增可选布尔字段 `has_appearance`（缺省 `true`，写 `false` 的槽位物品不要求 `display.equip_visual` 行）；表达式可读事件 `combat.attack_avoided`、`combat.hit_confirmed` 的 `attackInstanceId` 现在可经表达式读取（为空时查不到）；`LootExpectedCurrencyOutcome.ExpectedRoundedAmount`（含取整与非正值跳过的精确货币期望，线性的 `ExpectedAmount` 保留，"理论与观测"面板应读前者）与 `LootTableAnalyzer.ExpectedAffixInclusion` 的 5 参数重载（大词缀池精确解，计算量预算 `exactMaxWork`）；`item.set` 数据重载后套装门槛立即对账（热重载后不必再等装备变化才见效果）；`simrunner fight` 子命令与 `--fight-log` 日志文件（`{schema_version, truncated, entries}`）；游戏模板 `GameOptions.PathFailurePolicy`/`BlockingChangePolicy`。详见下方 `[1.96.0]`"非手感已知限制清扫"。
 
+## [2.14.0] - 2026-10-10
+
+### 新增
+
+- **被动闪避（[ADR-0178](architecture/adr/0178-被动闪避与不可闪避标签.md)，样板游戏反馈"闪避应是被动技能，主动位移键改叫翻滚"）**：命中表的 `dodge` 分支此前已具备（按受击者属性掷骰、发布 `combat.attack_avoided { hitResult: Dodge }`），缺的是接入与约定。(1) 新增框架保留技能标签 `skill.tag.unavoidable`（`WellKnownSkillTags.Unavoidable`）：带此标签的技能其全部效果跳过命中表的回避分支（未命中、闪避、招架、偏斜、格挡），与 `EffectContext.CanMiss = false` 同义，暴击不受影响；标签随 `EffectContext.Tags` 走完施法、投射物、光环三条路径，`Resolver` 一处识别，不新增 schema 字段；翻滚无敌窗口先于命中表，不受影响。(2) 内容起步包接入完整属性链：`stat.dodge_rating`（百分比类别，缺省 5 点，评级曲线 `stat.rating.kit_dodge` 1 点 = 1%，`clamp.max` 0.5 封顶）、等级成长（`prog.level_curve.growth`）、装备（`item.kit_charm_evasion`、词缀 `item.affix.kit_of_evasion`）、默认命中表启用 `dodge` 分支、被动闪避飘字（`feedback.kit_dodge_text`，文案键 `l10n.combat.kit_dodge_text`）。(3) 引擎适配层 `FloatingTextReceiver` 新增三维锚点构造（世界锚点、上浮方向、朝向相机），含非 ASCII 字符的飘字改用套件字体（TMP 内置默认字体没有 CJK 字形），闪避/未命中配色用淡青色；二维构造与纯数字飘字行为不变。**缺省影响**：加载起步包的游戏，默认命中表现在启用闪避——玩家与敌人都有约 5% 起步的闪避率，所有直接伤害攻击可能被闪避。不想要：用 `"override": true` 覆盖 `combat.hit_table.default`（把 `dodge.enabled` 改回 false），或把 `GameOptions.HitTableConfigId` 指向自己的命中表。起步包技能 `skill.kit_dodge` 的展示名改叫"翻滚 / Roll"（标识符不变）。试玩实验室的按键提示与技能说明同步改叫翻滚。
+- 用例：`PassiveDodgeTests`（9 条：固定种子逐次重放比对、万级样本收敛到属性概率、同种子逐位复现、不可闪避标签不耗随机数、治疗不闪避等）、`test_starter_kit_data.py::test_kit_declares_the_passive_dodge_chain_from_stat_to_hit_table_to_floating_text`、`FloatingTextReceiverPlayModeTests`（4 条，三维锚点与字体）。
+
+### 修复
+
+- **发布候选阶段：`-SamplesRepo` 传样板仓库的已关联工作树时，不再把阶段在该工作树里的合法升级误报成"改动了样板主工作树"**（消费方反馈 [消费方反馈-2026-10-09-发布候选阶段-已关联工作树误报.md](docs/消费方反馈/消费方反馈-2026-10-09-发布候选阶段-已关联工作树误报.md)）：前后快照改拍真正的样板主工作树（`git rev-parse --git-common-dir` 的上级），传主工作树本身行为不变；新增 3 条用例（含真实 git 已关联工作树）。
+
+### 契约决定
+
+- [ADR-0178](architecture/adr/0178-被动闪避与不可闪避标签.md)：被动闪避的术语（"闪避"只指被动判定，原主动位移叫"翻滚"）、哪些攻击可闪避（直接伤害一视同仁）、不可闪避的数据标记、起步包属性链与封顶、反馈。
+
 ## [2.13.0] - 2026-10-10
 
 ### 新增
