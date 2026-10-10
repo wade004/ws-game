@@ -645,13 +645,20 @@ namespace Core.Rules.Assembly
             Vec2 aiSpawnPoint = default)
         {
             Stats.RegisterUnit(unitId);
-            Archetypes.ApplyTo(unitId, classId, raceId);
 
+            // 判断记录（ADR-0178 样板游戏接入时暴露）：先登记等级、再应用原型。原型的基础属性经 StatHost.SetBase
+            // 写入时，带评级换算曲线的百分比类属性（例如被动闪避点数）要立刻按单位当前等级求值
+            // （StatHostOptions.LevelLookup 接 ProgressionHost.GetLevel，单位未登记即抛异常），所以等级必须先于
+            // 基础属性就位；顺序颠倒时，职业 base_stats 里只要出现一条评级属性，整个单位注册就会失败。
+            // 同时这样换算用的是单位的真实起始等级（而不是回落到 1 级的曲线点），等级相关的换算曲线首次求值就是对的。
+            // Progression.RegisterUnit 不读写属性，与原型应用没有相互依赖，调换顺序不改变其它结果。
             var classRecord = Registry.Get("arch.class", classId);
             if (classRecord != null && classRecord.TryGetId("level_curve_ref", out var curveId))
             {
                 Progression.RegisterUnit(unitId, curveId, level);
             }
+
+            Archetypes.ApplyTo(unitId, classId, raceId);
 
             if (aiProfileId.HasValue)
             {
