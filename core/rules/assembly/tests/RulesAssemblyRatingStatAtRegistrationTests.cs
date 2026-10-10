@@ -24,6 +24,7 @@ namespace Tests.Rules.Assembly
         private static readonly Id Dodge = new Id("stat.rsr_dodge");
         private static readonly Id Unit = new Id("unit.rsr_unit");
         private static readonly Id Class = new Id("arch.class.rsr_hero");
+        private static readonly Id MobClass = new Id("arch.class.rsr_mob");
 
         private const double Points = 10;
         private const double DivisorLevel1 = 100;
@@ -83,7 +84,10 @@ namespace Tests.Rules.Assembly
             ""rows"": [
                 { ""id"": ""arch.class.rsr_hero"", ""name_key"": ""l10n.arch.class.rsr_hero.name"",
                   ""primary_stat"": ""stat.rsr_power"", ""base_stats"": { ""stat.rsr_dodge"": 10 },
-                  ""power_types"": [ ""arch.power.rsr_energy"" ], ""level_curve_ref"": ""prog.curve.rsr"" }
+                  ""power_types"": [ ""arch.power.rsr_energy"" ], ""level_curve_ref"": ""prog.curve.rsr"" },
+                { ""id"": ""arch.class.rsr_mob"", ""name_key"": ""l10n.arch.class.rsr_mob.name"",
+                  ""primary_stat"": ""stat.rsr_power"", ""base_stats"": { ""stat.rsr_dodge"": 10 },
+                  ""power_types"": [ ""arch.power.rsr_energy"" ] }
             ]
         }";
 
@@ -135,6 +139,18 @@ namespace Tests.Rules.Assembly
             var ex = Record.Exception(() => rules.RegisterUnit(Unit, Class, raceId: null));
 
             Assert.Null(ex);
+            Assert.Equal(Points / DivisorLevel1, rules.Stats.GetStat(Unit, Dodge), 9);
+        }
+
+        [Fact]
+        public void RegisterUnit_ClassWithoutLevelCurve_RatingStatConvertsAtLevelOne_NotThrow()
+        {
+            var rules = Build();
+
+            var ex = Record.Exception(() => rules.RegisterUnit(Unit, MobClass, raceId: null));
+
+            Assert.Null(ex);
+            Assert.False(rules.Progression.IsRegistered(Unit), "不带 level_curve_ref 的职业不登记等级");
             Assert.Equal(Points / DivisorLevel1, rules.Stats.GetStat(Unit, Dodge), 9);
         }
 

@@ -469,7 +469,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 - **发布候选阶段：`-SamplesRepo` 传样板仓库的已关联工作树时，不再把阶段在该工作树里的合法升级误报成"改动了样板主工作树"**（消费方反馈 [消费方反馈-2026-10-09-发布候选阶段-已关联工作树误报.md](docs/消费方反馈/消费方反馈-2026-10-09-发布候选阶段-已关联工作树误报.md)）：前后快照改拍真正的样板主工作树（`git rev-parse --git-common-dir` 的上级），传主工作树本身行为不变；新增 3 条用例（含真实 git 已关联工作树）。
 
-- **`RulesAssembly.RegisterUnit`：职业 `base_stats` 含带评级换算曲线的百分比类属性（被动闪避点数、暴击评级等）时不再注册失败**：此前先应用原型（写基础属性）、后登记等级，评级换算按单位等级求值而单位还没登记等级，整个单位注册抛 `ArgumentException`（“单位未通过 RegisterUnit 注册”）；现改为先登记等级（有 `level_curve_ref` 时）再应用原型，换算也因此用单位的真实起始等级而不是 1 级。其余属性与资源池行为不变。用例：`RulesAssemblyRatingStatAtRegistrationTests`（2 条：不抛异常且按 1 级除数换算；起始 10 级按 10 级除数换算）。
+- **`RulesAssembly.RegisterUnit`：职业 `base_stats` 含带评级换算曲线的百分比类属性（被动闪避点数、暴击评级等）时不再注册失败**：此前先应用原型（写基础属性）、后登记等级，评级换算按单位等级求值而单位还没登记等级，整个单位注册抛 `ArgumentException`（“单位未通过 RegisterUnit 注册”）；现改为先登记等级（有 `level_curve_ref` 时）再应用原型，换算也因此用单位的真实起始等级而不是 1 级；没有登记等级的单位（怪物这类职业不带 `level_curve_ref` 的单位）带评级属性时，评级换算按 1 级求值而不是抛异常（新增 `ProgressionHost.IsRegistered(Id)`，`RulesAssembly` 的评级等级查找据此兜底）。其余属性与资源池行为不变。用例：`RulesAssemblyRatingStatAtRegistrationTests`（3 条：不抛异常且按 1 级除数换算；起始 10 级按 10 级除数换算；不带等级曲线的职业按 1 级换算）。
 
 ### 契约决定
 

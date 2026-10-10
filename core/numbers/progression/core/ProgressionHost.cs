@@ -319,6 +319,10 @@ namespace Core.Numbers.Progression
         /// <summary>见 <see cref="IProgressionHost.UnregisterUnit"/>（ADR-0125 第三批）。</summary>
         public void UnregisterUnit(Id unitId) => _units.Remove(unitId.Value);
 
+        /// <summary>单位是否已登记等级（<see cref="RegisterUnit"/> 过）。供组合根给评级换算做"没有等级的单位按 1 级"的兜底，
+        /// 不必靠捕获 <see cref="GetLevel"/> 的异常判断。</summary>
+        public bool IsRegistered(Id unitId) => _units.ContainsKey(unitId.Value);
+
         public int GetLevel(Id unitId) => GetUnitOrThrow(unitId).Level;
 
         public long GetXp(Id unitId) => GetUnitOrThrow(unitId).Xp;

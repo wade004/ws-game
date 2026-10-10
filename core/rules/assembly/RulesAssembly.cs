@@ -290,7 +290,10 @@ namespace Core.Rules.Assembly
             var resolvedStatOptions = statOptions ?? new StatHostOptions();
             if (resolvedStatOptions.LevelLookup == null)
             {
-                resolvedStatOptions.LevelLookup = unitId => progression.GetLevel(unitId);
+                // 判断记录（ADR-0178 样板游戏接入时暴露）：没有登记等级的单位（怪物这类职业不带 level_curve_ref 的单位）
+                // 也可能带评级属性（被动闪避点数），评级换算这时按 1 级求值，而不是抛异常让整个单位注册失败；
+                // 登记了等级的单位仍取真实等级，升级后由 progression.level_up 触发重算（RecomputeRatingStats）。
+                resolvedStatOptions.LevelLookup = unitId => progression.IsRegistered(unitId) ? progression.GetLevel(unitId) : 1;
             }
             Stats = new StatHost(Registry, Bus, resolvedStatOptions);
 
