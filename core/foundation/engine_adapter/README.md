@@ -168,3 +168,9 @@ engine_adapter/
 ## 可选能力接口 `ITerrainPlatforms2D`：单向平台与移动平台（2026-10-08，样板游戏 D 缺口，[ADR-0170](../../../architecture/adr/0170-单向平台移动平台与下穿俯冲.md)）
 
 `ITerrainHeight2D` 对每个平面点只回答一个地面高度，表达不了"同一点上方悬着一块从下面能跳穿的平台"，也没有随时间移动的表面。新增独立的可选接口 `ITerrainPlatforms2D`（`TimeSeconds`、`SetTime`、`Advance`、`LastMotions`、`TryLand`、`TryGetSupport`、`TryGetTop`）与值类型 `PlatformContact`/`PlatformMotion`，通过 `VerticalAxisOptions.Platforms` 接入，缺省 null 世界逐位不变，不给 `ITerrainHeight2D` 加成员。`TryLand` 的单向规则是"这一步脚下起点不低于顶面、终点不高于顶面"；`TryGetSupport` 允许与移动平台上一步的顶面齐平（刚放上去的单位还没来得及被带动）。数据实现见 `MapPlatforms`（scene_router）；引擎侧可用物理单向碰撞体实现同一接口（本次未提供引擎版，样板游戏用数据版）。已知限制：见 ADR-0170 限制 1~6。
+
+## `MouseButtons`：鼠标按钮规范名（2026-10-11，样板游戏 C 真机缺陷，[ADR-0182](../../../architecture/adr/0182-鼠标按钮规范名.md)）
+
+`contracts/MouseButtons.cs` 是鼠标按钮名的唯一词汇表：`Left = "left"`、`Right = "right"`、`Middle = "middle"`（`All`、`IsCanonical`、`Describe`）。适配层发出的 `MouseButtonDown`/`MouseButtonUp` 事件的 `InputEvent.Key`、`IInput.IsKeyDown` 查询鼠标按钮用的名字、输入映射 `mouse:<button>` 绑定里的名字，三处共用这一份。引擎自己的按钮命名由适配层在边界翻译，**不接受别名**。`StubInput.PressMouseButton`/`ReleaseMouseButton` 只接受规范名（非规范名抛 `ArgumentException`），测试替身不能再喂真机上不存在的名字。
+
+接适配层的人：实现 `IInput` 时鼠标按钮事件与按住查询只用 `MouseButtons` 常量；自写的脚本化输入测试替身同理。此前引擎适配层发过带前缀的大写名（`MouseLeft` 等），此版本起不再发也不再认。用例：`adapters/stub/tests/StubInputTests.cs`（规范名往返、非规范名被拒），引擎侧真实设备路径 `UnityInputTests.RealMouseDevice_*`。已知限制：规范名集合封闭（无前进/后退侧键）；`IsKeyDown` 与键盘键名共用参数空间，不重叠是约定而非类型保证。

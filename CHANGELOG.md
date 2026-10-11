@@ -458,6 +458,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **手感落地 M4（1.96.0）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[1.96.0]` 正文。
 - **非手感已知限制清扫（1.96.0，[ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）**：数据与契约只增不改，编辑器按需跟进——`item.slot_definition` 新增可选布尔字段 `has_appearance`（缺省 `true`，写 `false` 的槽位物品不要求 `display.equip_visual` 行）；表达式可读事件 `combat.attack_avoided`、`combat.hit_confirmed` 的 `attackInstanceId` 现在可经表达式读取（为空时查不到）；`LootExpectedCurrencyOutcome.ExpectedRoundedAmount`（含取整与非正值跳过的精确货币期望，线性的 `ExpectedAmount` 保留，"理论与观测"面板应读前者）与 `LootTableAnalyzer.ExpectedAffixInclusion` 的 5 参数重载（大词缀池精确解，计算量预算 `exactMaxWork`）；`item.set` 数据重载后套装门槛立即对账（热重载后不必再等装备变化才见效果）；`simrunner fight` 子命令与 `--fight-log` 日志文件（`{schema_version, truncated, entries}`）；游戏模板 `GameOptions.PathFailurePolicy`/`BlockingChangePolicy`。详见下方 `[1.96.0]`"非手感已知限制清扫"。
 
+## [Unreleased]
+
+### 修复
+
+- **真机上所有 `mouse:*` 输入绑定不触发（[ADR-0182](architecture/adr/0182-鼠标按钮规范名.md)，样板游戏 C 试玩：鼠标左键攻击、中键锁定无效）**：输入映射的 `mouse:left` 绑定按按钮名 `left` 匹配设备事件，而引擎适配层发出的鼠标按钮事件键名是 `MouseLeft`/`MouseRight`/`MouseMiddle`，两边对不上且无任何报错。现统一为契约词汇表 `Core.Foundation.EngineAdapter.MouseButtons` 的规范名 `left`/`right`/`middle`（绑定侧的写法，已有数据不用改）：(1) `UnityInput` 的鼠标按钮事件键名与 `IsKeyDown` 的鼠标按钮名改用规范名；(2) `BindingParser` 对 `mouse:` 只放行规范名，其余名字在解析时抛 `ArgumentException`（此前"解析成功但永远不触发"）；(3) `StubInput.PressMouseButton`/`ReleaseMouseButton` 只接受规范名；(4) `InputMapHost` 收到非规范的鼠标按钮事件名时对每个不同的名字发一次诊断警告。**不保留旧名字别名**。
+  - 迁移：直接读旧名字的游戏代码（`IsKeyDown("MouseRight")`、手写的鼠标事件匹配、脚本化输入测试替身）改用 `MouseButtons.Left/Right/Middle`；绑定数据不用改。
+  - 用例：`BindingParserTests`（规范名全部可解析、非规范名抛错）、`InputMapHostTests`（每个规范名只触发自己的 `mouse:` 动作、非规范事件名不匹配并警告一次）、`StubInputTests`（规范名往返、非规范名被拒）、`UnityInputTests.RealMouseDevice_*`（真实虚拟鼠标设备：发出的每个名字都是规范名且可解析、规范名无多余、真实事件经 `InputMapHost` 触发 `mouse:left/right/middle`）。
+
+### 契约决定
+
+- [ADR-0182](architecture/adr/0182-鼠标按钮规范名.md)：鼠标按钮只有一份规范名（`left`/`right`/`middle`），事件、按住查询、绑定共用；适配层边界翻译，不接受别名。
+
 ## [2.15.0] - 2026-10-10
 
 ### 新增

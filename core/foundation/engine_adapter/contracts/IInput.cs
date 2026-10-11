@@ -23,7 +23,9 @@ namespace Core.Foundation.EngineAdapter
     }
 
     /// <summary>
-    /// 一条离散输入事件。Key 用于键盘/鼠标按键类事件（如 "A"、"MouseLeft"）；
+    /// 一条离散输入事件。Key 用于键盘/鼠标按键类事件：键盘事件是适配层约定的键名（如 "a"）；
+    /// **鼠标按钮事件一律用 <see cref="MouseButtons"/> 的规范名**（"left"/"right"/"middle"，ADR-0182），
+    /// 与输入映射 <c>mouse:&lt;button&gt;</c> 绑定同一份名字，引擎自己的按钮命名由适配层翻译；
     /// Position 用于 MouseMoved；GamepadIndex 用于手柄相关事件；不适用的字段取默认值。
     /// </summary>
     public readonly struct InputEvent
@@ -51,6 +53,10 @@ namespace Core.Foundation.EngineAdapter
         /// <summary>返回自上次调用以来的离散输入事件，供 InputMap 转译为游戏动作。</summary>
         IReadOnlyList<InputEvent> PollEvents();
 
+        /// <summary>
+        /// 某个键当前是否按住。键盘键名由适配层约定；鼠标按钮用 <see cref="MouseButtons"/> 的规范名
+        /// （"left"/"right"/"middle"，与鼠标按钮事件同一份名字，ADR-0182）；未知名字返回 false。
+        /// </summary>
         bool IsKeyDown(string key);
 
         Vec2 GetMousePosition();

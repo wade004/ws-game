@@ -13,6 +13,12 @@
 // "anyKey 本身是聚合控件、拿不到具体是哪个键"这一 Input System 特性而丢失按键信息。
 // 鼠标按钮与手柄按钮直接每个绑定一个具体控件（数量少，没有上述聚合问题）。
 //
+// 判断记录（鼠标按钮事件名，ADR-0182）：事件的 Key 与 IsKeyDown 的鼠标按钮名一律取契约词汇表
+// MouseButtons 的规范名（left/right/middle），与输入映射 mouse:<button> 绑定同一份名字；Input System
+// 自己的控件命名（leftButton 等）只出现在下面 AddBinding 的路径里，不外露。此前这里发的是
+// "MouseLeft"/"MouseRight"/"MouseMiddle"，与 mouse:left 绑定对不上，真机上所有 mouse: 绑定静默失效。
+// 不做别名兼容：旧名字不再被任何一侧接受。
+//
 // 手柄连接/断开：订阅 InputSystem.onDeviceChange，只关心 Gamepad 类型设备的
 // Added/Removed，GamepadIndex 用 Gamepad.all 里的下标。
 //
@@ -57,16 +63,16 @@ namespace Adapter.Unity.EngineAdapter
             _keyboardChangeAction.performed += OnKeyboardChanged;
 
             _mouseLeftAction = _map.AddAction("MouseLeft", InputActionType.Button, binding: "<Mouse>/leftButton");
-            _mouseLeftAction.started += ctx => EnqueueMouseButton(InputEventKind.MouseButtonDown, "MouseLeft");
-            _mouseLeftAction.canceled += ctx => EnqueueMouseButton(InputEventKind.MouseButtonUp, "MouseLeft");
+            _mouseLeftAction.started += ctx => EnqueueMouseButton(InputEventKind.MouseButtonDown, MouseButtons.Left);
+            _mouseLeftAction.canceled += ctx => EnqueueMouseButton(InputEventKind.MouseButtonUp, MouseButtons.Left);
 
             _mouseRightAction = _map.AddAction("MouseRight", InputActionType.Button, binding: "<Mouse>/rightButton");
-            _mouseRightAction.started += ctx => EnqueueMouseButton(InputEventKind.MouseButtonDown, "MouseRight");
-            _mouseRightAction.canceled += ctx => EnqueueMouseButton(InputEventKind.MouseButtonUp, "MouseRight");
+            _mouseRightAction.started += ctx => EnqueueMouseButton(InputEventKind.MouseButtonDown, MouseButtons.Right);
+            _mouseRightAction.canceled += ctx => EnqueueMouseButton(InputEventKind.MouseButtonUp, MouseButtons.Right);
 
             _mouseMiddleAction = _map.AddAction("MouseMiddle", InputActionType.Button, binding: "<Mouse>/middleButton");
-            _mouseMiddleAction.started += ctx => EnqueueMouseButton(InputEventKind.MouseButtonDown, "MouseMiddle");
-            _mouseMiddleAction.canceled += ctx => EnqueueMouseButton(InputEventKind.MouseButtonUp, "MouseMiddle");
+            _mouseMiddleAction.started += ctx => EnqueueMouseButton(InputEventKind.MouseButtonDown, MouseButtons.Middle);
+            _mouseMiddleAction.canceled += ctx => EnqueueMouseButton(InputEventKind.MouseButtonUp, MouseButtons.Middle);
 
             var scrollAction = _map.AddAction("MouseScroll", InputActionType.PassThrough, binding: "<Mouse>/scroll");
             scrollAction.performed += ctx =>
@@ -110,9 +116,9 @@ namespace Adapter.Unity.EngineAdapter
 
             switch (key)
             {
-                case "MouseLeft": return Mouse.current != null && Mouse.current.leftButton.isPressed;
-                case "MouseRight": return Mouse.current != null && Mouse.current.rightButton.isPressed;
-                case "MouseMiddle": return Mouse.current != null && Mouse.current.middleButton.isPressed;
+                case MouseButtons.Left: return Mouse.current != null && Mouse.current.leftButton.isPressed;
+                case MouseButtons.Right: return Mouse.current != null && Mouse.current.rightButton.isPressed;
+                case MouseButtons.Middle: return Mouse.current != null && Mouse.current.middleButton.isPressed;
             }
 
             if (Keyboard.current != null && Enum.TryParse<Key>(key, ignoreCase: true, out var parsedKey))

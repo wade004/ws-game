@@ -258,8 +258,8 @@ namespace Adapter.Unity.Tests.Runtime
         {
             var inner = new FakeInput();
             inner.Pending.Add(new InputEvent(InputEventKind.KeyDown, key: "w"));
-            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonDown, key: "MouseLeft"));
-            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonUp, key: "MouseLeft"));
+            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonDown, key: MouseButtons.Left));
+            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonUp, key: MouseButtons.Left));
             inner.Down.Add("w");
             var bridge = new UiInputBridge(inner, _ => false);
 
@@ -280,7 +280,7 @@ namespace Adapter.Unity.Tests.Runtime
             var overUi = true;
             var bridge = new UiInputBridge(inner, _ => overUi);
 
-            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonDown, key: "MouseLeft"));
+            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonDown, key: MouseButtons.Left));
             inner.Pending.Add(new InputEvent(InputEventKind.KeyDown, key: "w"));
             var first = bridge.PollEvents();
             Assert.AreEqual(1, first.Count, "鼠标按下被吞，键盘事件照常");
@@ -288,11 +288,11 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual(1, bridge.SwallowedMouseDowns);
 
             overUi = false; // 抬起时指针已移出界面：配对的抬起仍要吞掉，否则世界侧收到孤立的抬起
-            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonUp, key: "MouseLeft"));
+            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonUp, key: MouseButtons.Left));
             Assert.AreEqual(0, bridge.PollEvents().Count);
 
-            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonDown, key: "MouseLeft"));
-            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonUp, key: "MouseLeft"));
+            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonDown, key: MouseButtons.Left));
+            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonUp, key: MouseButtons.Left));
             Assert.AreEqual(2, bridge.PollEvents().Count, "离开界面后的点击正常放行");
         }
 
@@ -303,10 +303,10 @@ namespace Adapter.Unity.Tests.Runtime
             var overUi = false;
             var bridge = new UiInputBridge(inner, _ => overUi);
 
-            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonDown, key: "MouseLeft"));
+            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonDown, key: MouseButtons.Left));
             Assert.AreEqual(1, bridge.PollEvents().Count);
             overUi = true;
-            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonUp, key: "MouseLeft"));
+            inner.Pending.Add(new InputEvent(InputEventKind.MouseButtonUp, key: MouseButtons.Left));
             var up = bridge.PollEvents();
             Assert.AreEqual(1, up.Count, "世界里按下的鼠标，抬起一定要送达");
             Assert.AreEqual(InputEventKind.MouseButtonUp, up[0].Kind);

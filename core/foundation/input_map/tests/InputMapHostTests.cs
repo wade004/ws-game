@@ -4,6 +4,7 @@ using Adapters.Stub;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
+using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
 using Core.Foundation.InputMap;
 using Xunit;
@@ -156,17 +157,95 @@ namespace Tests.Foundation.InputMap
             });
             var stub = new StubInput();
 
-            stub.PressMouseButton("left");
+            stub.PressMouseButton(MouseButtons.Left);
             host.Update(stub);
             Assert.True(host.IsActionActive("input.action.interact"));
 
-            stub.ReleaseMouseButton("left");
+            stub.ReleaseMouseButton(MouseButtons.Left);
             host.Update(stub);
             Assert.False(host.IsActionActive("input.action.interact"));
 
             stub.PressGamepadButton(0, "x");
             host.Update(stub);
             Assert.True(host.IsActionActive("input.action.interact"));
+        }
+
+        /// <summary>不变量（ADR-0182）：规范名集合里的每个鼠标按钮名，都能经设备事件触发写着 <c>mouse:&lt;名字&gt;</c>
+        /// 的动作，且只触发自己那一条。名字集合取自 <see cref="MouseButtons.All"/>，不写死。</summary>
+        [Fact]
+        public void Update_MouseBinding_EveryCanonicalButtonName_ActivatesOnlyItsOwnAction()
+        {
+            var host = new InputMapHost(MakeBus());
+            var defs = new List<ActionDefinition>();
+            foreach (var name in MouseButtons.All)
+            {
+                defs.Add(Button("input.action.m_" + name, "mouse:" + name));
+            }
+
+            host.DeclareActionSet(new Id("input.set.gameplay"), defs.ToArray());
+            var stub = new StubInput();
+
+            foreach (var name in MouseButtons.All)
+            {
+                stub.PressMouseButton(name);
+                host.Update(stub);
+                foreach (var other in MouseButtons.All)
+                {
+                    Assert.Equal(other == name, host.IsActionActive("input.action.m_" + other));
+                }
+
+                stub.ReleaseMouseButton(name);
+                host.Update(stub);
+                Assert.False(host.IsActionActive("input.action.m_" + name));
+            }
+        }
+
+        /// <summary>复现（ADR-0182 前的真机缺陷）：适配层发出非规范鼠标按钮名（旧 Unity 适配层的 "MouseLeft"）时，
+        /// <c>mouse:left</c> 绑定不会触发；现在宿主为每个不同的坏名字发一条警告（只发一次），不再静默。</summary>
+        [Fact]
+        public void Update_NonCanonicalMouseButtonEvent_DoesNotMatchBinding_AndWarnsOncePerName()
+        {
+            var host = new InputMapHost(MakeBus());
+            host.DeclareActionSet(new Id("input.set.gameplay"), new[] { Button("input.action.attack", "mouse:left") });
+            var raw = new RawEventInput();
+
+            raw.Events.Add(new InputEvent(InputEventKind.MouseButtonDown, key: "MouseLeft"));
+            host.Update(raw);
+            raw.Events.Add(new InputEvent(InputEventKind.MouseButtonUp, key: "MouseLeft"));
+            raw.Events.Add(new InputEvent(InputEventKind.MouseButtonDown, key: "MouseLeft"));
+            host.Update(raw);
+
+            Assert.False(host.IsActionActive("input.action.attack"));
+            var warnings = ((InMemoryInputMapDiagnostics)host.Diagnostics).Warnings;
+            Assert.Single(warnings);
+            Assert.Contains("MouseLeft", warnings[0]);
+
+            raw.Events.Add(new InputEvent(InputEventKind.MouseButtonDown, key: MouseButtons.Left));
+            host.Update(raw);
+            Assert.True(host.IsActionActive("input.action.attack"));
+            Assert.Single(((InMemoryInputMapDiagnostics)host.Diagnostics).Warnings);
+        }
+
+        private sealed class RawEventInput : IInput
+        {
+            public readonly List<InputEvent> Events = new List<InputEvent>();
+
+            public IReadOnlyList<InputEvent> PollEvents()
+            {
+                var copy = new List<InputEvent>(Events);
+                Events.Clear();
+                return copy;
+            }
+
+            public bool IsKeyDown(string key) => false;
+
+            public Vec2 GetMousePosition() => Vec2.Zero;
+
+            public double GetGamepadAxis(int gamepadIndex, string axis) => 0.0;
+
+            public void BeginTextInput(string placeholder) { }
+
+            public string EndTextInput() => string.Empty;
         }
 
         // -----------------------------------------------------------------

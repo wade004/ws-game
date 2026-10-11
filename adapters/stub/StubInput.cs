@@ -93,16 +93,30 @@ namespace Adapters.Stub
         // 专用驱动方法，与 Press/Release 是同一惯例的延伸，同样不属于 IInput 接口本身。
         // ---------------------------------------------------------------
 
-        /// <summary>测试用：模拟按下一个鼠标按钮，登记 MouseButtonDown 事件。</summary>
+        /// <summary>测试用：模拟按下一个鼠标按钮，登记 MouseButtonDown 事件。<paramref name="button"/> 必须是
+        /// <see cref="MouseButtons"/> 的规范名，否则抛 <see cref="ArgumentException"/>（桩不替适配层兼容别名：
+        /// 测试喂进去的名字和真实适配层发出的名字不是同一份，用例就是在测一个真机上不存在的路径，ADR-0182）。</summary>
         public void PressMouseButton(string button)
         {
+            RequireCanonicalMouseButton(button);
             _pendingEvents.Add(new InputEvent(InputEventKind.MouseButtonDown, key: button));
         }
 
-        /// <summary>测试用：模拟松开一个鼠标按钮，登记 MouseButtonUp 事件。</summary>
+        /// <summary>测试用：模拟松开一个鼠标按钮，登记 MouseButtonUp 事件；<paramref name="button"/> 同
+        /// <see cref="PressMouseButton"/> 必须是规范名。</summary>
         public void ReleaseMouseButton(string button)
         {
+            RequireCanonicalMouseButton(button);
             _pendingEvents.Add(new InputEvent(InputEventKind.MouseButtonUp, key: button));
+        }
+
+        private static void RequireCanonicalMouseButton(string button)
+        {
+            if (!MouseButtons.IsCanonical(button))
+            {
+                throw new ArgumentException(
+                    $"鼠标按钮名 \"{button}\" 不是规范名（只能是 {MouseButtons.Describe()}，见 MouseButtons / ADR-0182）", nameof(button));
+            }
         }
 
         /// <summary>测试用：模拟按下某个手柄的一个按钮，登记 GamepadButtonDown 事件。</summary>
