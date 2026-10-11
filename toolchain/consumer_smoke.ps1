@@ -22,13 +22,19 @@
     （主检出与每个工作树各自一份，互不清空；见 _unity_smoke_wait_scope_guard.ps1 的
     Get-ConsumerSmokeDefaultWorkDir），不进仓库、不提交；显式传入则以传入值为准。
     每次运行都会先清空重建，模拟"全新工程"这一前提，不复用上一次运行的残留状态。
+    演练结束（通过、失败、中途退出都一样）即删除本次 WorkDir（约 3GB），只有传 -KeepWorkDir 才保留。
 
 .PARAMETER UnityExe
     Unity 可执行文件完整路径。默认与 check.ps1 同一套解析逻辑（Unity Hub 常见安装位置）。
 
 .PARAMETER SkipCleanWorkDir
-    跳过"运行前清空 WorkDir"（调试用：保留上一次运行留下的工程，便于用 Unity Editor 打开检查失败
-    原因）。默认不传——每次都是全新工程。
+    跳过"运行前清空 WorkDir"（调试用：复用上一次运行留下的工程，该工程须由上一次传了 -KeepWorkDir
+    的运行保留下来，否则目录已被结束时的清理删掉）。默认不传——每次都是全新工程。
+
+.PARAMETER KeepWorkDir
+    调试开关：演练结束时保留 WorkDir 现场（便于用 Unity Editor 打开检查失败原因）。默认不传——
+    结束即删除本次 WorkDir，见下方 .NOTES 判断记录"演练结束即删 WorkDir"。与 -SkipCleanWorkDir 互相独立：
+    前者管"结束时删不删"，后者管"开始时清不清"。
 
 .PARAMETER ArtifactsPath
     本脚本自己的完整控制台记录（Start-Transcript）落盘目录，默认 <仓库根>\bin\_check_artifacts
@@ -89,12 +95,18 @@
     到 -ArtifactsPath\consumer_smoke.log，不依赖调用方是否吞掉了自己的 stdout；脚本任何一个失败
     退出点在 Stop-Transcript 之后都会把该日志文件最后 30 行重新打到控制台，方便本脚本被直接单独
     运行（未经 check.ps1 的 Out-Null 包裹）时不用另外打开文件就能看到关键片段。
+
+    判断记录（演练结束即删 WorkDir，2026-10-08）：每次运行本来就先清空重建、不复用 Library，跑完不删只会让每个检出
+    在 %TEMP% 各留一份约 3GB 的死目录（一周积累 36 个、78.5GB）。结论：保留按检出哈希隔离（防并发互相清空），主体包进
+    try/finally，结束时等本次 Unity 进程退出后删；删除失败只警告、不改结论；失败时先把 logs 拷到 -ArtifactsPath 下
+    再删（Detail 里的日志路径会随目录消失）；要保留现场传 -KeepWorkDir。回归见 toolchain/consumer_smoke_temp_leak_check.ps1。
 #>
 param(
     [string]$DistVersion = "",
     [string]$WorkDir = "",
     [string]$UnityExe = "",
     [switch]$SkipCleanWorkDir,
+    [switch]$KeepWorkDir,
     [string]$ArtifactsPath = "",
     [switch]$DevelopmentBuild
 )
@@ -238,6 +250,68 @@ function Wait-NoResidualUnityProcess {
     }
 }
 
+# 演练结束时的清理（见头部 .NOTES"演练结束即删 WorkDir"）：在主体的 finally 里调用，成功、失败、中途 exit 都走到。
+# 任何一步出错都只打警告，不抛、不改变演练结论（退出码由调用方在 finally 之后原样带出）。
+function Remove-ConsumerSmokeWorkDir {
+    param([int]$ExitCode)
+
+    if ($KeepWorkDir) {
+        Write-Host "[清理] 已传 -KeepWorkDir，保留演练工作目录：$WorkDir" -ForegroundColor Yellow
+        return
+    }
+    if (-not (Test-Path -LiteralPath $WorkDir)) {
+        return
+    }
+    try {
+        # 失败时先留证：Detail 里指向 WorkDir\logs 的路径会随目录一起消失，拷一份到 ArtifactsPath（bin/ 被 .gitignore 覆盖）。
+        if ($ExitCode -ne 0) {
+            $evidenceDir = Join-Path $ArtifactsPath "consumer_smoke_logs"
+            try {
+                if (Test-Path -LiteralPath $evidenceDir) { Remove-Item -LiteralPath $evidenceDir -Recurse -Force -Confirm:$false }
+                foreach ($pair in @(@("logs", "logs"), @("RegistryProbe\logs", "registry_probe_logs"))) {
+                    $src = Join-Path $WorkDir $pair[0]
+                    if (Test-Path -LiteralPath $src) {
+                        Copy-TreeMirror -SourceDir $src -DestDir (Join-Path $evidenceDir $pair[1]) | Out-Null
+                    }
+                }
+                Write-Host "[清理] 演练失败，Unity 日志已另存：$evidenceDir" -ForegroundColor Yellow
+            } catch {
+                Write-Host "警告：另存失败日志出错（$($_.Exception.Message)），继续清理" -ForegroundColor Yellow
+            }
+        }
+
+        # 本次拉起的 Unity 进程必须先退出，否则目录里的文件被占用删不干净。等不到就照样尝试删，剩下的交给下面的警告。
+        try {
+            Wait-NoResidualUnityProcess
+        } catch {
+            Write-Host "警告：$($_.Exception.Message)" -ForegroundColor Yellow
+        }
+
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+                Remove-Item -LiteralPath $WorkDir -Recurse -Force -Confirm:$false -ErrorAction Stop
+            } catch {
+                # 深层路径或杀软/索引器短暂占用时 Remove-Item 可能半途失败，退到 cmd 的 rd 再试一次。
+                $previousErrorAction = $ErrorActionPreference
+                $ErrorActionPreference = "Continue"
+                try { & cmd.exe /d /c "rd /s /q `"$WorkDir`"" 2>&1 | Out-Null } catch { }
+                $ErrorActionPreference = $previousErrorAction
+            }
+            if (-not (Test-Path -LiteralPath $WorkDir)) {
+                break
+            }
+            Start-Sleep -Seconds 2
+        }
+        if (Test-Path -LiteralPath $WorkDir) {
+            Write-Host "警告：未能删除演练工作目录（可能仍有进程占用），请手工清理：$WorkDir" -ForegroundColor Yellow
+        } else {
+            Write-Host "[清理] 已删除演练工作目录：$WorkDir" -ForegroundColor DarkGray
+        }
+    } catch {
+        Write-Host "警告：清理演练工作目录出错（$($_.Exception.Message)）：$WorkDir" -ForegroundColor Yellow
+    }
+}
+
 # -----------------------------------------------------------------------------
 # 步骤汇总基础设施（惯例同 check.ps1，独立一份——两个脚本各自可以单独运行，不互相依赖）。
 # -----------------------------------------------------------------------------
@@ -344,6 +418,11 @@ function Copy-TreeMirror {
     return $count
 }
 
+# 演练主体包进 try/finally（为不破坏下方多处顶格 here-string，主体不缩进）：任何退出路径——早退 exit 1、
+# 汇总处 exit、未捕获异常——都会先走 finally 里的 Remove-ConsumerSmokeWorkDir 与 Stop-TranscriptAndReport。
+# 退出码用 $script:SmokeExitCode 带出：默认 1（异常/早退），只有汇总判通过时才置 0。
+$script:SmokeExitCode = 1
+try {
 Write-Host "消费方演练：版本=$DistVersion，工作目录=$WorkDir，Unity=$ResolvedUnityExe" -ForegroundColor Cyan
 
 $DistRoot = Join-Path $RepoRoot ("dist\" + $DistVersion)
@@ -363,13 +442,11 @@ $step1 = Invoke-Step "build.ps1 -SyncOnly -Dist $DistVersion（确保分发包�
 if (-not $step1) {
     Write-Host "分发包快照生成失败，后续步骤无法进行，提前退出。" -ForegroundColor Red
     $script:Results | Format-Table -AutoSize | Out-String -Width 4096 | Write-Host
-    Stop-TranscriptAndReport -Failed $true
     exit 1
 }
 
 if (-not (Test-Path $DistRoot)) {
     Write-Host "分发包快照不存在：$DistRoot" -ForegroundColor Red
-    Stop-TranscriptAndReport -Failed $true
     exit 1
 }
 
@@ -1071,10 +1148,13 @@ $script:Results | Format-Table -AutoSize Step, Result, Seconds, Detail | Out-Str
 $failed = @($script:Results | Where-Object { $_.Result -eq "FAIL" })
 if ($failed.Count -gt 0) {
     Write-Host "消费方演练失败：$($failed.Count) 步未通过（共 $($script:Results.Count) 步）。" -ForegroundColor Red
-    Stop-TranscriptAndReport -Failed $true
     exit 1
 } else {
     Write-Host "消费方演练通过：全部 $($script:Results.Count) 步。" -ForegroundColor Green
-    Stop-TranscriptAndReport -Failed $false
+    $script:SmokeExitCode = 0
     exit 0
+}
+} finally {
+    Remove-ConsumerSmokeWorkDir -ExitCode $script:SmokeExitCode
+    Stop-TranscriptAndReport -Failed ($script:SmokeExitCode -ne 0)
 }
