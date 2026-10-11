@@ -11,6 +11,7 @@ using NUnit.Framework;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.TestTools;
+using InputEvent = Core.Foundation.EngineAdapter.InputEvent;
 
 namespace Adapter.Unity.Tests.Runtime
 {
@@ -22,13 +23,17 @@ namespace Adapter.Unity.Tests.Runtime
 #if UNITY_EDITOR
         private InputSettings.EditorInputBehaviorInPlayMode _savedEditorBehavior;
 #endif
+        private InputSettings.BackgroundBehavior _savedBackgroundBehavior;
 
         [SetUp]
         public void SetUp()
         {
             _input = new UnityInput();
+            // 批处理没有窗口焦点：默认设置会在失焦时停用鼠标这类不能后台运行的设备，虚拟设备的事件进不来；用例内忽略焦点。
+            _savedBackgroundBehavior = InputSystem.settings.backgroundBehavior;
+            InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
 #if UNITY_EDITOR
-            // 编辑器里的鼠标/键盘事件默认只在游戏视图有焦点时才进游戏；批处理没有焦点，用例要让虚拟设备的事件无条件送达。
+            // 编辑器里的鼠标/键盘事件默认只在游戏视图有焦点时才进游戏；同理让虚拟设备的事件无条件送达。
             _savedEditorBehavior = InputSystem.settings.editorInputBehaviorInPlayMode;
             InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
 #endif
@@ -44,6 +49,7 @@ namespace Adapter.Unity.Tests.Runtime
             }
 
             _addedDevices.Clear();
+            InputSystem.settings.backgroundBehavior = _savedBackgroundBehavior;
 #if UNITY_EDITOR
             InputSystem.settings.editorInputBehaviorInPlayMode = _savedEditorBehavior;
 #endif
