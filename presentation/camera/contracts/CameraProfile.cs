@@ -28,6 +28,23 @@ namespace Presentation.Camera
         public Vec2 Clamp(Vec2 pos) => new Vec2(
             Math.Clamp(pos.X, Min.X, Max.X),
             Math.Clamp(pos.Y, Min.Y, Max.Y));
+
+        /// <summary>
+        /// 把跟随点 <paramref name="focus"/> 收到"可视范围不越出本矩形"的位置（ADR-0181）。<paramref name="footprintMin"/>/<paramref name="footprintMax"/>
+        /// 是可视地面外接矩形相对跟随点的偏移。某个方向上可视范围比本矩形还大（无解）时，在该方向让两者中心重合。
+        /// </summary>
+        public Vec2 ConstrainView(Vec2 focus, Vec2 footprintMin, Vec2 footprintMax) => new Vec2(
+            ConstrainAxis(focus.X, Min.X, Max.X, footprintMin.X, footprintMax.X),
+            ConstrainAxis(focus.Y, Min.Y, Max.Y, footprintMin.Y, footprintMax.Y));
+
+        private static double ConstrainAxis(double focus, double limitMin, double limitMax, double offsetMin, double offsetMax)
+        {
+            var low = limitMin - offsetMin;
+            var high = limitMax - offsetMax;
+            return low <= high
+                ? Math.Clamp(focus, low, high)
+                : (limitMin + limitMax) * 0.5 - (offsetMin + offsetMax) * 0.5;
+        }
     }
 
     /// <summary>震屏档位（见 09 第 3.5 节 <c>shake</c>、<c>camera_profile.shake_presets</c> 字段）。</summary>
@@ -77,6 +94,14 @@ namespace Presentation.Camera
 
         public CameraBounds? Bounds { get; }
 
+        /// <summary>
+        /// 可视范围限制（ADR-0181，缺省 null = 关闭）：声明后，镜头宿主把跟随点收在"画面可视的地面区域不越出这个矩形"的区间内
+        /// （通常填整张地图的矩形；可视范围比矩形还大时在该方向居中）。与 <see cref="Bounds"/> 的区别：<see cref="Bounds"/> 限制的是
+        /// 镜头中心（跟随点）的活动范围，换屏幕宽高比、缩放后需要人手重算；本字段限制的是画面四角，宽高比、缩放、偏航改变后自动跟着变。
+        /// 两者同时声明时先夹 <see cref="Bounds"/> 再按本字段收紧。需要适配层实现 <c>ICameraGroundFootprint</c>，否则不生效。
+        /// </summary>
+        public CameraBounds? ViewLimit { get; }
+
         public IReadOnlyList<ShakePreset> ShakePresets { get; }
 
         public CameraProfile(
@@ -89,6 +114,21 @@ namespace Presentation.Camera
             double followLerp,
             CameraBounds? bounds = null,
             IReadOnlyList<ShakePreset>? shakePresets = null)
+            : this(id, pitchDegrees, yawDegrees, zoomMin, zoomMax, zoomDefault, followLerp, bounds, shakePresets, viewLimit: null)
+        {
+        }
+
+        public CameraProfile(
+            Id id,
+            double pitchDegrees,
+            double yawDegrees,
+            double zoomMin,
+            double zoomMax,
+            double zoomDefault,
+            double followLerp,
+            CameraBounds? bounds,
+            IReadOnlyList<ShakePreset>? shakePresets,
+            CameraBounds? viewLimit)
         {
             if (zoomMin > zoomMax)
             {
@@ -108,6 +148,7 @@ namespace Presentation.Camera
             ZoomDefault = zoomDefault;
             FollowLerp = followLerp;
             Bounds = bounds;
+            ViewLimit = viewLimit;
             ShakePresets = shakePresets ?? Array.Empty<ShakePreset>();
         }
 
@@ -138,6 +179,19 @@ namespace Presentation.Camera
                 bounds = new CameraBounds(min, max);
             }
 
+            CameraBounds? viewLimit = null;
+            if (record.TryGetObject("view_limit", out var limitObj))
+            {
+                var limitMin = ParseVec2Property(record, "view_limit", limitObj, "min");
+                var limitMax = ParseVec2Property(record, "view_limit", limitObj, "max");
+                if (limitMin.X > limitMax.X || limitMin.Y > limitMax.Y)
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "view_limit", "min 不能大于 max");
+                }
+
+                viewLimit = new CameraBounds(limitMin, limitMax);
+            }
+
             IReadOnlyList<ShakePreset>? shakePresets = null;
             if (record.TryGetArray("shake_presets", out var presetsArr))
             {
@@ -162,7 +216,7 @@ namespace Presentation.Camera
             }
 
             return new CameraProfile(
-                id, pitchDegrees, yawDegrees, zoomMin, zoomMax, zoomDefault, followLerp, bounds, shakePresets);
+                id, pitchDegrees, yawDegrees, zoomMin, zoomMax, zoomDefault, followLerp, bounds, shakePresets, viewLimit);
         }
 
         private static Id ParseIdProperty(DataRecord record, string field, JsonObject obj, string property)

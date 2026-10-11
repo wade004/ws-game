@@ -42,7 +42,7 @@ function Format-GateTimingTimestamp {
 function Get-GateTimingDefaultTask {
     param([Parameter(Mandatory = $true)]$BoundParameters)
     $exclude = @("TargetedInner", "PlanFile", "ArtifactsPath", "LogFile", "TimingTask", "NoTiming",
-        "InjectMockSleepHeavySeconds", "InjectMockSleepUnitySeconds")
+        "InjectMockSleepHeavySeconds", "InjectMockSleepUnitySeconds", "AcquireExclusiveLock")
     $parts = New-Object System.Collections.Generic.List[string]
     foreach ($entry in $BoundParameters.GetEnumerator()) {
         $name = [string]$entry.Key

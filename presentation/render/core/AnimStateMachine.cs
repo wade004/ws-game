@@ -126,6 +126,14 @@ namespace Presentation.Render
             // ADR-0147：反应驱动模式下当前受击姿势的子键（null = 基础 hit）与硬直保持标志。
             public string? HitSub;
             public bool Hold;
+
+            // ADR-0174：正在读条/引导的技能（skill.cast_start 且 castTime > 0 起，到三个收尾事件之一止）。
+            // 受击（优先级更高的 Hit）把施法姿势顶掉后，Hit 结束时据此回到 Cast 而不是运动态。
+            public Id? CastingSkill;
+
+            // ADR-0174 决策 7：正在读条的那一次施法的实例 id（skill.cast_start 带的 CastInstanceId），用来区分"这次施法失败了"与
+            // "读条期间另一个施法请求被拒（Busy/冷却/没目标……）"——后者不该把正在进行的读条姿势收掉。
+            public Id? CastInstance;
         }
 
         private readonly Dictionary<Id, Entry> _entities = new Dictionary<Id, Entry>();
@@ -232,8 +240,8 @@ namespace Presentation.Render
             _subscriptions.Add(bus.Subscribe<UnitStateChangedEvent>(CarriersEventKeys.UnitStateChanged, OnUnitStateChanged));
             _subscriptions.Add(bus.Subscribe<SkillCastStartEvent>(RulesEventKeys.SkillCastStart, OnSkillCastStart));
             _subscriptions.Add(bus.Subscribe<AutoAttackSwingEvent>(RulesEventKeys.CombatAutoAttackSwing, OnAutoAttackSwing));
-            _subscriptions.Add(bus.Subscribe<SkillCastSuccessEvent>(RulesEventKeys.SkillCastSuccess, evt => OnSkillCastEnd(evt.CasterId)));
-            _subscriptions.Add(bus.Subscribe<SkillCastFailedEvent>(RulesEventKeys.SkillCastFailed, evt => OnSkillCastEnd(evt.CasterId)));
+            _subscriptions.Add(bus.Subscribe<SkillCastSuccessEvent>(RulesEventKeys.SkillCastSuccess, OnSkillCastSuccess));
+            _subscriptions.Add(bus.Subscribe<SkillCastFailedEvent>(RulesEventKeys.SkillCastFailed, OnSkillCastFailed));
             _subscriptions.Add(bus.Subscribe<SkillCastInterruptedEvent>(RulesEventKeys.SkillCastInterrupted, evt => OnSkillCastEnd(evt.CasterId)));
             if (_reactions == null)
             {
@@ -424,8 +432,63 @@ namespace Presentation.Render
             }
         }
 
-        private void OnSkillCastStart(SkillCastStartEvent evt) =>
+        private void OnSkillCastStart(SkillCastStartEvent evt)
+        {
             TryEnter(evt.CasterId, evt.CastTime <= 0 ? AnimState.Attack : AnimState.Cast, evt.SkillId);
+            if (evt.CastTime > 0 && _entities.TryGetValue(evt.CasterId, out var entry) && entry.Current != AnimState.Death)
+            {
+                entry.CastingSkill = evt.SkillId;
+                entry.CastInstance = evt.CastInstanceId;
+            }
+        }
+
+        /// <summary>
+        /// ADR-0174 决策 7：<c>skill.cast_failed</c>。读条期间另一个施法请求被拒（读条/引导占用 <c>Busy</c>、冷却、没有目标……，
+        /// 敌人的 AI 每个决策间隔都会再请求一次，玩家读条时按别的技能键同理）时，这条失败事件说的是那个新请求，不是正在进行的读条；
+        /// 此前一律当作收尾处理，读条姿势被提前收回待机，剩余读条时间里施法者站着不动。
+        /// 判定：施法者正在读条（<see cref="Entry.CastingSkill"/> 非空），且记录了读条实例 id 时，失败事件的实例 id 与之不同
+        /// （含校验阶段失败、没有实例 id 的新请求）就忽略；实例 id 相同（读条本身失败），或没有可比较的实例 id（旧事件构造），
+        /// 仍按收尾处理，与改动前一致。
+        /// </summary>
+        private void OnSkillCastFailed(SkillCastFailedEvent evt)
+        {
+            if (_entities.TryGetValue(evt.CasterId, out var entry)
+                && entry.CastingSkill.HasValue && entry.CastInstance.HasValue
+                && (!evt.CastInstanceId.HasValue || !evt.CastInstanceId.Value.Equals(entry.CastInstance.Value)))
+            {
+                return;
+            }
+
+            OnSkillCastEnd(evt.CasterId);
+        }
+
+        /// <summary>
+        /// ADR-0174：给"释放动作"挂接查询——<c>(施法者, 技能)</c> 是否声明了释放动作剪辑（生产装配由 <c>AnimClipResolver</c> 按武器风格的
+        /// <c>release_anim_override</c> 接入）。非空且返回真时，读条<b>正常完成</b>（<c>skill.cast_success</c>、非瞬发）把状态从
+        /// <see cref="AnimState.Cast"/> 切到 <see cref="AnimState.Attack"/>（携带技能 id）去播释放剪辑，播完由
+        /// <see cref="NotifyTransientStateFinished"/> 回落；被打断/失败仍立即回落。缺省 null = 行为与改动前逐位一致。
+        /// </summary>
+        public Func<Id, Id, bool>? ReleaseAnimProbe { get; set; }
+
+        /// <summary>
+        /// 读条完成事件：有释放动作且当前仍在 <see cref="AnimState.Cast"/> 时进入释放（Attack 态带技能 id）；否则同其它收尾事件。
+        /// 瞬发（<see cref="SkillCastSuccessEvent.IsInstant"/>）从不经本分支——它在 <c>skill.cast_start</c> 就进了 Attack，释放剪辑由解析方按技能 id 选。
+        /// </summary>
+        private void OnSkillCastSuccess(SkillCastSuccessEvent evt)
+        {
+            if (_entities.TryGetValue(evt.CasterId, out var entry))
+            {
+                entry.CastingSkill = null;
+                entry.CastInstance = null;
+                if (!evt.IsInstant && entry.Current == AnimState.Cast && ReleaseAnimProbe != null && ReleaseAnimProbe(evt.CasterId, evt.SkillId))
+                {
+                    TryEnter(evt.CasterId, AnimState.Attack, evt.SkillId);
+                    return;
+                }
+            }
+
+            OnSkillCastEnd(evt.CasterId);
+        }
 
         /// <summary>ADR-0070：普通攻击每结算一次挥击（<c>AutoAttackHost.Update</c>）驱动一次，走与
         /// <see cref="OnSkillCastStart"/> 瞬发分支完全相同的 <see cref="AnimState.Attack"/> 优先级/
@@ -459,9 +522,14 @@ namespace Presentation.Render
         /// </summary>
         private void OnSkillCastEnd(Id casterId)
         {
-            if (_entities.TryGetValue(casterId, out var entry) && entry.Current == AnimState.Cast)
+            if (_entities.TryGetValue(casterId, out var entry))
             {
-                RevertToLocomotion(casterId, entry);
+                entry.CastingSkill = null;
+                entry.CastInstance = null;
+                if (entry.Current == AnimState.Cast)
+                {
+                    RevertToLocomotion(casterId, entry);
+                }
             }
         }
 
@@ -633,6 +701,13 @@ namespace Presentation.Render
 
         private void RevertToLocomotion(Id entityId, Entry entry)
         {
+            // ADR-0174：读条途中被受击姿势顶掉，受击结束时读条仍在继续——回到施法姿势（带技能 id，解析方按它选读条剪辑），不是运动态。
+            if (entry.Current == AnimState.Hit && entry.CastingSkill.HasValue)
+            {
+                SetState(entityId, entry, AnimState.Cast, entry.CastingSkill);
+                return;
+            }
+
             // 空中姿势（AttachAirPhaseSource）：瞬态在空中结束时回落到 Jump（继续上升/下降姿势），不是运动态。
             if (_airSource != null && entry.Current != AnimState.Jump && _airSource.GetContext(entityId).IsAirborne)
             {

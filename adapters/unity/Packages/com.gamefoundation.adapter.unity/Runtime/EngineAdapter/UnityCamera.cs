@@ -50,6 +50,12 @@
 //     （VisibleHalfHeight 不含脉冲），所以同时发生的冲击位移不被脉冲改变。
 //   - 不影响 shake_cap：缩放脉冲是缩放量、不是位移，不计入相机侧的合成位移幅度（CameraHost 判断记录）。
 //
+// 判断记录（地面可视范围 ICameraGroundFootprint，ADR-0181）：本类型同时实现可选能力接口 ICameraGroundFootprint 且恒声明支持，
+//   供镜头宿主按 camera_profile.view_limit 把跟随点收在"画面可视范围不越出地图"的区间内。偏移量用当前姿态下视口四角射线与地面（Z = 0）的交点
+//   的外接矩形减去"跟随点"算出（正交俯视跟随点 = 相机 XY；俯仰/透视跟随点 = 姿态刷新用的焦点 XY），所以与相机此刻实际落在哪儿（跟随平滑、
+//   震屏、冲击）无关，只取决于缩放、画面宽高比、偏航与俯仰；四角射线有任何一条不与地面相交（指向天空）时返回 false，宿主不做约束。
+//   缩放脉冲（EffectiveZoom）已含在相机的 orthographicSize 里，所以脉冲期间范围随之收窄，不会越出。
+//
 // 判断记录（遮挡淡化，ADR-0166）：第三人称相机（俯仰或透视打开）可经 EnableOcclusionFade 声明启用遮挡淡化——镜头到焦点（及游戏登记的额外观察点，如锁定目标）的连线上的遮挡物
 //   被淡化、离开后恢复，镜头本身不动；缺省关闭（OcclusionFade 为 null），关闭时行为与引入前逐位一致。淡化器由 Tick 在姿态刷新之后驱动（用 Tick 的 dt），焦点取本帧姿态刷新用的焦点。
 //   细节与着色器契约见 CameraOcclusionFader 类型顶部判断记录。正交俯视（俯仰与透视都没开）没有深度遮挡，Tick 不驱动淡化器。
@@ -61,7 +67,7 @@ using UnityEngine;
 
 namespace Adapter.Unity.EngineAdapter
 {
-    public sealed class UnityCamera : ICamera, ICameraImpulse, ICameraZoomPunch, ICameraOrientation
+    public sealed class UnityCamera : ICamera, ICameraImpulse, ICameraZoomPunch, ICameraOrientation, ICameraGroundFootprint
     {
         private struct ImpulseState
         {
@@ -669,7 +675,50 @@ namespace Adapter.Unity.EngineAdapter
         public Vec2? ScreenToWorld(Vec2 screen)
         {
             // 地面平面固定为 z = 0（见类型顶部判断记录：世界平面直接是 Unity XY 平面）。
-            var ray = _camera.ScreenPointToRay(new Vector3((float)screen.X, (float)screen.Y, 0));
+            return RayToGround(_camera.ScreenPointToRay(new Vector3((float)screen.X, (float)screen.Y, 0)));
+        }
+
+        /// <summary><see cref="ICameraGroundFootprint"/>：恒支持（见类型顶部判断记录）。</summary>
+        public bool SupportsCameraGroundFootprint => true;
+
+        /// <summary><see cref="ICameraGroundFootprint"/>：视口四角射线与地面交点的外接矩形，相对跟随点的偏移。</summary>
+        public bool TryGetGroundFootprint(out Vec2 minOffset, out Vec2 maxOffset)
+        {
+            minOffset = Vec2.Zero;
+            maxOffset = Vec2.Zero;
+            double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+            for (var i = 0; i < 4; i++)
+            {
+                var hit = RayToGround(_camera.ViewportPointToRay(new Vector3(i % 2, i / 2, 0f)));
+                if (!hit.HasValue)
+                {
+                    return false;
+                }
+
+                minX = Math.Min(minX, hit.Value.X);
+                maxX = Math.Max(maxX, hit.Value.X);
+                minY = Math.Min(minY, hit.Value.Y);
+                maxY = Math.Max(maxY, hit.Value.Y);
+            }
+
+            Vec2 anchor;
+            if (!_applyPitch && !_perspective)
+            {
+                var position = _camera.transform.position;
+                anchor = new Vec2(position.x, position.y);
+            }
+            else
+            {
+                anchor = new Vec2(_lastFocus.x, _lastFocus.y);
+            }
+
+            minOffset = new Vec2(minX - anchor.X, minY - anchor.Y);
+            maxOffset = new Vec2(maxX - anchor.X, maxY - anchor.Y);
+            return true;
+        }
+
+        private static Vec2? RayToGround(Ray ray)
+        {
             if (Mathf.Approximately(ray.direction.z, 0f))
             {
                 return null; // 射线与地面平行，找不到交点。

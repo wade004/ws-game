@@ -122,5 +122,36 @@ namespace Adapter.Unity.Tests.Runtime
 
             view.Destroy();
         }
+
+        /// <summary>ADR-0174 决策 6 回归：武器风格里不在默认状态表的动作剪辑（<c>cast_anim_override</c> 的取值）在视图挂接
+        /// 后就被提前加载进缓存，不必等第一次施法才加载（修复前第一次施法先呈现约 2 秒的 1x1 白色占位帧）。
+        /// 复现：修复前挂接完成后无论等多久缓存里都没有这份剪辑（只有第一次 Cast 触发懒加载才会去加载）。</summary>
+        [UnityEngine.TestTools.UnityTest]
+        public System.Collections.IEnumerator WeaponStyleCastClip_IsPrewarmedAfterAttach_BeforeAnyCastHappens()
+        {
+            var fx = BuildFixture();
+            var entityId = new Id("unit.weapon_clip_prewarm_test");
+            var styleRef = new Id("display.weapon_style.sample_staff");
+            var clipId = new Id("sprite_anim.sample_staff_cast");
+
+            var factory = new UnityViewFactory(
+                fx.Host.Renderer2D, new RenderConventionHost(), fx.DisplayInfo, fx.Host.ResourceLoader,
+                bus: fx.Bus, dataRegistry: fx.Registry,
+                weaponStyleSource: new FixedWeaponStyleSource(styleRef));
+
+            var view = factory.CreateView(ViewKind.Unit, SpriteHeroLogicalId, entityId);
+            view.Bind(entityId);
+
+            var until = UnityEngine.Time.realtimeSinceStartup + 20f;
+            while (UnityEngine.Time.realtimeSinceStartup < until && !fx.Host.ResourceLoader.TryGetEffect(clipId, out _))
+            {
+                fx.Host.ResourceLoader.Tick();
+                yield return null;
+            }
+
+            Assert.IsTrue(fx.Host.ResourceLoader.TryGetEffect(clipId, out _),
+                "没有发生任何施法，武器风格里的读条剪辑也应在挂接后被预热进加载器缓存");
+            view.Destroy();
+        }
     }
 }

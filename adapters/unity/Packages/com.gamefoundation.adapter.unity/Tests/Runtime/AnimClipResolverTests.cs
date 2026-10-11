@@ -135,6 +135,102 @@ namespace Adapter.Unity.Tests.Runtime
         }
 
         // ------------------------------------------------------------------
+        // ADR-0174：施法三段动作（读条循环 / 释放 / 瞬发释放）
+        // ------------------------------------------------------------------
+
+        private static (IEventBus Bus, AnimStateMachine Machine, List<(Id Clip, bool Loop)> Calls, AnimClipResolver Resolver) ReleaseRig(Id skillId, Id castClip, Id releaseClip, Id autoAttack, bool declareRelease)
+        {
+            var bus = NewBus();
+            var stateMachine = new AnimStateMachine(bus);
+            var styleRef = new Id("display.weapon_style.acr_release_staff");
+            var weaponStyle = new WeaponStyleDef(
+                styleRef, autoAttackAnim: autoAttack,
+                castAnimOverride: new Dictionary<Id, Id> { [skillId] = castClip },
+                swingVfx: null, impactVfxOverride: null,
+                releaseAnimOverride: declareRelease ? new Dictionary<Id, Id> { [skillId] = releaseClip } : null);
+            var calls = new List<(Id, bool)>();
+            var resolver = new AnimClipResolver(
+                stateMachine,
+                defaultClipsForEntity: _ => new Dictionary<string, Id> { ["cast"] = new Id("anim.default.cast_fallback"), ["idle"] = new Id("anim.default.idle"), ["attack"] = new Id("anim.default.attack") },
+                playClip: (e, c, l, s) => calls.Add((c, l)),
+                weaponStyleSource: new FixedWeaponStyleSource(styleRef),
+                weaponStyles: new Dictionary<Id, WeaponStyleDef> { [styleRef] = weaponStyle });
+            return (bus, stateMachine, calls, resolver);
+        }
+
+        [Test]
+        public void ReleaseDeclared_CastLoopsThenCompletionPlaysRelease_ThenFallsBack()
+        {
+            var entity = new Id("unit.acr_rel_cast");
+            var skill = new Id("skill.acr_rel_bolt");
+            var (bus, machine, calls, resolver) = ReleaseRig(skill, new Id("anim.acr_cast_loop"), new Id("anim.acr_release"), new Id("anim.acr_jab"), declareRelease: true);
+            using var _ = resolver;
+
+            bus.PublishImmediate(new SkillCastStartEvent(entity, skill, castTime: 1.5));
+            Assert.AreEqual((new Id("anim.acr_cast_loop"), true), calls[^1], "声明了释放动作的读条技能，读条剪辑循环播放");
+
+            bus.PublishImmediate(new SkillCastSuccessEvent(entity, skill, System.Array.Empty<Id>(), false, 1.5));
+            Assert.AreEqual((new Id("anim.acr_release"), false), calls[^1], "读条完成播一遍释放剪辑");
+            Assert.AreEqual(AnimState.Attack, machine.GetState(entity));
+
+            machine.NotifyTransientStateFinished(entity, AnimState.Attack);
+            Assert.AreEqual(AnimState.Idle, machine.GetState(entity));
+            machine.Dispose();
+        }
+
+        [Test]
+        public void ReleaseDeclared_CastInterrupted_FallsBackWithoutPlayingRelease()
+        {
+            var entity = new Id("unit.acr_rel_int");
+            var skill = new Id("skill.acr_rel_bolt2");
+            var (bus, machine, calls, resolver) = ReleaseRig(skill, new Id("anim.acr_cast_loop"), new Id("anim.acr_release"), new Id("anim.acr_jab"), declareRelease: true);
+            using var _ = resolver;
+
+            bus.PublishImmediate(new SkillCastStartEvent(entity, skill, castTime: 1.5));
+            bus.PublishImmediate(new SkillCastInterruptedEvent(entity, skill, new Id("unit.acr_foe")));
+
+            Assert.AreEqual(AnimState.Idle, machine.GetState(entity));
+            Assert.IsFalse(calls.Exists(c => c.Clip.Equals(new Id("anim.acr_release"))), "被打断不播释放");
+            machine.Dispose();
+        }
+
+        [Test]
+        public void ReleaseDeclared_InstantSkill_PlaysReleaseInsteadOfAutoAttackClip()
+        {
+            var entity = new Id("unit.acr_rel_instant");
+            var skill = new Id("skill.acr_rel_blink");
+            var (bus, machine, calls, resolver) = ReleaseRig(skill, new Id("anim.acr_cast_loop"), new Id("anim.acr_release"), new Id("anim.acr_jab"), declareRelease: true);
+            using var _ = resolver;
+
+            bus.PublishImmediate(new SkillCastStartEvent(entity, skill, castTime: 0.0));
+            Assert.AreEqual((new Id("anim.acr_release"), false), calls[^1]);
+
+            // 普通攻击（没有技能 id）仍用普攻剪辑。
+            machine.NotifyTransientStateFinished(entity, AnimState.Attack);
+            bus.PublishImmediate(new AutoAttackSwingEvent(entity, new Id("unit.acr_foe")));
+            Assert.AreEqual((new Id("anim.acr_jab"), false), calls[^1]);
+            machine.Dispose();
+        }
+
+        [Test]
+        public void ReleaseNotDeclared_BehaviourUnchanged_CastPlaysOnce_InstantUsesAutoAttackClip()
+        {
+            var entity = new Id("unit.acr_rel_none");
+            var skill = new Id("skill.acr_rel_plain");
+            var (bus, machine, calls, resolver) = ReleaseRig(skill, new Id("anim.acr_cast_once"), new Id("anim.acr_release"), new Id("anim.acr_jab"), declareRelease: false);
+            using var _ = resolver;
+
+            bus.PublishImmediate(new SkillCastStartEvent(entity, skill, castTime: 1.5));
+            Assert.AreEqual((new Id("anim.acr_cast_once"), false), calls[^1], "没声明释放动作：读条剪辑只播一遍");
+            bus.PublishImmediate(new SkillCastSuccessEvent(entity, skill, System.Array.Empty<Id>(), false, 1.5));
+            Assert.AreEqual(AnimState.Idle, machine.GetState(entity), "没声明释放动作：读条完成立即回落");
+
+            bus.PublishImmediate(new SkillCastStartEvent(entity, skill, castTime: 0.0));
+            Assert.AreEqual((new Id("anim.acr_jab"), false), calls[^1], "没声明释放动作：瞬发沿用普攻剪辑");
+            machine.Dispose();
+        }
+
+        // ------------------------------------------------------------------
         // ADR-0147（M5-S4）：受击反应 -> 受击子键剪辑；动作分相 / 移动速率 -> 播放速率
         // ------------------------------------------------------------------
 

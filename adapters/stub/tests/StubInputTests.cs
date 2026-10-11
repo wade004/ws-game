@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Adapters.Stub;
 using Core.Foundation.Common;
@@ -119,16 +120,31 @@ namespace Tests.StubAdapters
         }
 
         [Fact]
-        public void MouseButtons_EmitDedicatedEventKinds_WithButtonNameAsKey_AndDoNotAffectIsKeyDown()
+        public void MouseButtons_EmitDedicatedEventKinds_WithCanonicalButtonNameAsKey_AndDoNotAffectIsKeyDown()
         {
             var input = new StubInput();
-            input.PressMouseButton("Left");
-            input.ReleaseMouseButton("Left");
+            input.PressMouseButton(MouseButtons.Left);
+            input.ReleaseMouseButton(MouseButtons.Left);
 
             var events = input.PollEvents();
             Assert.Equal(new[] { InputEventKind.MouseButtonDown, InputEventKind.MouseButtonUp }, events.Select(e => e.Kind).ToArray());
-            Assert.All(events, e => Assert.Equal("Left", e.Key));
-            Assert.False(input.IsKeyDown("Left"));
+            Assert.All(events, e => Assert.Equal(MouseButtons.Left, e.Key));
+            Assert.False(input.IsKeyDown(MouseButtons.Left));
+        }
+
+        [Theory]
+        [InlineData("Left")]
+        [InlineData("MouseLeft")]
+        [InlineData("LEFT")]
+        [InlineData("forward")]
+        [InlineData("")]
+        public void MouseButtons_NonCanonicalName_IsRejected_NoEventQueued(string name)
+        {
+            var input = new StubInput();
+
+            Assert.Throws<ArgumentException>(() => input.PressMouseButton(name));
+            Assert.Throws<ArgumentException>(() => input.ReleaseMouseButton(name));
+            Assert.Empty(input.PollEvents());
         }
 
         [Fact]

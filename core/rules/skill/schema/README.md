@@ -55,6 +55,7 @@
 | `motion` | Object | 否 | 位移块 `{driver, kind, distance, curve?, direction, max_turn_deg?, blocking}`（运动仲裁切片消费，经 `ActionState.Motion`；`max_turn_deg` 缺省 180，`curve` 缺省 `linear`） |
 | `feel_ref` | Id | 否 | 动作层手感覆盖行（`feel.action`） |
 | `hit_anchor` | Enum(`caster`\|`ground_point`) | 否 | M5-S2a：只对声明了 `ground_target` 的技能有意义——声明后经地面坐标施法请求施放时进入时间线，命中形状以施法者位姿（`caster`）或落点（`ground_point`，朝向指向落点）为锚点；缺省不声明保持既有行为（`timeline` 被忽略并给警告）；没有 `ground_target` 却写了它给警告 `timeline_hit_anchor_without_ground_target` |
+| `weapon_paced` | Bool | 否 | 缺省 false（[ADR-0176](../../../../architecture/adr/0176-武器节奏动作.md)）：武器节奏动作——动作开始时整段时长乘主手武器挥击间隔（`weapon_profile.speed`，秒）÷ `SkillOptions.WeaponPaceReferenceSeconds`（缺省 1.0），三相、标记与窗口起点同一系数，窗口长度不缩放；无武器或无有效 speed 时系数为 1。用于轻击/连段，重击、蓄力、闪避不写 |
 
 语义校验由 `SkillTimelineRule`（`RulesSchemaCatalog` 登记）负责，Error 检查名：`timeline_zero_duration`、`timeline_cast_time_mismatch`、
 `timeline_on_passive`、`timeline_channel_time_exclusive`、`timeline_charge_range`、`timeline_marker_{segment,out_of_range,derived,unknown,duplicate_segment}`、
@@ -366,3 +367,7 @@ T-N3-9/T-N3-10 在真正消费这份集合时解析落实，详见该类型顶�
 形状全部由 `SkillSchemas.Def`/`AuraDef` 的 `Fields`/`Variants` 递归登记 + `DataRegistry` 的
 `required_field`/`field_type`/`variant_discriminator` 覆盖，不再需要平行的手写规则（详见
 `SkillValidationRules.cs` 顶部判断记录、`../README.md` 判断记录 39）。
+
+## 判断记录（`skill.def.desc_key`，2026-10-09，[ADR-0175](../../../../architecture/adr/0175-技能提示框内容与描述文本键.md)）
+
+`skill.def` 新增可选 `desc_key`（`TextKey`，同 `name_key` 惯例），供技能提示框显示描述段；缺省不显示。纯新增可选字段，不提 schema_version。

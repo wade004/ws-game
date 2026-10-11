@@ -21,7 +21,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("fontTools")
+# fontTools 是 toolchain/requirements.txt 声明的必需依赖：缺依赖必须明确失败，不得整体跳过（跳过会被门禁的 skipped=0 判红，
+# 且更糟的是在没有该门禁的环境里悄悄不测）。2.4.0～2.8.0 的 CI 红就是因为这里原来是 importorskip 而 CI 没装它。
+import fontTools  # noqa: F401
 
 TOOLCHAIN_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = TOOLCHAIN_DIR.parent

@@ -20,7 +20,7 @@
     python toolchain/font_subset.py --data-root data/_starter_kit --no-common --report build/ui_font.report.json --out build/ui_font.otf
 
 判断记录：
-* 只依赖 ``fontTools``（工具链已安装，不新增依赖）。字体文件保持 OTF/CFF 原格式（``flavor`` 不变），引擎侧按原资源 id 继续引用，不改布局数据。
+* 只依赖 ``fontTools``（声明在 ``toolchain/requirements.txt``）。字体文件保持 OTF/CFF 原格式（``flavor`` 不变），引擎侧按原资源 id 继续引用，不改布局数据。
 * 字体名表（name table）与 OFL 要求的版权/许可条目原样保留（``name_IDs=['*']``、``notdef_outline=True``）——子集化后仍是同一字体的衍生版本，
   分发时必须继续附带 ``LICENSE-OFL.txt``。字体的 Reserved Font Name 约束：Noto 无保留字体名，衍生版可沿用名称。
 * 字形选择不改字距/连字特性（``layout_features=['*']``），子集后体积主要由字形轮廓决定；常用字表默认带上，体积大约是整套字体的十分之一到五分之一

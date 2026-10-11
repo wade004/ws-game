@@ -34,6 +34,7 @@ namespace Core.Foundation.InputMap
 
         private readonly HashSet<string> _keysDown = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _mouseDown = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _warnedMouseNames = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _padDown = new HashSet<string>(StringComparer.Ordinal);
 
         public InputMapHost(IEventBus bus, InputMapOptions? options = null, IInputMapDiagnostics? diagnostics = null)
@@ -345,6 +346,7 @@ namespace Core.Foundation.InputMap
                         break;
                     case InputEventKind.KeyUp: _keysDown.Remove(evt.Key); break;
                     case InputEventKind.MouseButtonDown:
+                        WarnIfNonCanonicalMouseButton(evt.Key);
                         if (_mouseDown.Add(evt.Key)) pressEdgeMouse.Add(evt.Key);
                         break;
                     case InputEventKind.MouseButtonUp: _mouseDown.Remove(evt.Key); break;
@@ -483,6 +485,15 @@ namespace Core.Foundation.InputMap
                 case BindingKind.PadButton: return _padDown.Contains(b.Name!);
                 default: return false;
             }
+        }
+
+        /// <summary>适配层发来的鼠标按钮事件名不是 <see cref="MouseButtons"/> 规范名时，每个不同的名字警告一次
+        /// （ADR-0182）：这样的事件永远匹配不上任何 <c>mouse:</c> 绑定（解析器只放行规范名），不警告就是"鼠标
+        /// 绑定静默失效"。仍照常记入持有集合，不改变其余行为。</summary>
+        private void WarnIfNonCanonicalMouseButton(string name)
+        {
+            if (MouseButtons.IsCanonical(name) || !_warnedMouseNames.Add(name)) return;
+            _diagnostics.Warn($"适配层发出了非规范的鼠标按钮名 \"{name}\"（只能是 {MouseButtons.Describe()}），任何 mouse: 绑定都不会匹配它；请在适配层把引擎的按钮命名翻译成规范名");
         }
 
         /// <summary>FND-08 收口新增：与 <see cref="EvaluateDigital"/>/<see cref="IsDigitalActive"/>

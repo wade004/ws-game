@@ -855,6 +855,14 @@ def _check_weapon_style_row(row: dict, assets_root: Path, dataset: str, problems
                 assets_root, dataset, problems,
             )
 
+    release_anim_override = row.get("release_anim_override", {})
+    for skill_id, anim_clip_id in release_anim_override.items():
+        if anim_clip_id:
+            _check_display_anim_ref(
+                "display.weapon_style", row_id, f"release_anim_override[{skill_id}]", anim_clip_id,
+                assets_root, dataset, problems,
+            )
+
 
 def _check_equip_visual_paperdoll_layers(
     row_id: str, slot_id: str | None, mesh_ref: str, assets_root: Path, dataset: str, problems: list[CheckIssue],

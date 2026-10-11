@@ -180,7 +180,8 @@
 .PARAMETER SamplesRepo
     仅与 `-Release` 同传有效（ADR-0160）。样板仓库（`ws-game-samples`）的本地路径，候选阶段（`-Release` 第 6b 步）用它
     验证"这个版本发出去以后样板还绿"。省略时依次取环境变量 `WS_GAME_SAMPLES`、主工作树同级目录 `ws-game-samples`。
-    样板仓库必须有自己的 `check.ps1` 与 `tools/upgrade_framework.ps1`。
+    样板仓库必须有自己的 `check.ps1` 与 `tools/upgrade_framework.ps1`。候选阶段不改它的主工作树：升级与样板门禁在样板仓库的
+    临时工作树（根目录取环境变量 `WS_GAME_WT_ROOT`，缺省 `D:\wt`）里做，绿则移除、红则保留现场；本参数若指向已关联的工作树则直接使用。
 
 .PARAMETER SkipSamplesCandidate
     仅与 `-Release` 同传有效（ADR-0160）。显式放弃候选验证：没有样板仓库（或确定不需要验）时才用。默认没有样板仓库就
@@ -250,7 +251,8 @@ param(
     [switch]$Resume,
     [switch]$FullRegate,
     [string]$SamplesRepo = "",
-    [switch]$SkipSamplesCandidate
+    [switch]$SkipSamplesCandidate,
+    [string]$AcquireExclusiveLock = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -376,6 +378,18 @@ if ($DistRequested) {
 # 末尾）另起一节，因为它们依赖打包已经产出的 dist/<dir>/ 目录与其中的 DLL 哈希。
 # -----------------------------------------------------------------------------
 $ReleaseRequested = ($Release -ne "")
+
+# 全机独占锁（toolchain/_gate_lock.ps1）：-Release 的第 5 步会跑全量/定向门禁，发布前先做启动检查——别的持有者占着锁就
+# 拒绝启动；带 -AcquireExclusiveLock <持有者名> 时由本进程获取锁（进程结束自动释放），它调起的 check.ps1 与样板仓库
+# 候选阶段的 check.ps1 经环境变量识别为同一持有者，不会自己卡死自己。
+. (Join-Path $RepoRoot "toolchain\_gate_lock.ps1")
+if (($AcquireExclusiveLock -ne "") -and (-not $ReleaseRequested)) {
+    Write-Host "-AcquireExclusiveLock 仅在同传 -Release <版本号> 时有效（check.ps1 自己带同名参数）" -ForegroundColor Red
+    exit 1
+}
+if ($ReleaseRequested) {
+    if (-not (Enter-GateLockGuard -AcquireName $AcquireExclusiveLock -Context "build.ps1 -Release")) { exit 1 }
+}
 
 if ((-not $ReleaseRequested) -and ($DryRun -or $Publish -or $PublishRegistry)) {
     Write-Host "-DryRun/-Publish/-PublishRegistry 仅在同传 -Release 时有效" -ForegroundColor Red

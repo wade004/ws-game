@@ -460,6 +460,110 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 杂项
+
+- **消费方演练结束即删工作目录**：`toolchain/consumer_smoke.ps1` 演练主体包进 `try/finally`，通过、失败、中途退出都会等本次 Unity 进程退出后删除本次 `%TEMP%\gf_consumer_smoke_<8 位哈希>`（约 3GB；此前每个检出每次门禁留一份，一周积累 36 个、78.5GB）；删除失败只警告、不改变演练结论；演练失败时先把 Unity 日志另存到 `<ArtifactsPath>\consumer_smoke_logs\`。新增调试开关 `-KeepWorkDir` 保留现场。新增泄漏冒烟 `toolchain/consumer_smoke_temp_leak_check.ps1`（跑一次 `check.ps1`，断言 `gf_consumer_smoke_*` 的个数与总字节都不增加）。
+
+## [2.15.1] - 2026-10-11
+
+### 修复
+
+- **真机上所有 `mouse:*` 输入绑定不触发（[ADR-0182](architecture/adr/0182-鼠标按钮规范名.md)，样板游戏 C 试玩：鼠标左键攻击、中键锁定无效）**：输入映射的 `mouse:left` 绑定按按钮名 `left` 匹配设备事件，而引擎适配层发出的鼠标按钮事件键名是 `MouseLeft`/`MouseRight`/`MouseMiddle`，两边对不上且无任何报错。现统一为契约词汇表 `Core.Foundation.EngineAdapter.MouseButtons` 的规范名 `left`/`right`/`middle`（绑定侧的写法，已有数据不用改）：(1) `UnityInput` 的鼠标按钮事件键名与 `IsKeyDown` 的鼠标按钮名改用规范名；(2) `BindingParser` 对 `mouse:` 只放行规范名，其余名字在解析时抛 `ArgumentException`（此前"解析成功但永远不触发"）；(3) `StubInput.PressMouseButton`/`ReleaseMouseButton` 只接受规范名；(4) `InputMapHost` 收到非规范的鼠标按钮事件名时对每个不同的名字发一次诊断警告。**不保留旧名字别名**。
+  - 迁移：直接读旧名字的游戏代码（`IsKeyDown("MouseRight")`、手写的鼠标事件匹配、脚本化输入测试替身）改用 `MouseButtons.Left/Right/Middle`；绑定数据不用改。
+  - 用例：`BindingParserTests`（规范名全部可解析、非规范名抛错）、`InputMapHostTests`（每个规范名只触发自己的 `mouse:` 动作、非规范事件名不匹配并警告一次）、`StubInputTests`（规范名往返、非规范名被拒）、`UnityInputTests.RealMouseDevice_*`（真实虚拟鼠标设备：发出的每个名字都是规范名且可解析、规范名无多余、真实事件经 `InputMapHost` 触发 `mouse:left/right/middle`）。
+
+### 契约决定
+
+- [ADR-0182](architecture/adr/0182-鼠标按钮规范名.md)：鼠标按钮只有一份规范名（`left`/`right`/`middle`），事件、按住查询、绑定共用；适配层边界翻译，不接受别名。
+
+## [2.15.0] - 2026-10-10
+
+### 新增
+
+- **技能栏悬停详情与点击施放（[ADR-0180](architecture/adr/0180-技能栏悬停详情与点击施放.md)，样板游戏反馈"技能栏点不了、看不到技能说明"）**：(1) 引擎适配层新增 `Adapter.Unity.Ui.SkillBarInteraction`（挂在界面上，逐格登记技能格，悬停出详情提示框，左键点击把该格对应的热键注入输入流）、`SkillTooltipView`（提示框排版）、`UiInputBridge`（包装 `IInput`：注入虚拟按键，且鼠标按下落在界面上时吞掉该事件，不再穿透到世界动作，解决"鼠标左键本身就是攻击键"的游戏里点技能栏又挥一刀）。点击与按键走同一条输入通道，冷却、消耗、动作进行中的拒绝与按键完全一致。(2) 技能提示框内容：`SkillTooltipBuilder` 对带 `timeline` 的动作技能显示"类型 = 动作"与"动作时长"；`SkillTooltipContext` 新增武器挥击间隔与基准间隔，技能声明 `weapon_paced`（ADR-0176）时时长按 间隔 ÷ 基准 缩放，显示的就是实际挥击时长。(3) 内容起步包玩家技能补齐 `name_key`/`desc_key` 与中英文文案，提示框新增"动作"类型键。
+- **镜头可视范围限制 `view_limit`（[ADR-0181](architecture/adr/0181-镜头可视范围限制.md)，样板游戏反馈"镜头边缘一片蓝"）**：`camera_profile` 新增可选字段 `view_limit`（地图矩形 `min`/`max`），**缺省关闭，不写则行为与以前完全一致**；写了之后 `CameraHost` 按适配层新契约 `ICameraGroundFootprint`（视口四角射线与地面交点的外接矩形）把跟随点收在"画面不出地图"的区间，某方向画面比地图还大时在该方向与地图居中重合。`UnityCamera`、`StubCamera` 均已实现该契约；数据只写地图矩形，不再手写镜头中心的活动范围。
+- 用例：`SkillTooltipBuilderTests`（动作类型与武器节奏时长两条）、`CameraViewLimitTests`（Core 层）、`SkillBarInteractionPlayModeTests`（悬停、点击、拒绝、吞鼠标按下）、`UnityCameraGroundFootprintTests`（真实相机四角射线落在地图内）、`test_starter_kit_data.py`（技能文案键中英文齐全）。
+
+### 契约决定
+
+- [ADR-0180](architecture/adr/0180-技能栏悬停详情与点击施放.md)：技能栏交互的分工（控件在适配层、内容由数据算出）、点击等价于按键、界面上的鼠标按下被吞。
+- [ADR-0181](architecture/adr/0181-镜头可视范围限制.md)：`view_limit` 缺省关闭、按画面实际落地范围收跟随点、无解时居中。
+
+## [2.14.0] - 2026-10-10
+
+### 新增
+
+- **被动闪避（[ADR-0178](architecture/adr/0178-被动闪避与不可闪避标签.md)，样板游戏反馈"闪避应是被动技能，主动位移键改叫翻滚"）**：命中表的 `dodge` 分支此前已具备（按受击者属性掷骰、发布 `combat.attack_avoided { hitResult: Dodge }`），缺的是接入与约定。(1) 新增框架保留技能标签 `skill.tag.unavoidable`（`WellKnownSkillTags.Unavoidable`）：带此标签的技能其全部效果跳过命中表的回避分支（未命中、闪避、招架、偏斜、格挡），与 `EffectContext.CanMiss = false` 同义，暴击不受影响；标签随 `EffectContext.Tags` 走完施法、投射物、光环三条路径，`Resolver` 一处识别，不新增 schema 字段；翻滚无敌窗口先于命中表，不受影响。(2) 内容起步包接入完整属性链：`stat.dodge_rating`（百分比类别，缺省 5 点，评级曲线 `stat.rating.kit_dodge` 1 点 = 1%，`clamp.max` 0.5 封顶）、等级成长（`prog.level_curve.growth`）、装备（`item.kit_charm_evasion`、词缀 `item.affix.kit_of_evasion`）、默认命中表启用 `dodge` 分支、被动闪避飘字（`feedback.kit_dodge_text`，文案键 `l10n.combat.kit_dodge_text`）。(3) 引擎适配层 `FloatingTextReceiver` 新增三维锚点构造（世界锚点、上浮方向、朝向相机），含非 ASCII 字符的飘字改用套件字体（TMP 内置默认字体没有 CJK 字形），闪避/未命中配色用淡青色；飘字绘制序固定取 32000（`FloatingTextReceiver.FloatingTextSortingOrder`，两种构造一致）：此前世界文字的绘制序是 0，被图层 ≥ 1 的精灵与远景盖住，样板游戏截图里整句看不见；二维构造与纯数字飘字的位置、字体、颜色行为不变。**缺省影响**：加载起步包的游戏，默认命中表现在启用闪避——玩家与敌人都有约 5% 起步的闪避率，所有直接伤害攻击可能被闪避。不想要：用 `"override": true` 覆盖 `combat.hit_table.default`（把 `dodge.enabled` 改回 false），或把 `GameOptions.HitTableConfigId` 指向自己的命中表。起步包技能 `skill.kit_dodge` 的展示名改叫"翻滚 / Roll"（标识符不变）。试玩实验室的按键提示与技能说明同步改叫翻滚。
+- 用例：`PassiveDodgeTests`（9 条：固定种子逐次重放比对、万级样本收敛到属性概率、同种子逐位复现、不可闪避标签不耗随机数、治疗不闪避等）、`test_starter_kit_data.py::test_kit_declares_the_passive_dodge_chain_from_stat_to_hit_table_to_floating_text`、`FloatingTextReceiverPlayModeTests`（4 条，三维锚点与字体）；`VerticalSliceTests` 两条死亡飘字用例不再预期中文飘字的 TMP 缺字警告（改靠收尾的 `LogAssert.NoUnexpectedReceived()` 守住“中文飘字不再产生缺字警告”）。
+
+### 修复
+
+- **发布候选阶段：`-SamplesRepo` 传样板仓库的已关联工作树时，不再把阶段在该工作树里的合法升级误报成"改动了样板主工作树"**（消费方反馈 [消费方反馈-2026-10-09-发布候选阶段-已关联工作树误报.md](docs/消费方反馈/消费方反馈-2026-10-09-发布候选阶段-已关联工作树误报.md)）：前后快照改拍真正的样板主工作树（`git rev-parse --git-common-dir` 的上级），传主工作树本身行为不变；新增 3 条用例（含真实 git 已关联工作树）。
+
+- **`RulesAssembly.RegisterUnit`：职业 `base_stats` 含带评级换算曲线的百分比类属性（被动闪避点数、暴击评级等）时不再注册失败**：此前先应用原型（写基础属性）、后登记等级，评级换算按单位等级求值而单位还没登记等级，整个单位注册抛 `ArgumentException`（“单位未通过 RegisterUnit 注册”）；现改为先登记等级（有 `level_curve_ref` 时）再应用原型，换算也因此用单位的真实起始等级而不是 1 级；没有登记等级的单位（怪物这类职业不带 `level_curve_ref` 的单位）带评级属性时，评级换算按 1 级求值而不是抛异常（新增 `ProgressionHost.IsRegistered(Id)`，`RulesAssembly` 的评级等级查找据此兜底）。其余属性与资源池行为不变。用例：`RulesAssemblyRatingStatAtRegistrationTests`（3 条：不抛异常且按 1 级除数换算；起始 10 级按 10 级除数换算；不带等级曲线的职业按 1 级换算）。
+
+### 契约决定
+
+- [ADR-0178](architecture/adr/0178-被动闪避与不可闪避标签.md)：被动闪避的术语（"闪避"只指被动判定，原主动位移叫"翻滚"）、哪些攻击可闪避（直接伤害一视同仁）、不可闪避的数据标记、起步包属性链与封顶、反馈。
+
+## [2.13.0] - 2026-10-10
+
+### 新增
+
+- **武器节奏动作 `weapon_paced`（ADR-0176，样板游戏 C 攻速反馈）**：`skill.def.timeline` 新增可选布尔字段 `weapon_paced`（缺省 false）；为真的动作在开始时按"主手武器 `weapon_profile.speed`（挥击间隔，秒）÷ `SkillOptions.WeaponPaceReferenceSeconds`（缺省 1.0，不大于 0 关闭）"拉伸整段时长（三相、标记、窗口起点同一系数，窗口长度不缩放，与急速、`phase_scale` 相乘），动画速率随之对齐；动作开始时快照，无武器/无有效 speed 时系数为 1。`TimelineDef` 新增带 `weaponPaced` 的构造重载与只读属性 `WeaponPaced`（原构造转发为 false，物理签名不变）。不声明的技能逐位不变。
+- **内容起步包三段近战 `kit_melee_1~3` 标 `weapon_paced` 并各开一个后摇起点的闪避取消窗口**：缺省影响——使用起步包近战的游戏，连点上限现在由武器攻速决定（此前约 5 次/秒，与武器 speed 无关）。想保持旧节奏：`WeaponPaceReferenceSeconds = 0`，或覆盖数据把 `weapon_paced` 改回 false。重击、蓄力、闪避不变。
+- 用例：`WeaponPacedTimelineTests`（12 条，含连点上限、比例、连招窗口）、`WeaponPacedAttackEndToEndTests`（装配侧，真实输入缓冲与装备）、`test_starter_kit_data.py::test_kit_light_attacks_are_paced_by_the_equipped_weapon_and_dodge_cancellable`。
+
+## [2.12.0] - 2026-10-09
+
+### 新增
+
+- **受击自动选中与目标持有宿主（[ADR-0177](architecture/adr/0177-受击自动选中与目标持有宿主.md)，样板游戏 B 缺口）**：载体层新增 `ITargetLockHost`/`TargetLockHost`（装配根 `CarriersAssembly.TargetLock`）持有单位当前目标；新增事件 `unit.target_changed`；`creature.template` 新增可选对象 `target_lock { auto_select_on_hit, modes }`，缺省关闭。开启后单位没有有效目标时被敌对单位（召唤物/投射物归到施放者）打中，自动选中攻击者；已有有效目标不抢，友方误伤、环境伤害、来源已死亡的持续伤害不选中；同批多个攻击者先派发先选中。
+- **施法三段动作（[ADR-0174](architecture/adr/0174-施法三段动作读条循环释放与瞬发释放.md)）**：`display.weapon_style` 新增可选 `release_anim_override`（技能 id → 释放动作剪辑）：读条期间循环读条剪辑、读条完成播释放、被打断直接回落；瞬发技能直接播释放。`WeaponStyleDef.ReleaseAnimOverride`（新构造重载）、`AnimStateMachine.ReleaseAnimProbe`。
+- **技能提示框内容（[ADR-0175](architecture/adr/0175-技能提示框内容与描述文本键.md)）**：`skill.def` 新增可选 `desc_key`；纯数据 `SkillTooltipBuilder.Build`/`SkillTooltipContent`（名称、类型、读条、冷却、消耗、射程、效果数值含属性缩放、描述）；内容起步包补 `l10n.ui.skill_tooltip.*` 中英文行。
+
+### 修复
+
+- **读条途中被受击姿势顶掉后，受击结束回到施法姿势**（ADR-0174 决策 4）：此前回到运动态，读条剩余时间里角色没有施法姿势。
+- **读条期间别的施法请求被拒，不再收回读条姿势**（ADR-0174 决策 7）：动画状态机按读条实例 id 区分；此前敌人 AI 每个决策间隔的再次请求（Busy）或玩家读条时按别的技能键，都会让读条姿势提前站回待机。
+- **武器风格剪辑预热**（ADR-0174 决策 6）：视图挂接与装备武器变更后提前加载该实体武器风格的攻击/施法/释放剪辑；此前第一次用到时先显示约 2 秒的 1x1 白色占位帧。
+
+### 契约决定
+
+- [ADR-0177](architecture/adr/0177-受击自动选中与目标持有宿主.md)、[ADR-0174](architecture/adr/0174-施法三段动作读条循环释放与瞬发释放.md)、[ADR-0175](architecture/adr/0175-技能提示框内容与描述文本键.md)：样板游戏 B（目标选择式 RPG）的缺口。
+
+## [2.11.0] - 2026-10-09
+
+### 新增
+
+- **任务目标指引（[ADR-0173](architecture/adr/0173-任务目标指引.md)，样板游戏 A 试玩反馈）**：`quest.def` 新增可选字段 `guide`（引导步骤：`map_id`/`when`/`text_key`/`targets[]`/`progress_flags[]`）与 `guide_priority`；新增 `Core.Gameplay.Quest.QuestGuideHost`（`Evaluate(unitId, mapId, position)` 现算当前步骤、进度、箭头目标，目标在别的地图时沿当前开着的地图切换通道寻路并指向第一条通道）、`IQuestGuideLocator`/`RegistryQuestGuideLocator`、`QuestGuideInfo`；`GameplayAssembly.QuestGuide`/`QuestGuideLocator`；`QuestHost.Definitions`；校验检查名 `quest_guide_target_form`。纯加法，不声明 `guide` 时行为逐位不变，`IQuestHost` 与既有构造签名均未改动。引擎适配层新增 `Adapter.Unity.Ui.GuideArrow`（屏幕边缘引导箭头控件，不接入就不出现）。详见 [消费方反馈-2026-10-09-样板游戏A-任务目标指引.md](docs/消费方反馈/消费方反馈-2026-10-09-样板游戏A-任务目标指引.md)。
+
+## [2.10.0] - 2026-10-09
+
+### 新增
+
+- **提交信息乱码拦截（`.githooks/commit-msg` + `toolchain/check_commit_msg.py`）**：提交信息含 U+FFFD、非法 UTF-8、典型 GBK/Latin-1/cp1252 误解码乱码或成串问号（中文被替换成 `?`）时拒绝提交，提示"把提交信息先写进 UTF-8 文件，再 `git commit -F <文件>`"。随 `core.hooksPath` 对同一仓库所有工作树生效，新克隆跑一次 `toolchain/install_hooks.ps1`。用例 `toolchain/tests/test_commit_msg_hook.py`（纯函数、命令行、经真实 `git commit` 的整链路）。
+- **`build.ps1 -Release` 候选阶段新增 `-SamplesWorktreeRoot`**（缺省环境变量 `WS_GAME_WT_ROOT`，再缺省 `D:\wt`）：临时工作树的根目录，见下面"修复"。
+- **示例数据世界物件外形的静态不变量**：`toolchain/tests/test_sample_world_view_displays_layered.py`，以及引擎侧 `VerticalSliceTests.SampleData_EveryWorldViewNonCreatureDisplay_CreatesViewWithoutDiagnosticWarnings`（示例数据里所有会在世界里建视图的非生物外形创建视图时零诊断警告）。
+
+### 修复
+
+- **示例数据的非生物外形改为分层精灵集（`data/_sample`）**：箱子/门/存档点/弩矢/任务标记/掉落堆原先是整身精灵集用于非生物，2.9.0 起视图层会对它们发"静默不画"诊断警告，竖切用例靠测试出口放行。现改为 `<方向>/body.png` 分层精灵集并在 `display.map` 行写 `paperdoll_layers: ["body"]`（弩矢独占新精灵集 `sprite.projectile.sample_bolt`，不再与 `sample_blade` 共用）；`toolchain/import_sample_assets.py` 同步，`UnityViewFactory.MarkWholeBodyStaticWarnedForTests` 测试出口已删除。item/skill/aura 类行仍共用整身的 `sprite.item.sample_blade`（只用图标、从不建视图，不报警）。
+- **发布候选阶段不再改样板主工作树**：此前候选阶段默认把样板主工作树（使用者的试玩目录）的 manifest 改成 `X.Y.Z-rc.N` 且不提交。现在升级与样板门禁在样板仓库的临时工作树里做（绿则移除、红则保留现场并给出清理命令；`-SamplesRepo` 本身是已关联工作树时直接使用），阶段前后对样板主工作树做 HEAD+status 快照比对，被改动即失败。ADR-0160 补注，用例含真实 git 的端到端（绿/红两条路径下样板主工作树 `git status` 与被改过的文件逐字节不变）。
+
+## [2.9.0] - 2026-10-08
+
+### 新增
+
+- **门禁独占锁机制（`toolchain/_gate_lock.ps1`）**：`check.ps1` 与 `build.ps1 -Release` 启动时自动检查全机独占锁（默认 `D:\wt\_exclusive_gate.lock`，环境变量 `WS_GATE_LOCK_PATH` 可覆盖），别的持有者占着就拒绝启动并打印持有者、开始时间与 PID；新增参数 `-AcquireExclusiveLock <持有者名>` 获取锁（进程结束自动释放，PID 已不存在的陈旧锁自动接管；子进程经环境变量识别为同一持有者）。用例 `toolchain/tests/test_gate_lock.py`。
+- **视图层"整身精灵集用于非生物"诊断**：`UnityViewFactory.CreateView` 对 kind=sprite、没有 `paperdoll_layers`、分类不是生物（gobj/projectile/item 等）的外形发一次诊断警告（带 displayId 与精灵集 id，同一 displayId 只发一次）。此前该组合静默什么都不画（工厂只给生物挂默认动画，整身渲染器没有静态底图）。
+
+### 修复
+
+- **CI 缺 fontTools**：2.4.0 起 `toolchain/tests/test_font_subset.py` 用 `importorskip` 整体跳过，而 CI 只装 `toolchain/requirements.txt`，门禁"skipped 必须为 0"判红，GitHub 上 CI 工作流 2.4.0～2.8.0 连续失败。`fonttools` 写进 `requirements.txt`，测试改硬导入（缺依赖直接失败）。
+
+## [2.8.0] - 2026-10-08
+
 ### 新增
 
 - **单向平台与移动平台（样板游戏 D 缺口，[ADR-0170](architecture/adr/0170-单向平台移动平台与下穿俯冲.md)）**：可选能力接口 `ITerrainPlatforms2D`（引擎适配层契约）与数据实现 `MapPlatforms`（`world.map.platforms`：`{id, min, max, height, motion?}`，移动平台位姿是平台时钟的解析函数）；`VerticalAxisOptions.Platforms`（缺省 null，逐位不变；声明必须同时声明 `Terrain`）；下落脚下穿过顶面落在平台、走出平台范围边缘下落、移动平台带乘客；`IVerticalMotion` 新增默认接口成员 `DropThrough`（下穿）、`Plunge`（空中向下俯冲，下劈用）、`StandingPlatform`；`VerticalMotionHost.UnitAccess`（`CarriersAssembly` 自动装配）；数据校验检查名 `world_map_platform`。
@@ -469,10 +573,6 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 ### 契约决定
 
 - [ADR-0170](architecture/adr/0170-单向平台移动平台与下穿俯冲.md)、[ADR-0171](architecture/adr/0171-投射物命中高度窗口.md)、[ADR-0172](architecture/adr/0172-悬浮生物出生高度.md)：样板游戏 D（横版动作）的缺口，含已知限制各 6 条、2 条与 1 条。
-
-### 杂项
-
-- **消费方演练结束即删工作目录**：`toolchain/consumer_smoke.ps1` 演练主体包进 `try/finally`，通过、失败、中途退出都会等本次 Unity 进程退出后删除本次 `%TEMP%\gf_consumer_smoke_<8 位哈希>`（约 3GB；此前每个检出每次门禁留一份，一周积累 36 个、78.5GB）；删除失败只警告、不改变演练结论；演练失败时先把 Unity 日志另存到 `<ArtifactsPath>\consumer_smoke_logs\`。新增调试开关 `-KeepWorkDir` 保留现场。新增泄漏冒烟 `toolchain/consumer_smoke_temp_leak_check.ps1`（跑一次 `check.ps1`，断言 `gf_consumer_smoke_*` 的个数与总字节都不增加）。
 
 ## [2.7.0] - 2026-10-08
 

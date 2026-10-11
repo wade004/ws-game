@@ -11,7 +11,8 @@
       "base_stats": {
         "stat.vitality": 320,
         "stat.power": 10,
-        "stat.move_speed": 5.4
+        "stat.move_speed": 5.4,
+        "stat.dodge_rating": 5
       },
       "faction_id": "fac.player"
     },
@@ -24,7 +25,8 @@
       "base_stats": {
         "stat.vitality": 60,
         "stat.power": 6,
-        "stat.move_speed": 4.0
+        "stat.move_speed": 4.0,
+        "stat.dodge_rating": 3
       },
       "faction_id": "fac.hostile",
       "ai_behavior_ref": "ai.profile.kit_melee",
@@ -39,7 +41,8 @@
       "base_stats": {
         "stat.vitality": 45,
         "stat.power": 6,
-        "stat.move_speed": 3.2
+        "stat.move_speed": 3.2,
+        "stat.dodge_rating": 8
       },
       "faction_id": "fac.hostile",
       "ai_behavior_ref": "ai.profile.kit_ranged",
@@ -54,7 +57,8 @@
       "base_stats": {
         "stat.vitality": 240,
         "stat.power": 6,
-        "stat.move_speed": 2.8
+        "stat.move_speed": 2.8,
+        "stat.dodge_rating": 2
       },
       "faction_id": "fac.hostile",
       "ai_behavior_ref": "ai.profile.kit_heavy",
@@ -69,7 +73,8 @@
       "base_stats": {
         "stat.vitality": 700,
         "stat.power": 12,
-        "stat.move_speed": 2.6
+        "stat.move_speed": 2.6,
+        "stat.dodge_rating": 10
       },
       "faction_id": "fac.hostile",
       "ai_behavior_ref": "ai.profile.kit_boss",

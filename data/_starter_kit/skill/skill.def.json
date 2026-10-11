@@ -4,6 +4,8 @@
   "rows": [
     {
       "id": "skill.kit_melee_1",
+      "name_key": "l10n.skill.kit_melee_1.name",
+      "desc_key": "l10n.skill.kit_melee_1.desc",
       "school": "school.physical",
       "kind": "active",
       "range": 3,
@@ -40,11 +42,20 @@
           "next": "skill.kit_melee_2",
           "open_ms": 170,
           "close_ms": 340
-        }
+        },
+        "weapon_paced": true,
+        "cancel_windows": [
+          {
+            "class": "dodge",
+            "open_ms": 170
+          }
+        ]
       }
     },
     {
       "id": "skill.kit_melee_2",
+      "name_key": "l10n.skill.kit_melee_2.name",
+      "desc_key": "l10n.skill.kit_melee_2.desc",
       "school": "school.physical",
       "kind": "active",
       "range": 3,
@@ -81,11 +92,20 @@
           "next": "skill.kit_melee_3",
           "open_ms": 170,
           "close_ms": 350
-        }
+        },
+        "weapon_paced": true,
+        "cancel_windows": [
+          {
+            "class": "dodge",
+            "open_ms": 170
+          }
+        ]
       }
     },
     {
       "id": "skill.kit_melee_3",
+      "name_key": "l10n.skill.kit_melee_3.name",
+      "desc_key": "l10n.skill.kit_melee_3.desc",
       "school": "school.physical",
       "kind": "active",
       "range": 3,
@@ -117,11 +137,20 @@
             "name": "hit",
             "at_ms": 140
           }
+        ],
+        "weapon_paced": true,
+        "cancel_windows": [
+          {
+            "class": "dodge",
+            "open_ms": 240
+          }
         ]
       }
     },
     {
       "id": "skill.kit_heavy",
+      "name_key": "l10n.skill.kit_heavy.name",
+      "desc_key": "l10n.skill.kit_heavy.desc",
       "school": "school.physical",
       "kind": "active",
       "range": 3,
@@ -164,6 +193,8 @@
     },
     {
       "id": "skill.kit_charge",
+      "name_key": "l10n.skill.kit_charge.name",
+      "desc_key": "l10n.skill.kit_charge.desc",
       "school": "school.physical",
       "kind": "active",
       "range": 3,
@@ -214,6 +245,8 @@
     },
     {
       "id": "skill.kit_dodge",
+      "name_key": "l10n.skill.kit_dodge.name",
+      "desc_key": "l10n.skill.kit_dodge.desc",
       "school": "school.physical",
       "kind": "active",
       "range": 3,
@@ -260,6 +293,8 @@
     },
     {
       "id": "skill.kit_ranged_shot",
+      "name_key": "l10n.skill.kit_ranged_shot.name",
+      "desc_key": "l10n.skill.kit_ranged_shot.desc",
       "school": "school.physical",
       "kind": "active",
       "range": 30,
@@ -312,6 +347,8 @@
     },
     {
       "id": "skill.kit_ultimate_aoe",
+      "name_key": "l10n.skill.kit_ultimate_aoe.name",
+      "desc_key": "l10n.skill.kit_ultimate_aoe.desc",
       "school": "school.physical",
       "kind": "active",
       "range": 4,
@@ -472,6 +509,8 @@
     },
     {
       "id": "skill.kit_potion_small",
+      "name_key": "l10n.skill.kit_potion_small.name",
+      "desc_key": "l10n.skill.kit_potion_small.desc",
       "school": "school.physical",
       "kind": "active",
       "range": 0,
@@ -491,6 +530,8 @@
     },
     {
       "id": "skill.kit_potion_large",
+      "name_key": "l10n.skill.kit_potion_large.name",
+      "desc_key": "l10n.skill.kit_potion_large.desc",
       "school": "school.physical",
       "kind": "active",
       "range": 0,

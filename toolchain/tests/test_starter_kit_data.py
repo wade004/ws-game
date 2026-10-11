@@ -122,3 +122,74 @@ def test_kit_defines_every_percent_stat_the_combat_resolver_reads_by_default() -
     assert {"stat.damage_done_pct", "stat.damage_taken_pct", "stat.healing_done_pct"} <= wanted, wanted
     defined = {r["id"] for r in _tables()["stat.definition"]["rows"]}
     assert wanted <= defined, sorted(wanted - defined)
+
+
+def test_kit_light_attacks_are_paced_by_the_equipped_weapon_and_dodge_cancellable() -> None:
+    """三段普攻的挥击节奏由主手武器的挥击间隔缩放（ADR-0176）：不标 weapon_paced 时连点只受动作自身时长限制，武器攻速字段形同虚设；
+    收招期可被闪避取消（取消窗口开在后摇起点 = 前摇 + 有效），重击/蓄力沿用各自技能数据的节奏。"""
+    rows = {r["id"]: r for r in _tables()["skill.def"]["rows"]}
+    for skill in ("skill.kit_melee_1", "skill.kit_melee_2", "skill.kit_melee_3"):
+        timeline = rows[skill]["timeline"]
+        assert timeline.get("weapon_paced") is True, skill
+        recovery_start = timeline["startup_ms"] + timeline["active_ms"]
+        dodge = [w for w in timeline.get("cancel_windows", []) if w["class"] == "dodge"]
+        assert dodge and dodge[0]["open_ms"] == recovery_start, skill
+    for skill in ("skill.kit_heavy", "skill.kit_charge", "skill.kit_dodge"):
+        assert not rows[skill]["timeline"].get("weapon_paced"), skill
+
+
+def test_kit_player_skills_have_localized_name_and_description_in_both_locales() -> None:
+    """玩家可用的技能（普攻连招、重击、冲锋、翻滚、远程、大招、药水）带 name_key/desc_key，且中英文都有文案（技能栏悬停详情用，ADR-0175/0180）；
+    引用的键都存在，不是空串。"""
+    tables = _tables()
+    texts = {(r["key"], r["locale"]): r["text"] for r in tables["l10n.text"]["rows"]}
+    rows = {r["id"]: r for r in tables["skill.def"]["rows"]}
+    player = [s for s in rows if not any(tag in s for tag in ("grunt", "heavy_slam", "boss"))]
+    assert len(player) >= 10, player
+    for skill in player:
+        for field in ("name_key", "desc_key"):
+            key = rows[skill].get(field)
+            assert key, (skill, field)
+            for locale in (ZH, EN):
+                assert texts.get((key, locale)), (skill, field, locale)
+    for key in ("type_action", "action_time"):
+        for locale in (ZH, EN):
+            assert texts.get(("l10n.ui.skill_tooltip." + key, locale)), (key, locale)
+
+
+def test_kit_declares_the_passive_dodge_chain_from_stat_to_hit_table_to_floating_text() -> None:
+    """被动闪避（ADR-0178）：闪避属性 → 评级换算（封顶）→ 命中表 dodge 分支 → 回避事件 → 头顶飘字，整条链在起步包里连得上。
+    期望由数据算出：玩家起步闪避率 = 基础点数 ÷ 一级换算除数，落在 5% 附近；上限小于 1；敌人的闪避值首领不低于小兵。"""
+    tables = _tables()
+    stat = {r["id"]: r for r in tables["stat.definition"]["rows"]}["stat.dodge_rating"]
+    assert stat["category"] == "percent"
+    curve = {r["id"]: r for r in tables["stat.rating_conversion"]["rows"]}[stat["conversion_ref"]]
+    divisor_at_level_1 = min(curve["entries"], key=lambda e: e["x"])["y"]
+    cap = stat["clamp"]["max"]
+    assert 0 < cap < 1, "闪避率必须封顶"
+
+    hit_table = {r["id"]: r for r in tables["combat.hit_table_config"]["rows"]}["combat.hit_table.default"]
+    assert hit_table["dodge"]["enabled"] is True and hit_table["dodge"]["stat"] == "stat.dodge_rating"
+
+    hero_points = {r["id"]: r for r in tables["arch.class"]["rows"]}["arch.class.kit_hero"]["base_stats"]["stat.dodge_rating"]
+    hero_rate = min(hero_points / divisor_at_level_1, cap)
+    assert 0.04 <= hero_rate <= 0.06, hero_rate
+
+    creatures = {r["id"]: r["base_stats"].get("stat.dodge_rating", stat["default_base"]) for r in tables["creature.template"]["rows"]}
+    assert creatures["creature.kit_boss"] >= creatures["creature.kit_melee_grunt"]
+    assert all(points / divisor_at_level_1 <= cap for points in creatures.values())
+
+    growth = [e["growth"].get("stat.dodge_rating", 0) for e in tables["prog.level_curve"]["rows"][0]["entries"] if e["level"] >= 2]
+    assert growth and all(g > 0 for g in growth), "闪避随等级成长"
+
+    gear = [r for r in tables["item.template"]["rows"] if any(s["stat"] == "stat.dodge_rating" for s in r.get("stats", []))]
+    assert gear, "装备词条要能加闪避"
+    assert any(a for a in tables["item.affix"]["rows"] if any(m["stat"] == "stat.dodge_rating" for m in a["stat_mix"]))
+
+    binding = {r["id"]: r for r in tables["feedback.binding"]["rows"]}["feedback.kit_dodge_text"]
+    assert binding["event"] == "combat.attack_avoided" and '"Dodge"' in binding["condition"]
+    action = binding["actions"][0]["params"]
+    assert action["style_id"] in {r["id"] for r in tables["feedback.floating_text_style"]["rows"]}
+    text_key = action["text_source"].split(":", 1)[1]
+    locales = {r["locale"] for r in tables["l10n.text"]["rows"] if r["key"] == text_key}
+    assert locales == {ZH, EN}

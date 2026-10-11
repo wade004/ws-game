@@ -1,4 +1,5 @@
 using System;
+using Core.Foundation.EngineAdapter;
 using Core.Foundation.InputMap;
 using Xunit;
 
@@ -21,6 +22,30 @@ namespace Tests.Foundation.InputMap
             var b = BindingParser.Parse("mouse:left");
             Assert.Equal(BindingKind.Mouse, b.Kind);
             Assert.Equal("left", b.Name);
+        }
+
+        /// <summary>不变量（ADR-0182）：规范名集合里的每个名字都能解析成 <c>mouse:</c> 绑定，名字原样保留。</summary>
+        [Fact]
+        public void Parse_Mouse_EveryCanonicalName_Parses()
+        {
+            foreach (var name in MouseButtons.All)
+            {
+                var b = BindingParser.Parse("mouse:" + name);
+                Assert.Equal(BindingKind.Mouse, b.Kind);
+                Assert.Equal(name, b.Name);
+            }
+        }
+
+        [Theory]
+        [InlineData("mouse:MouseLeft")]
+        [InlineData("mouse:Left")]
+        [InlineData("mouse:LEFT")]
+        [InlineData("mouse:forward")]
+        [InlineData("composite2d:key:w|key:s|key:a|mouse:MouseRight")]
+        public void Parse_Mouse_NonCanonicalName_Throws_AndMessageListsCanonicalNames(string raw)
+        {
+            var ex = Assert.Throws<ArgumentException>(() => BindingParser.Parse(raw));
+            Assert.Contains(MouseButtons.Describe(), ex.Message);
         }
 
         [Fact]

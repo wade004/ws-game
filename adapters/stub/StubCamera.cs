@@ -10,7 +10,7 @@ using Core.Foundation.EngineAdapter;
 namespace Adapters.Stub
 {
     /// <summary><see cref="ICamera"/> 的最小桩实现：只记录调用与保存最近一次配置，不做真实投影，供测试断言镜头参数被设置成了什么。</summary>
-    public sealed class StubCamera : ICamera, ICameraOrientation
+    public sealed class StubCamera : ICamera, ICameraOrientation, ICameraGroundFootprint
     {
         /// <summary>是否已调用过 <c>Configure</c>。</summary>
         public bool Configured { get; private set; }
@@ -70,6 +70,31 @@ namespace Adapters.Stub
         public Vec2? ScreenToWorld(Vec2 screen)
         {
             return screen;
+        }
+
+        /// <summary>
+        /// 桩的画面宽高比（宽 ÷ 高）。大于 0 时桩把自己当作一台正对地面的正交相机（画面半高 = <see cref="Zoom"/>，半宽 = 半高 × 本值，不转偏航），
+        /// 并声明支持 <see cref="ICameraGroundFootprint"/>，供测试断言"可视范围限制"；缺省 0 = 不支持（与改动前一致）。
+        /// </summary>
+        public double ViewAspect { get; set; }
+
+        /// <summary><see cref="ICameraGroundFootprint"/>：<see cref="ViewAspect"/> 大于 0 时支持。</summary>
+        public bool SupportsCameraGroundFootprint => ViewAspect > 0.0;
+
+        /// <summary><see cref="ICameraGroundFootprint"/>：正交近似，偏移 = ±(半宽, 半高)；不支持时返回 false。</summary>
+        public bool TryGetGroundFootprint(out Vec2 minOffset, out Vec2 maxOffset)
+        {
+            if (!SupportsCameraGroundFootprint)
+            {
+                minOffset = Vec2.Zero;
+                maxOffset = Vec2.Zero;
+                return false;
+            }
+
+            var halfWidth = Zoom * ViewAspect;
+            minOffset = new Vec2(-halfWidth, -Zoom);
+            maxOffset = new Vec2(halfWidth, Zoom);
+            return true;
         }
 
         /// <summary>记录震屏的强度、持续时间与频率。</summary>

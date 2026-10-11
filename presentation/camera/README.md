@@ -110,6 +110,11 @@ camera/
    - **阻尼唯一权威**：`CameraFeelFollower` 不再把 `follow_lag_ms` 换算成 `ICamera.Follow` 的第二级平滑；分轴阻尼为 0 的轴取 `follow_lag_ms` 作为阻尼，轴阻尼优先。旧测试 `FollowLag_ConvertsToFollowSmoothingTimeConstantInSeconds` 依赖双级滞后，已换成"不叠第二级平滑"与"无阻尼时 follow_lag 即阻尼、轴阻尼优先"两条。
    - 复现/不变量：`tests/CameraCompositeCapAndIntensityTests.cs`（同向 6 次 0.02 冲击合成 = 上限 0.03；反向抵消两次原样放行；衰减后余量回来；退化通道单次 0.05 被缩到上限 × 参考高度；强度系数 0.5/0.25 缩放幅度、0 关闭）、`tests/FeelIntensityHostTests.cs`、`tests/CameraFeelTests.cs`（阻尼两条）；Unity `AvFeedbackPlayModeTests` 的缩放脉冲三例（峰值 = 基准 ×(1 − 幅度)、过半线性、叠加合计上限 50%）。
 
+11. **可视范围限制 `view_limit`（2026-10-10，[ADR-0181](../../architecture/adr/0181-镜头可视范围限制.md)）**：
+   - `bounds` 限制镜头中心，换宽高比 / 缩放要人手重算；`view_limit: {min, max}`（缺省关闭）限制**画面四角**——镜头宿主每次更新按适配层 `ICameraGroundFootprint` 给出的当前可视地面外接矩形（相对跟随点的偏移）把跟随点收进 `[限制下沿 − 可视下偏移, 限制上沿 − 可视上偏移]`，可视范围比限制矩形还大的方向让两者中心重合（`CameraBounds.ConstrainView`）。先夹 `bounds` 再按 `view_limit` 收紧，两者并存时 `view_limit` 为准。
+   - 档案声明了而适配层不支持（没实现接口或声明不支持，或四角射线指向天空）时：不支持写一条诊断，镜头行为与没声明一致；指向天空只是本帧不约束。`StubCamera.ViewAspect > 0` 时按正交近似实现该接口供测试断言；`UnityCamera` 恒支持（视口四角射线与地面交点的外接矩形，偏移相对“跟随点”：正交为相机 XY，俯仰 / 透视为姿态刷新用的焦点 XY）。
+   - 复现 / 不变量：`tests/CameraViewLimitTests.cs`（目标站四角 / 越界时可视矩形四边都不越出地图；贴角时跟随点 = 地图角 ± 可视半宽半高；宽高比与缩放改变后仍贴边不留空；可视范围大于地图时居中；缺省关闭逐位不变；适配层不支持时只记一条诊断；`bounds` 比地图宽松时 `view_limit` 仍保证画面不出界；随机输入下约束结果恒满足“在界内或居中”）；Unity `UnityCameraGroundFootprintTests`（正交 = 缩放 × 宽高比、与镜头位置无关；偏航 90 度交换宽高；俯仰透视与四角 `ScreenToWorld` 外接矩形对得上；朝向地平线时无足迹）。
+
 ## 契约缺口
 
 - （已由 ADR-0016 解决）`ShakePreset.Frequency` 此前无对应的 `ICamera` 参数可传递（见判断记录 3

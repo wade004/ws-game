@@ -1,0 +1,37 @@
+#!/bin/sh
+# 提交信息乱码拦截钩子（2026-10-09）。
+#
+# 为什么要有：Bash/PowerShell 工具下 `git commit -m "中文"` 会按系统代码页（GBK）把字节写进提交信息，
+# 入库后是非法 UTF-8（4b4abb55 是实例），提交产生后历史无法订正。本钩子在提交产生之前拒绝：含 U+FFFD、
+# 非法 UTF-8、典型 GBK/Latin-1 误解码乱码、成串问号。判定逻辑全部在 toolchain/check_commit_msg.py
+# （用例 toolchain/tests/test_commit_msg_hook.py）。
+#
+# 脚本位置按本钩子自己所在目录推导（<钩子目录>/../toolchain/），不依赖当前工作目录，工作树与新克隆同样适用；
+# 钩子随仓库版本化，core.hooksPath 的安装方式与 pre-commit 相同（toolchain/install_hooks.ps1）。
+# 找不到 python 时拒绝提交而不是放行（"检查不可用"不等于"可以跳过"）。
+set -e
+
+export PYTHONUTF8=1
+
+msg_file="$1"
+hook_dir=$(cd "$(dirname "$0")" && pwd)
+checker="$hook_dir/../toolchain/check_commit_msg.py"
+
+py=""
+for candidate in python python3 py; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        py="$candidate"
+        break
+    fi
+done
+if [ -z "$py" ]; then
+    echo "[commit-msg] 找不到 python，无法检查提交信息编码，已拒绝提交。" >&2
+    exit 1
+fi
+
+if [ ! -f "$checker" ]; then
+    echo "[commit-msg] 找不到 $checker，无法检查提交信息编码，已拒绝提交。" >&2
+    exit 1
+fi
+
+exec "$py" "$checker" "$msg_file"

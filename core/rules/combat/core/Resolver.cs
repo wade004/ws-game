@@ -483,7 +483,10 @@ namespace Core.Rules.Combat
             // T-N1-8 之前的行为。
             var (deltaMissBonus, deltaCritSuppression) = ResolveLevelDiffAdjustments(context, steps);
 
-            var rollAvoidance = !isHeal && context.CanMiss;
+            // ADR-0178：带框架保留标签 skill.tag.unavoidable 的技能不掷回避类分支（与 CanMiss=false 同义）；
+            // 标签随 EffectContext.Tags 走完施法、投射物、光环三条路径，在结算管线这一处统一识别。
+            var unavoidable = HasUnavoidableTag(context);
+            var rollAvoidance = !isHeal && context.CanMiss && !unavoidable;
             if (rollAvoidance)
             {
                 if (RollMissBranch(table.Miss, context.SourceId, deltaMissBonus, steps))
@@ -535,7 +538,9 @@ namespace Core.Rules.Combat
             {
                 steps.Add(isHeal
                     ? "hit_check: 治疗分支跳过 miss/dodge/parry/glancing_blow/block"
-                    : "hit_check: CanMiss=false，跳过 miss/dodge/parry/glancing_blow/block");
+                    : unavoidable
+                        ? "hit_check: 技能带 skill.tag.unavoidable，跳过 miss/dodge/parry/glancing_blow/block"
+                        : "hit_check: CanMiss=false，跳过 miss/dodge/parry/glancing_blow/block");
             }
 
             if (context.CanCrit && table.Crit.Enabled)
@@ -563,6 +568,20 @@ namespace Core.Rules.Combat
             }
 
             return special != HitResult.Hit ? special : (isCrit ? HitResult.Crit : HitResult.Hit);
+        }
+
+        private static bool HasUnavoidableTag(EffectContext context)
+        {
+            var tags = context.Tags;
+            for (var i = 0; i < tags.Count; i++)
+            {
+                if (tags[i] == WellKnownSkillTags.Unavoidable)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private bool RollBranch(HitTableBranch branch, Id statSubject, List<string> steps, string label)

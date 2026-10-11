@@ -17,7 +17,9 @@
 - **提交信息一律 `git commit -F <UTF-8 无 BOM 文件> -- <路径…>`，不用 `-m` 写中文**：Bash 工具下 `-m` 带中文
   会按系统代码页乱码入库（`0d2eb79c` 就是实例，只能事后用新提交订正）。先把信息写进 scratchpad 里的 UTF-8
   无 BOM 文本文件（尾行署名照写），再用 `-F` 提交；提交后 `git log -1 --format=%B` 核对无乱码。纯 ASCII 信息
-  同样走 `-F`，不留例外。
+  同样走 `-F`，不留例外。**这条现在由 `.githooks/commit-msg` 机制强制**（`toolchain/check_commit_msg.py`）：提交信息含 U+FFFD、
+  非法 UTF-8、典型 GBK/Latin-1 误解码乱码或成串问号时直接拒绝提交，提示改用 `-F`；钩子随 `core.hooksPath` 对所有工作树生效，
+  新克隆先跑一次 `toolchain\install_hooks.ps1`。
 - **生成物不进 git**：回归证据、报告 JSON、日志、截图、场景副本、zip、构建产物一律只留本地并
   确保被 `.gitignore` 覆盖，不许提交。发现已入库的此类文件就地清掉（`git rm` + 忽略规则），
   不要新写"把证据提交上来"的检查或规则。工具顺手改动的无关文件（如被重存的场景）提交前还原。
@@ -137,6 +139,11 @@
 
 ## 4. 构建与门禁
 
+- **门禁并发由独占锁机制强制，不靠自觉**：同时最多 2 个门禁（全机）；合并前全量与发布必须独占机器。`check.ps1`、
+  `build.ps1 -Release`（以及样板仓库 `check.ps1`）启动时自动检查 `D:\wt\_exclusive_gate.lock`（环境变量 `WS_GATE_LOCK_PATH`
+  可覆盖），别的持有者占着就拒绝启动并打印持有者与开始时间；合并前全量/发布用 `-AcquireExclusiveLock <持有者名>` 获取锁
+  （进程结束自动释放，PID 已死的陈旧锁自动接管）。机制与判断记录见 `toolchain/_gate_lock.ps1`，用例 `toolchain/tests/test_gate_lock.py`。
+  没有"忽略锁"开关：锁在就等，不要绕。
 - `dotnet` 命令一律带 `--artifacts-path "<scratchpad>\build_<task>"`，不用仓库根默认路径，避免污染主树/工作树。
   **例外**：改动会编译进 `Runtime/Plugins/Core/` 六个核心 DLL 的代码（`core/`、`presentation/`、
   `adapters/stub/` 等，具体六个程序集见 `build.ps1` 的 `$CoreAssemblies`）、且接下来要跑 Unity
@@ -197,11 +204,12 @@
 - 长时间命令前台执行，只管道 stdout（如 `| Tee-Object -FilePath <scratchpad>\release_X.log`）；绝不 `2>&1`、绝不用 `Start-Process`/隐藏窗口/后台作业驱动发布脚本（会让子进程在无控制台环境下静默中断）。
 - 子 agent 启动的 `build.ps1 -Release` 会随该 agent 回合结束被连带终止（1.39.0 首跑在 `Compress-Archive` 处留下 0 字节 zip 与未打标签的发布提交）；因此**发布脚本只由主会话前台执行**，子 agent 不再直接启动 `-Release`，只做发布前收口与发布后核对。
 - `build.ps1 -Release X -PublishRegistry` 之前，必须先：提交 CHANGELOG `## [X]` 条目、确认 `git status` 干净、确认私服状态（`start_registry.ps1 -Status`/需要时 `-Detach`）。
+- **发布收尾必须等 CI 与 Release 两个工作流（`gh run watch`）都成功才算完成**，红了当场修、补发补丁版本（2.4.0～2.8.0 的 CI 连红五个版本无人发现）。
 - **第 5 步默认复用全量记录，只跑定向门禁（ADR-0156）**：第 3b 步守卫放行（`REGRESSION_LOG.md` 有含 Unity 的全量通过记录，记录提交是 HEAD 或其祖先且其后只改文档类文件）、
   且工作树除第 4 步写回的版本文件外无别的改动时，第 5 步改跑 `check.ps1 -Changed <记录提交> -AbiStrict -FailFast -NoTiming`（版本号写回波及的包清单一致性、DLL 同步、Unity 编译、
   消费方演练仍会跑；规则 `release_version_files`），日志与状态文件写明复用的记录（run_id + 提交）与定向门禁结论行。因此**合并前的全量必须在发布前登记进 `REGRESSION_LOG.md`**
   （含 Unity，结果列含"含 Unity"或"PlayMode N/N"），否则守卫拒绝发布；要强制重跑全量传 `-FullRegate`（约 50 分钟）；`-DryRun` 与守卫不放行时仍跑全量。
-- **发布含候选阶段（ADR-0160）**：发布提交之后、打包之前，`build.ps1 -Release` 把 `X-rc.N` 发到本地私服并让样板仓库 `ws-game-samples`（`-SamplesRepo` > 环境变量 `WS_GAME_SAMPLES` > 主工作树同级目录）升级后跑它自己的全量门禁；绿才继续，红在打标签前停下（修好后 `-Resume`，会发 `rc.N+1`）。样板仓库缺失时拒绝发布，只有显式 `-SkipSamplesCandidate` 才放行并记 `OPT-OUT`。私服要在跑。
+- **发布含候选阶段（ADR-0160）**：发布提交之后、打包之前，`build.ps1 -Release` 把 `X-rc.N` 发到本地私服并让样板仓库 `ws-game-samples`（`-SamplesRepo` > 环境变量 `WS_GAME_SAMPLES` > 主工作树同级目录）升级后跑它自己的全量门禁；绿才继续，红在打标签前停下（修好后 `-Resume`，会发 `rc.N+1`）。样板仓库缺失时拒绝发布，只有显式 `-SkipSamplesCandidate` 才放行并记 `OPT-OUT`。私服要在跑。**候选阶段绝不改样板主工作树**（用户的试玩目录）：升级与样板门禁在样板仓库的临时工作树（`-SamplesWorktreeRoot` / 环境变量 `WS_GAME_WT_ROOT` / `D:\wt`）里做，绿则移除、红则保留现场；`-SamplesRepo` 指向已关联的工作树时直接使用；阶段前后对样板主工作树做快照比对，被改动即失败。
 - 成功的唯一标记：日志末尾出现提示行 `git push origin main refs/tags/vX`。
 - 失败标记：出现"门禁失败"/"发布流程终止"/"自检失败"字样。
 - 一旦被拦截或失败，立刻停下汇报，不自行回退、不自行重试、不自行改动版本文件。

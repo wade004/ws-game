@@ -20,6 +20,8 @@
 | `turn_in_method` | Enum | 是 | `npc_gossip｜auto`，交付方式。 |
 | `rewards` | Object | 否 | `{items, xp, currency, skills, world_flags, talent_points}`；结构见 `core/gameplay/common/README.md` 与该模块 `RewardBundle` 类型。ADR-0019/F1b 起本表字段改为 `QuestSchemas.RewardsFields` 直接构造（带 `Fields`），不再调用裸的 `Core.Gameplay.Common.RewardSchemaFields.Rewards(required: false)`——后者目前仍只登记裸 `Object`，见下"子结构登记表"判断记录。 |
 | `repeatable` | Enum | 是 | `none｜daily｜unlimited`，可重复性。 |
+| `guide` | Array\<Object\> | 否 | 任务目标指引步骤（ADR-0173），结构见下"`guide[]` 登记表"；缺省不参与指引。 |
+| `guide_priority` | Int | 否 | 多个任务都声明了 `guide` 时的优先级，大者先看，缺省 0；同值保持定义顺序。 |
 
 ## `QuestObjective` 结构
 
@@ -113,6 +115,18 @@ dialog 等模块共享同一个 `RewardBundle` 结构，可以直接引用 `Core
 变体键集合与 `QuestObjectiveTypes.EnumValues` 全集一致（`QuestSchemaCoverageTests` 用测试锁死），每
 个取值的 `target_ref`/`param` 登记见上"目标类型对照表"的"ADR-0019/F1b 登记方式"列；`count`/
 `description_key` 是全部取值共有的 `CommonFields`（`count` 必填 Int，`description_key` 可选 Id）。
+
+### `guide[]` 登记表（ADR-0173，`QuestSchemas.GuideItemSchema`）
+
+| 字段 | 类型 | 必填 | 引用目标 | 判断记录 |
+|---|---|---|---|---|
+| `map_id` | Id | 否 | 软引用 `world.map` | 只在玩家当前处于该地图时适用；缺省不限地图 |
+| `when` | Expr | 否 | 无 | 缺省恒真；按数组顺序取第一条成立且有可达目标的步骤 |
+| `text_key` | TextKey | 是 | `l10n.text` | 文案可含 `{done}`/`{total}` 占位符，由 `QuestGuideInfo.FormatText` 代入 |
+| `targets` | Array\<Object\> | 否 | 见下 | 缺省表示该步骤只显示文案，不要求可达 |
+| `progress_flags` | Array\<Id\> | 否 | 无（世界标志 id） | 已成立个数为 `done`，总数为 `total` |
+
+`targets[]` 每项恰好选一种写法（`QuestContentValidationRule` 的 `quest_guide_target_form`）：`area_ref`（`Reference(area.trigger_def)`）、`spawn_ref`（`Reference(spawn.table)`）、`map_id`（软引用 `world.map`）+ `position`（`{x, y}`，必须与 `map_id` 同时出现）；可选 `visible_if`（Expr）。
 
 ### Map 型字段
 

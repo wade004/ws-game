@@ -971,6 +971,9 @@ namespace Core.Rules.Skill
                 description: "marker|continuous，缺省 marker：命中解析方式（手感设计/03 第 2.2 节）。marker 在每个 hit 标记解析一次；continuous 在判定相逐 tick 解析（两 tick 位姿之间插值采样，高速形状不漏目标）"),
             new FieldSchema("is_attack", FieldKind.Bool, required: false,
                 description: "显式声明动作是否带攻击（action.started.isAttack），缺省按技能内容推断（含伤害类/投射物效果，或有 hit/release 标记即为真）；写 false 使反馈侧不为该动作开挥空窗口（如发射治疗投射物），写 true 强制开"),
+            new FieldSchema("weapon_paced", FieldKind.Bool, required: false,
+                description: "缺省 false（ADR-0176）：武器节奏动作——动作开始时按行动者主手武器的挥击间隔（item.template.weapon_profile.speed，秒）÷ SkillOptions.WeaponPaceReferenceSeconds 缩放整段时长（三相、标记与窗口起点同一系数；窗口长度不随之缩放），" +
+                    "使同一份动作数据随武器攻速变快变慢；没有装备带 speed 的武器时系数为 1。适用于轻击/连段这类“一刀一武器挥击”的动作；重击、蓄力、闪避等按自己的冷却与时长，不写本字段"),
             new FieldSchema("hit_mode", FieldKind.Enum, required: false, enumValues: TimelineHitModeValues,
                 description: "auto|spatial|instant，缺省 auto：命中结算路径。auto = 目标选择链声明了 shape 则空间命中（去重、无敌前置检查、combat.hit_confirmed 含几何），没有 shape 则保持 instant 结算；spatial 强制空间命中；instant 强制 instant"),
             new FieldSchema("sample_step_ms", FieldKind.Number, required: false,
@@ -1034,6 +1037,9 @@ namespace Core.Rules.Skill
                 // 缺省时表现层隐藏不渲染、不回退占位文案），不新造一套命名——见 SkillDef.NameKey 判断
                 // 记录。纯新增可选字段，不提 schema_version，既有全部 skill.def 行零改动仍合法。
                 new FieldSchema("name_key", FieldKind.TextKey, required: false, description: "技能名称文本键，缺省时表现层不渲染名称（不回退占位文案），见 ADR-0048"),
+                // 新增（ADR-0175）：技能描述文本键，供技能提示框（Presentation.Ui.SkillTooltipBuilder）显示一段说明文字；
+                // 命名与类型同 name_key（TextKey、可选）；缺省时提示框不显示描述段。纯新增可选字段，不提 schema_version。
+                new FieldSchema("desc_key", FieldKind.TextKey, required: false, description: "技能描述文本键，缺省时技能提示框不显示描述段，见 ADR-0175"),
                 new FieldSchema("school", FieldKind.Id, required: true, description: "学派"),
                 new FieldSchema("kind", FieldKind.Enum, required: true, enumValues: SkillKindValues,
                     description: "active|passive"),

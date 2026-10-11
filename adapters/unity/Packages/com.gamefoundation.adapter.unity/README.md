@@ -13,7 +13,7 @@ URP 2D Renderer + Input System 1.20"这一件事，不包含任何具体游戏�
 | `IClock` | `UnityClock` | `Now()` = `Time.realtimeSinceStartupAsDouble`（只供表现/UI 动画使用）；帧回调由 `UnityEngineHost.Update` 驱动（`Time.unscaledDeltaTime`），固定步长回调由 `FixedUpdate` 驱动（`Time.fixedDeltaTime`），满足"逻辑层 tick 由固定步长驱动"的确定性铁律；`OnFrame`/`RequestFixedStep` 均返回 `SubscriptionHandle`（ADR-0016 决策 1），`Dispose()` 后不再触发，退订对遍历安全。 |
 | `IRenderer2D` | `UnityRenderer2D` | 句柄 = 根 GameObject（挂 `SortingGroup`）+ `LayersRoot` 子物体承载纸娃娃层；`sortingOrder = layer*1000 - round(sortY*1)`，纸娃娃层内序号追加为子渲染器自身 `sortingOrder`；`SetTransform` 的 `height` 参数（ADR-0016 决策 2）只平移 `LayersRoot` 本地 Y，不影响排序、不平移影子；资源缺失时用洋红色占位方块 + 一次性警告，不抛异常；`EmitParticle` 优先经 `UnityResourceLoader.TryGetEffect` 把 `effectId` 解析到具体特效资产（序列帧，`ResourceKind.Effect`，见 ADR-0016 决策 5），解析不到才回退播放内建通用爆发效果。 |
 | `IAudio` | `UnityAudio` | 总线音量方案选"简单分组乘算"而非 AudioMixer（避免引入需要手工创建的 `.mixer` 资产）；SFX 用 `AudioSource` 对象池，音乐用两路 `AudioSource` 做交叉淡入淡出；SFX 播放期间总线音量变化不影响"已经在播的那次"，只影响之后新播放的；`PlaySfx` 的 `position` 参数（ADR-0016 决策 3）非空时把音源移到该坐标并启用 `spatialBlend=1`（Unity 默认对数衰减），空时 `spatialBlend=0`（无空间衰减，与既有行为一致）；`IsSfxPlaying`（ADR-0105）：句柄仍占池位、clip 非空且 `AudioSource.isPlaying` 才回报 true，已回收/未知/自然播完回报 false（要求 clip 非空：实测新建音源在创建当帧 clip 为空也读到 `isPlaying=true`）。 |
-| `IInput` | `UnityInput` | 运行时用代码搭建 `InputActionMap`（不依赖 `.inputactions` 资产）；键盘离散事件靠 `<Keyboard>/anyKey` 触发后扫描 `wasPressedThisFrame/wasReleasedThisFrame` 精确定位具体按键（避免 `anyKey` 聚合控件"拿不到具体是哪个键"的限制）；鼠标左/右/中键各自独立绑定；手柄连接/断开走 `InputSystem.onDeviceChange`；手柄按钮离散事件目前没有专用绑定，测试/上层可用 `SimulateGamepadButtonForTest` 驱动；文本输入用 `Keyboard.current.onTextInput` 累积字符。 |
+| `IInput` | `UnityInput` | 运行时用代码搭建 `InputActionMap`（不依赖 `.inputactions` 资产）；键盘离散事件靠 `<Keyboard>/anyKey` 触发后扫描 `wasPressedThisFrame/wasReleasedThisFrame` 精确定位具体按键（避免 `anyKey` 聚合控件"拿不到具体是哪个键"的限制）；鼠标左/右/中键各自独立绑定，事件键名与 `IsKeyDown` 查询统一翻译成契约规范名 `MouseButtons.Left/Right/Middle`（`left`/`right`/`middle`，ADR-0182）；手柄连接/断开走 `InputSystem.onDeviceChange`；手柄按钮离散事件目前没有专用绑定，测试/上层可用 `SimulateGamepadButtonForTest` 驱动；文本输入用 `Keyboard.current.onTextInput` 累积字符。 |
 | `IFileSystem` | `UnityFileSystem` | 用户目录 = `Application.persistentDataPath`；内容根目录（`GetContentRootDir`，ADR-0016 决策 8）= `Application.streamingAssetsPath/GameFoundation`；原子写入 = 写临时文件 + `File.Replace`（目标已存在）/ `File.Move`（目标不存在），失败时清理临时文件、旧内容保持不变；构造参数 `readOnlyContentMode` 切换"用户数据可写"/"内容根只读"两种角色（原独立的 `StreamingAssetsFileSystem` 已合并进本类，见其判断记录 1），只读模式下 `WriteTextAtomic`/`DeleteFile` 恒返回 `false`。 |
 | `IResourceLoader` | `UnityResourceLoader` | 后台 `Task` 读取文件字节（纯 `System.IO`，不碰任何 UnityEngine API），解码与回调统一在 `Tick()`（由宿主 `Update` 每帧调用）里于主线程完成，满足"回调总在主线程排队执行"的线程约定；音频只支持标准 PCM16 WAV（内置 `WavDecoder`，不依赖 UnityWebRequest/协程）；`Font` 种类只能读原始字节，不能产出可用的 TMP 字体资产（见下）；`Scene`/`NavMesh`（ADR-0016 决策 5）按"只校验存在性"读文本处理，`Effect` 额外读取 `atlas.png`+`frames.json` 组成 `EffectAsset`（序列帧）。 |
 | `INavigation2D` | `UnityNavigation2D` | 网格 A*（不引入第三方寻路包，也不用 Unity 内置三维 NavMesh）；契约方法 `SetBlocking`/`Clear`（ADR-0016 决策 7，`SetBlocking` 整批替换）为主，另有增量契约方法 `AddBlocking`/`RemoveBlocking`/`GetBlocking`（手感落地 M4-L，每次有效增删版本恰好 +1，并重置该地图网格缓存；一致性场景 `Navigation2DScenarios` 新增一条，Unity PlayMode 才跑），另保留非契约便捷方法 `RegisterBlockingFromTilemap`（从 Tilemap 实心格子批量算出矩形，整批经 `SetBlocking` 替换；此前还有一个逐格追加的 `RegisterBlockingRect`，已删除，增量语义改由调用方自行收集矩形列表后一次性调 `SetBlocking` 承担）；网格尺寸自适应（默认格子 0.25 世界单位，超过 192×192 格时放大格子），起止点落在已登记范围外时退化为直线可达性检查。游戏侧 1.8.0 PlayMode 验收后新增契约精确化（见 `UnityNavigation2D.cs` 类型顶部判断记录）：`GetBlockingVersion` 按地图独立计数，`SetBlocking`/`Clear`/`BuildNavMesh` 各自递增；`FindPath` 返回路径的首尾逐比特精确等于请求的起止点（不是网格量化后的格子中心，中间沿用格子中心序列、首尾接一段精确端点连接段）；线段只有穿过阻挡矩形内部（开区间）才算受阻，仅贴边/擦角不算，`Raycast` 与 `FindPath` 每一段共用同一份阻挡判定；网格对角移动只有两个正交邻居格都可行走时才允许（不许切角）。地形感知寻路（M4-W1a）：`FindPath(…, ITerrainStepConstraint)` 与 `TryFindNearestReachable(…, ITerrainStepConstraint, out)` 覆盖默认接口实现，用核心层共享规划器 `TerrainStepPathPlanner`（同一个网格 `NavGridLayout`、同一份阻挡判定，只多一个"有向边被台阶挡住则不可通行"），测试 `Tests/Editor/UnityNavigation2DTests.cs`（绕行、无路、最近可达点）。ADR-0110 最近可走点：候选 = 主网格格心可行走的格子中心，排序委托核心 `NearestWalkableSearch.CollectOnGrid`，网格几何经核心 `NavGridLayout.Compute`（与测试桩同一份公式，结果一致）。可达最近点 `TryFindNearestReachable`：主网格连通分量标号（4 邻域洪泛，与 A* 的"对角需两个正交邻居可走"等价）缓存在 `NavGrid.ComponentLabels`，随网格在阻挡变化时一起丢弃、下次查询惰性重算；查询 = 标号预筛 + 排序第一名 `FindPath` 确认（保证返回点必可寻路，确认失败的候选排除后取下一名，至多 16 次）；起点在网格范围外时退化为逐候选 `FindPath`。标号与寻路第一道一致，不把网格外区域并入分量；只靠细网格/直线兜底才走通的窄通道不识别为可达（偏保守）。 |
@@ -1668,3 +1668,36 @@ GameBootstrap.cs` 同样两根合并（`data/_framework` + 游戏自己的 `data
 - **着色器契约**：把 `_OcclusionFade` 声明进 `UnityPerMaterial` 常量缓冲（缺省值 1），片元里按它抖动透明——4×4 拜耳阈值 `(i + 0.5) / 16` 小于淡出量才保留像素（`clip(fade - threshold)`），淡出量为 1 时一个像素都不丢。
 - **已知限制**（同 ADR-0166）：轴对齐包围盒、外扩取立方体（偏保守）；淡化整个渲染物（合并成一个网格的布景要按物拆分登记）；不处理地形遮挡（地面避让负责）。
 - **复现/不变量（引擎 PlayMode）**：`UnityCameraTests.OcclusionFade_*`——连线上的遮挡物按选项算出的步长淡到目标不透明度、属性块里的值等于它；连线外与观察点身后的物体不受影响且不写属性块；转开镜头后恢复到 1 并清属性块；额外观察点；注销/销毁/关闭；非法选项声明期抛错；线段-包围盒闭式解。
+
+## 判断记录（整身精灵集用于非生物时的静默不画诊断，2026-10-08，样板游戏 D 反馈 B 节）
+
+- **现象**：display.map 行 kind=sprite、没有 `paperdoll_layers`（整身精灵集），分类是 gobj/projectile/item 等非生物时，视图层什么都不画，此前没有任何提示。根因：整身外形没有静态底图，只靠动画片段显示，而 `UnityViewFactory.CreateView` 只给生物挂默认动画（非生物不会收到状态切换）。
+- **选在哪一层报**：在 `CreateView` 创建视图这一刻发一次 `Debug.LogWarning`（带 displayId 与精灵集 id，按 displayId 去重，字段 `_warnedWholeBodyStatic`），而不是数据校验阶段。理由：数据校验阶段分不出"这一行会被谁消费、有没有动画"——`display.map` 里分类为 item/skill/aura 的整身行大量存在（只用图标，从不建视图，样例与起步包就有），在校验里报会是满屏误报；创建视图才是"确实要画却画不出"的确定时刻，没有冷加载歧义（不依赖资源是否已读完）。早于它的 `asset_import check` 只看文件存在性，不做这个判定。
+- **不报的情形**：分层精灵集（有静态层可画）；生物（挂了默认动画，整身外形靠剪辑显示，缺剪辑另有既有的逐状态降级警告）。
+- **修法提示（警告文案里就写了）**：静态显示的非生物外形用分层精灵集（`<槽位>/body.png`）并在 `display.map` 行写 `paperdoll_layers: ["body"]`。
+- **示例数据已按提示修好（2026-10-09）**：`data/_sample` 里箱子/门/存档点/弩矢/任务标记/掉落堆原先是整身精灵集（2.9.0 起会触发本警告，竖切用例靠 `MarkWholeBodyStaticWarnedForTests` 放行），现已改为分层精灵集 + `paperdoll_layers: ["body"]`，测试出口已删除；运行时零警告由 `VerticalSliceTests.SampleData_EveryWorldViewNonCreatureDisplay_CreatesViewWithoutDiagnosticWarnings` 守住。
+- **复现/不变量（引擎 PlayMode）**：`UnityViewFactoryDefaultAnimationTests.CreateView_WholeBodySpriteSetForNonCreature_WarnsOnceWithDisplayIdAndSpriteSetId`（整身 + gobj：三次创建只一条警告，含 displayId 与精灵集 id）、`CreateView_WholeBodySpriteSetForProjectile_AlsoWarns`、`CreateView_LayeredSpriteSetForNonCreature_DoesNotWarn`、`CreateView_WholeBodySpriteSetForCreature_DoesNotWarn`。
+
+## 判断记录（武器风格剪辑预热，2026-10-09，ADR-0174 决策 6）
+
+- **现象**：不在动画集默认状态里的武器风格剪辑（`auto_attack_anim`、`cast_anim_override`/`release_anim_override` 的取值）原先在第一次被用到时才异步加载；加载完成前该状态呈现 1x1 白色占位帧（实测约 2 秒，受加载器逐帧时间预算影响），玩家第一次施法看到白点。第二次起命中缓存、同步登记真实剪辑，所以只有第一次出问题，最容易被漏过。
+- **改法**：`UnityViewFactory.PrewarmWeaponStyleClips(entityId)`——视图挂接动画播放器时、`item.equipped`（主手武器换了）后，对该实体当前武器风格的这些剪辑发起加载（带该实体的精灵集提示，ADR-0095 一致），不登记剪辑、不改占位与升级逻辑；用 `(精灵集, 剪辑)` 去重集合避免重复请求。没有武器风格来源、非 `UnityResourceLoader`、分层精灵（paperdoll）形态的视图不预热。
+- **没有走 `_pendingWeaponClipResourceLoads`**：那张表对应"某实体已登记占位等待升级"，预热只想把资源送进缓存，混进去会让升级回调在没有占位的实体上空转。
+- **复现/不变量（引擎 PlayMode）**：`WeaponClipRegistrationTests.WeaponStyleCastClip_IsPrewarmedAfterAttach_BeforeAnyCastHappens`——不触发任何施法，挂接后读条剪辑进入加载器缓存（修复前永远不进）。
+
+## 技能栏交互：悬停详情、点击施放、不穿透（2026-10-10，[ADR-0180](../../../../architecture/adr/0180-技能栏悬停详情与点击施放.md)）
+
+三个游戏显式启用才有效的控件，缺省行为不变（`Runtime/Ui/`）：
+
+- `SkillTooltipView`：只排版框架 `SkillTooltipContent`（名称、类型、各行、说明），底板与文字不接收射线，摆在被悬停格正上方（放不下翻到下方）并夹在父节点矩形内；`Style` 可调宽度、字号、颜色（缺省取当前皮肤文字色与强调色）。画面文字通过 `NameText` / `RowTexts` / `DescriptionText` 暴露给测试与截图核对。
+- `SkillBarInteraction`：`Install(bar, tipParent, contentFor, onClick)` 给技能栏挂嵌套画布与射线检测器，`Register(frame, index)` 登记每格底框（接收射线，挂悬停进出与左键点击）；悬停期间每帧调 `contentFor(index)` 刷新提示框（冷却时长、属性变了数字跟着变），返回 null 隐藏。控件不认识技能、热键或输入映射。
+- `UiInputBridge`：包装游戏当前的 `IInput`。`PressKey(key, holdPolls)` 把界面发起的按键以虚拟按键事件注入输入流（下一次轮询 KeyDown，`holdPolls` 次轮询后 KeyUp），与真实设备事件走同一条输入映射 → 缓冲 → 技能绑定 → 施法管线，所以点击等于热键（冷却、资源、读条中等限制一致）；鼠标按下落在界面上（`PointerOverUi`，事件系统射线检测）时吞掉这次按下与配对的抬起，世界侧的“左键 = 攻击 / 点选”不会同时触发；世界里按下、移到界面上抬起的操作抬起照常送达。
+- 用例：`SkillBarInteractionPlayModeTests`（悬停 / 离开 / 空格 / 左右键点击 / 射线命中格子且不命中提示框 / 虚拟按键时序 / 同键排队 / 鼠标吞与配对 / 世界按下界面抬起）。
+
+## 镜头地面可视范围（2026-10-10，[ADR-0181](../../../../architecture/adr/0181-镜头可视范围限制.md)）
+
+`UnityCamera` 实现 `ICameraGroundFootprint`（恒支持）：用视口四角射线与地面（Z = 0）的交点求外接矩形，偏移相对“跟随点”（正交为相机 XY，俯仰 / 透视为姿态刷新用的焦点 XY），所以与镜头此刻因跟随平滑、震屏、冲击落在哪无关；缩放脉冲已含在正交半高里。任一角射线指向天空时返回 false。用例 `UnityCameraGroundFootprintTests`。
+
+## 鼠标按钮事件名（2026-10-11，[ADR-0182](../../../../architecture/adr/0182-鼠标按钮规范名.md)）
+
+`UnityInput` 的鼠标按钮事件键名与 `IsKeyDown` 的鼠标按钮名从 `MouseLeft`/`MouseRight`/`MouseMiddle` 改为契约规范名 `MouseButtons.Left/Right/Middle`（`left`/`right`/`middle`）。原因：输入映射 `mouse:left` 绑定按规范名匹配，旧键名使真机上所有 `mouse:*` 绑定静默失效。不保留旧名字别名。`Input System` 自己的控件名（`leftButton` 等）只留在适配层内部的动作绑定里。用例（真实虚拟鼠标设备，走设备与动作路径，不直接塞规范名）：`UnityInputTests.RealMouseDevice_EveryEmittedButtonName_IsCanonical_AndParsesAsBinding_AndCoversTheVocabulary`（不变量：发出的每个名字都在规范名集合里、可被绑定解析器解析、规范名集合无多余名字）、`UnityInputTests.RealMouseDevice_ThroughInputMap_TriggersTheMatchingMouseBinding`（复现：真实事件经 `InputMapHost` 触发 `mouse:left`/`right`/`middle` 动作）。已知限制：前进/后退侧键不发事件。

@@ -210,6 +210,87 @@ namespace Adapter.Unity.Tests.Runtime
         }
 
         // -----------------------------------------------------------------
+        // 静默不画的诊断（2026-10-08，样板游戏 D 反馈 B 节）：整身（没有 paperdoll_layers）精灵集给非生物（gobj/projectile/item
+        // 一类）用时，工厂不为非生物挂默认动画，整身渲染器永远没有贴图，视图层什么都不画且此前没有任何提示。
+        // 不变量：该组合创建视图时发一次诊断警告（带 displayId 与精灵集 id，同一 displayId 只发一次）；
+        // 分层精灵集的非生物、整身的生物（有动画）都不发。
+        // -----------------------------------------------------------------
+
+        private static DisplayInfo MakeSpriteDisplay(string tag, DisplayCategory category, IReadOnlyList<string> layers) =>
+            new DisplayInfo(
+                id: new Id("display.map.silent_" + tag),
+                category: category,
+                logicalId: new Id("gobj.silent_" + tag),
+                kind: DisplayKind.Sprite,
+                iconId: null, vfxId: null, sfxId: null, scale: 1.0,
+                shadow: ShadowMode.None, sortOffset: 0.0, weaponStyleRef: null,
+                sprite: new SpriteInfo(spriteSetId: "sprite.silent_" + tag, directionCount: 4, paperdollLayers: layers),
+                model: null);
+
+        private int CountWholeBodyStaticWarnings(DisplayCategory category, IReadOnlyList<string> layers, int createCount, string tag, out string firstMessage)
+        {
+            var (bus, _, _, displayInfo) = BuildFixture();
+            var info = MakeSpriteDisplay(tag, category, layers);
+            displayInfo.Add(info);
+            var factory = new UnityViewFactory(_renderer, new RenderConventionHost(), displayInfo, _resourceLoader, bus: bus, dataRegistry: null);
+
+            var count = 0;
+            string first = "";
+            Application.LogCallback handler = (message, _, type) =>
+            {
+                if (type == LogType.Warning && message.Contains("silent_" + tag) && message.Contains("整身"))
+                {
+                    if (count == 0) first = message;
+                    count++;
+                }
+            };
+            Application.logMessageReceived += handler;
+            try
+            {
+                for (var i = 0; i < createCount; i++)
+                {
+                    factory.CreateView(ViewKind.Unit, info.LogicalId, new Id("unit.silent_" + tag + "_" + i));
+                }
+            }
+            finally
+            {
+                Application.logMessageReceived -= handler;
+            }
+            firstMessage = first;
+            return count;
+        }
+
+        [Test]
+        public void CreateView_WholeBodySpriteSetForNonCreature_WarnsOnceWithDisplayIdAndSpriteSetId()
+        {
+            var count = CountWholeBodyStaticWarnings(DisplayCategory.Gobj, new List<string>(), createCount: 3, tag: "gobj_whole", out var message);
+            Assert.AreEqual(1, count, "整身精灵集 + 非生物：同一 displayId 创建三次只应发一次诊断警告");
+            StringAssert.Contains("display.map.silent_gobj_whole", message, "警告应带 displayId");
+            StringAssert.Contains("sprite.silent_gobj_whole", message, "警告应带精灵集 id");
+        }
+
+        [Test]
+        public void CreateView_WholeBodySpriteSetForProjectile_AlsoWarns()
+        {
+            var count = CountWholeBodyStaticWarnings(DisplayCategory.Projectile, new List<string>(), createCount: 1, tag: "proj_whole", out _);
+            Assert.AreEqual(1, count);
+        }
+
+        [Test]
+        public void CreateView_LayeredSpriteSetForNonCreature_DoesNotWarn()
+        {
+            var count = CountWholeBodyStaticWarnings(DisplayCategory.Gobj, new List<string> { "body" }, createCount: 1, tag: "gobj_layered", out _);
+            Assert.AreEqual(0, count, "分层精灵集有静态层可画，不应警告");
+        }
+
+        [Test]
+        public void CreateView_WholeBodySpriteSetForCreature_DoesNotWarn()
+        {
+            var count = CountWholeBodyStaticWarnings(DisplayCategory.Creature, new List<string>(), createCount: 1, tag: "creature_whole", out _);
+            Assert.AreEqual(0, count, "生物挂了默认动画，整身外形靠动画剪辑显示，不属于静默不画");
+        }
+
+        // -----------------------------------------------------------------
         // U04 根治与回归（第五轮外部审核 audit-5e779c6-20260907/AUDIT_REPORT.md）：默认序列帧动画
         // 此前直接挂在精灵根物体自身上，其 SpriteRenderer 既不是 LayersRoot 的子物体（不受
         // SetTransform 的 height 偏移平移）也不在 LayerRenderers 集合里（ApplyColor 遍历不到，

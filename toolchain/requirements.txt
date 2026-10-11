@@ -15,3 +15,7 @@ Pillow>=10.0  # 必需 —— 精灵/图标/特效帧的抠图、裁边、缩放
 # 本机因开发环境已预装 pytest 而未暴露，GitHub 托管的 windows-latest 运行器是干净环境，
 # 只装 requirements.txt 声明的依赖，运行到该步骤即报 "No module named pytest" 而失败。
 pytest>=7.0  # 必需 —— toolchain/tests 下的单元测试运行器。
+
+# 2.4.0 起 toolchain/font_subset.py（字体子集工具）与 toolchain/tests/test_font_subset.py 需要 fontTools。此前只靠"本机已装"，
+# 干净的 CI 运行器（只装本文件）里该测试模块被 importorskip 整体跳过，门禁的"skipped 必须为 0"判红（2.4.0～2.8.0 的 CI 连续 5 个版本红）。
+fonttools>=4.0  # 必需 —— 字体子集工具与其测试。

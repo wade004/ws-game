@@ -1875,3 +1875,11 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 3. **与 `timeline` 互斥**：时间轴技能不走步骤 6/7，声明了也不会生效，所以校验期直接报错（`facing_arc_timeline_conflict`）；取值须在 (0, 360]（`facing_arc_range`）。
 4. **复现与不变量**：`tests/CastFacingArcTests.cs`——身后目标被拒且不扣资源不起冷却、没声明时永不拒绝、45°/46° 边界（弧 90°）、±π 折返、目标重合、取值越界三组（0、-30、361）校验错误、有效声明通过与 timeline 冲突的校验错误。
 5. **已知边界**：只对显式解析出的目标生效；无目标施法（地面点、自身）不检查；"面向"取自单位位置宿主的朝向，游戏需要自己在输入侧把朝向写进去（目标选择式样板的做法见该样板的 decisions）。
+
+## 判断记录（武器节奏动作 `weapon_paced`，2026-10-09，样板游戏 C 攻速反馈，[ADR-0176](../../../architecture/adr/0176-武器节奏动作.md)）
+
+1. **根因在时间线不读武器攻速，不在输入层**：实测连点 12 次/秒得到约 5.0 次命中/秒；同一挥没有被输入打断重开、连招窗口有效、缓冲有界（`attack` 类刷新策略）。`weapon_profile.speed` 只服务自动攻击间隔与预算当量，时间线时长完全来自技能自己的三相。
+2. **缩放放在 `EnterTimeline`，与急速系数相乘**：`factor *= WeaponPaceFactor(...)` 之后交给 `TimelineSchedule.Build`，三相、标记、窗口起点同一系数，窗口长度不缩放，动画速率随重映射系数自然对齐。动作开始时一次性快照，进行中换武器只影响下一个动作。
+3. **武器查询来源**：`SkillHost` 构造时把传给效果分发器的同一个 `IWeaponDamageQuery` 回填给管线（`CastPipeline.WeaponQuery`），装配侧不用新增接线；没有查询、没有装备、`speed` 非有限或不大于 0、基准秒数不大于 0 时系数恒为 1。
+4. **不声明即逐位不变**：`TimelineDef` 新增 21 参数构造，原 20 参数构造转发为 `weaponPaced=false`；`Parse` 读 `weapon_paced`，缺省 false。
+5. **复现与不变量**：`tests/WeaponPacedTimelineTests.cs`（缩放、动画速率、未标记逐位不变、无有效 speed、基准选项、关闭开关、换武器时机、与 `phase_scale` 叠加、连点起手间隔下限与由数据推出的上限、速率与武器间隔成反比、窗口内连招/窗口外重置）；装配侧 `core/gameplay/assembly/tests/WeaponPacedAttackEndToEndTests.cs`（真实输入缓冲 + 真实装备，连点上限、两把武器节奏比例、未标记对照、缓冲不重开当前挥击）。先红：去掉 `factor *= WeaponPaceFactor` 一行 12 条失败；去掉 `SkillHost` 回填 3 条端到端失败。

@@ -16,7 +16,9 @@ L-1 契约，见 01 依赖矩阵允许项）、`core/foundation/data_registry`�
 ## 绑定字符串小语法
 
 绑定字符串描述"一个物理输入信号"，由 `BindingParser.Parse` 解析、`ArgumentException` 报告
-格式错误。设备侧名字（键名、鼠标按钮名、手柄按钮名、手柄轴名）本模块不限定取值集合，原样
+格式错误。设备侧名字里，**鼠标按钮名只能是规范名 `left`/`right`/`middle`**（`MouseButtons`，
+[ADR-0182](../../../architecture/adr/0182-鼠标按钮规范名.md)；适配层发出的鼠标按钮事件与 `IsKeyDown` 查询用同一份名字，
+其余名字解析时抛错）；其余设备侧名字（键名、手柄按钮名、手柄轴名）本模块不限定取值集合，原样
 透传给 `IInput`（`InputEvent.Key`、`IInput.GetGamepadAxis` 同样不限定，具体取值由各引擎适配层
 实现约定）。
 
@@ -299,3 +301,11 @@ M4-G 留下的四条限制逐条收口，没有一条留作"已知限制"：
 按**动作**挡而不是按物理键挡：栈顶上下文放行表之外的动作视为未激活（按钮不激活、不触发 `InputActionTriggeredEvent`、不产生边沿；轴输出零）；栈顶独占，弹出后下一层恢复；
 同 id 重复压入只更新放行表；允许乱序弹出。物理按键状态照常跟踪：压入时按住的键给边沿接收端补"抬起"；弹出时仍按住的键只恢复"持有"、不补"按下"（关界面不会凭空打出一刀）。
 放行表里没声明过的动作名记诊断并忽略。用例：`tests/InputContextStackTests.cs`（7 条）。界面侧用法见 `presentation/ui` 的 `UiModalInputContext`。
+
+## 判断记录（鼠标按钮规范名，2026-10-11，样板游戏 C 真机缺陷，[ADR-0182](../../../architecture/adr/0182-鼠标按钮规范名.md)）
+
+1. **缺陷**：绑定 `mouse:left` 与设备事件键名按序数比较，而引擎适配层发的是另一套名字（带前缀的大写名），真机上所有 `mouse:*` 绑定静默失效；此前的用例用桩适配层按绑定写法喂事件，测的是真机上不存在的路径。
+2. **规范名取绑定侧**（`left`/`right`/`middle`，`MouseButtons`）：绑定字符串是写进数据的公开语法，改它会破坏已有数据；适配层是代码，一处翻译。不做别名兼容，否则下一次不一致继续静默。
+3. **解析器收紧**：`mouse:` 只放行规范名，其余在 `BindingParser.Parse` 抛 `ArgumentException`（报错列出规范名）；此前"解析成功但永远不触发"的绑定现在在载入时报错。`composite2d` 里的 `mouse:` 子绑定同样适用。
+4. **运行时不静默**：`InputMapHost.Update` 收到非规范的鼠标按钮事件名时，每个不同的名字发一次诊断警告（事件仍记入持有集合，行为不变）。
+5. **复现与不变量**：`tests/BindingParserTests.cs`（`Parse_Mouse_EveryCanonicalName_Parses`、`Parse_Mouse_NonCanonicalName_Throws_AndMessageListsCanonicalNames`）、`tests/InputMapHostTests.cs`（`Update_MouseBinding_EveryCanonicalButtonName_ActivatesOnlyItsOwnAction`、`Update_NonCanonicalMouseButtonEvent_DoesNotMatchBinding_AndWarnsOncePerName`）；引擎侧真实设备路径见适配层 `UnityInputTests`（`RealMouseDevice_*`）。

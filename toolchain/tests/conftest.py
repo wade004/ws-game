@@ -37,6 +37,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,12 @@ from _git_env import ConfigFingerprint, common_config_path, strip_git_env_from_p
 
 # 必须早于任何收集期/模块级的 git 调用：先剥环境，再记配置指纹（指纹用干净环境查仓库位置）。
 _STRIPPED_GIT_VARS = strip_git_env_from_process()
+
+# 门禁独占锁隔离（toolchain/_gate_lock.ps1）：本套件里会起 check.ps1 / build.ps1 子进程的用例不得受真实锁
+# D:\wt\_exclusive_gate.lock 影响（别的会话持锁时无关用例会被拒绝启动），也不得继承外层门禁的持有者身份。
+# 锁相关用例（test_gate_lock.py）自己给子进程设 WS_GATE_LOCK_PATH。
+os.environ["WS_GATE_LOCK_PATH"] = str(Path(tempfile.gettempdir()) / f"ws_game_pytest_{os.getpid()}.lock")
+os.environ.pop("WS_GATE_LOCK_HOLDER", None)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _config_guard: ConfigFingerprint | None = None
 

@@ -355,7 +355,10 @@ param(
     # 仅供并行编排自证测试使用（见 check.ps1 验收记录/toolchain/tests 对应用例）：插入到两条并行
     # 线各自第一步之前的模拟耗时（秒）。默认 0（都不注入）表示正常门禁行为，不受本参数影响。
     [int]$InjectMockSleepHeavySeconds = 0,
-    [int]$InjectMockSleepUnitySeconds = 0
+    [int]$InjectMockSleepUnitySeconds = 0,
+    # 全机独占锁（toolchain/_gate_lock.ps1）：合并前全量/发布时用本参数获取锁并声明持有者名；进程结束自动释放。
+    # 不传时只做启动检查——锁被别的持有者占着就拒绝启动。
+    [string]$AcquireExclusiveLock = ""
 )
 
 # -Quick 隐含不跑任何 Unity 步骤（见 .PARAMETER Quick 说明），与显式 -SkipUnity 合并为同一个
@@ -368,6 +371,13 @@ if ($Quick -or $DocsOnly) {
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = $PSScriptRoot
+
+# 全机独占锁启动检查（门禁并发硬约束的机制化，见 toolchain/_gate_lock.ps1 文件头）：别的持有者占着锁就拒绝启动；
+# -DryRun 与定向模式的内层子进程（父进程已检查过、环境变量带着持有者名）不重复检查。
+. (Join-Path $RepoRoot "toolchain\_gate_lock.ps1")
+if (-not $DryRun -and -not $TargetedInner) {
+    if (-not (Enter-GateLockGuard -AcquireName $AcquireExclusiveLock -Context "check.ps1")) { exit 1 }
+}
 
 # 耗时自动记录：脚本总起点与默认任务描述。必须在定向父进程分支之前取，父进程把算好的任务描述经
 # -TimingTask 传给干活的子进程，让两边记同一句话。
@@ -1180,7 +1190,7 @@ if ($DocsOnly -or $script:GateStepPlan) {
 #      只在定向模式（有判定结果）下出现；全量门禁由 toolchain 全量 pytest 覆盖，不重复。
 # -----------------------------------------------------------------------------
 if ($script:GateStepPlan) {
-    Invoke-CheckStep "python -m pytest toolchain/tests/test_precommit_tiering_guard.py -q（钩子相关子集，定向）" -Id "hooks_pytest" {
+    Invoke-CheckStep "python -m pytest toolchain/tests/test_precommit_tiering_guard.py + test_commit_msg_hook.py -q（钩子相关子集，定向）" -Id "hooks_pytest" {
         $prevPythonUtf8 = $env:PYTHONUTF8
         $env:PYTHONUTF8 = "1"
         Push-Location $RepoRoot
@@ -1188,6 +1198,7 @@ if ($script:GateStepPlan) {
             Test-NativeExitCode "python" @(
                 "-m", "pytest",
                 "toolchain/tests/test_precommit_tiering_guard.py",
+                "toolchain/tests/test_commit_msg_hook.py",
                 "-q")
         } finally {
             Pop-Location

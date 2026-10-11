@@ -1,4 +1,5 @@
 using System;
+using Core.Foundation.EngineAdapter;
 
 namespace Core.Foundation.InputMap
 {
@@ -83,14 +84,18 @@ namespace Core.Foundation.InputMap
     /// 本模块 README"绑定字符串小语法"）。语法：
     /// <list type="bullet">
     /// <item><c>key:&lt;name&gt;</c> 键盘按键</item>
-    /// <item><c>mouse:&lt;button&gt;</c> 鼠标按键</item>
+    /// <item><c>mouse:&lt;button&gt;</c> 鼠标按键；<c>&lt;button&gt;</c> 只能是
+    /// <see cref="MouseButtons"/> 的规范名（<c>left</c>/<c>right</c>/<c>middle</c>，ADR-0182）</item>
     /// <item><c>pad:&lt;button&gt;</c> 手柄按键</item>
     /// <item><c>pad_axis:&lt;axis&gt;</c> 手柄一维轴</item>
     /// <item><c>pad_stick:&lt;left|right&gt;</c> 手柄摇杆二维轴</item>
     /// <item><c>composite2d:&lt;up&gt;|&lt;down&gt;|&lt;left&gt;|&lt;right&gt;</c>
     /// 四个按下型子绑定合成的二维轴</item>
     /// </list>
-    /// 设备侧名字（键名、手柄按钮名、轴名）本模块不做取值集合限定，原样透传给
+    /// 鼠标按钮名是唯一有规范名集合的设备侧名字：适配层发出的鼠标按钮事件、<c>IInput.IsKeyDown</c>
+    /// 的鼠标按钮查询、本语法里的 <c>mouse:</c> 绑定共用 <see cref="MouseButtons"/> 这一份名字，
+    /// 解析时不在集合内的名字直接抛 <see cref="ArgumentException"/>（不再"解析成功但永远不触发"）。
+    /// 其余设备侧名字（键名、手柄按钮名、轴名）本模块不做取值集合限定，原样透传给
     /// <c>IInput</c>（见 engine_adapter/contracts/IInput.cs 的 <c>InputEvent.Key</c>/
     /// <c>IInput.GetGamepadAxis</c> 同样不限定具体取值，由各引擎适配层实现约定）。
     /// </summary>
@@ -125,7 +130,7 @@ namespace Core.Foundation.InputMap
                 case KeyPrefix:
                     return new ParsedBinding(raw, BindingKind.Key, RequireSimpleName(raw, rest, "key"));
                 case MousePrefix:
-                    return new ParsedBinding(raw, BindingKind.Mouse, RequireSimpleName(raw, rest, "mouse"));
+                    return new ParsedBinding(raw, BindingKind.Mouse, RequireMouseButton(raw, RequireSimpleName(raw, rest, "mouse")));
                 case PadButtonPrefix:
                     return new ParsedBinding(raw, BindingKind.PadButton, RequireSimpleName(raw, rest, "pad"));
                 case PadAxisPrefix:
@@ -143,6 +148,16 @@ namespace Core.Foundation.InputMap
                     throw new ArgumentException(
                         $"绑定字符串 \"{raw}\" 的前缀 \"{prefix}\" 不是已知类型（key/mouse/pad/pad_axis/pad_stick/composite2d）", nameof(raw));
             }
+        }
+
+        private static string RequireMouseButton(string raw, string button)
+        {
+            if (!MouseButtons.IsCanonical(button))
+            {
+                throw new ArgumentException(
+                    $"绑定字符串 \"{raw}\" 的鼠标按钮名 \"{button}\" 不是规范名（只能是 {MouseButtons.Describe()}，区分大小写，ADR-0182）", nameof(raw));
+            }
+            return button;
         }
 
         private static string RequireSimpleName(string raw, string rest, string kindLabel)

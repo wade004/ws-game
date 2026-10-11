@@ -14,6 +14,7 @@ camera_profile"、[09_表现层.md](../../../architecture/09_表现层.md) 第 3
 | `zoom_default` | Number | 是 | `Configure` 时应用的初始缩放，须落在 `[zoom_min, zoom_max]` |
 | `follow_lerp` | Number | 是 | 跟随平滑系数，传给 `ICamera.Follow(planePos, smoothing)` |
 | `bounds` | Optional\<{min: Vec2, max: Vec2}\> | 否 | 跟随边界，`Update` 时把目标位置夹到边界内 |
+| `view_limit` | Optional\<{min: Vec2, max: Vec2}\> | 否 | 可视范围限制（[ADR-0181](../../../architecture/adr/0181-镜头可视范围限制.md)，缺省关闭）：镜头宿主把跟随点收在“画面可视的地面区域不越出该矩形”的区间内，通常填整张地图的矩形；`min` 不得大于 `max`（`FromRecord` 抛 `DataFieldException`）；需要适配层实现 `ICameraGroundFootprint` |
 | `shake_presets` | List\<{id: Id, amplitude: Number, duration: Number, frequency: Number}\> | 否 | 震屏档位清单，供 `CameraHost.Shake(id)` 按 id 查找 |
 
 ## 数据行解析

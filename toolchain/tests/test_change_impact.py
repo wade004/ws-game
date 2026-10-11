@@ -838,7 +838,7 @@ def test_check_dryrun_prints_playmode_category_filter(tmp_path: Path, mmap: dict
     repo = tmp_path / "fake_repo"
     (repo / "toolchain").mkdir(parents=True)
     shutil.copy(REPO_ROOT / "check.ps1", repo / "check.ps1")
-    for name in ("change_impact.py", "_console.py", "module_map.json", "_gate_timing.ps1"):
+    for name in ("change_impact.py", "_console.py", "module_map.json", "_gate_timing.ps1", "_gate_lock.ps1"):
         shutil.copy(TOOLCHAIN_DIR / name, repo / "toolchain" / name)
 
     # 走 _git_env：钩子里继承的 GIT_DIR/GIT_INDEX_FILE 会让 init/config/add 写进真实仓库（2026-10-01 事故）。

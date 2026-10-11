@@ -2430,6 +2430,20 @@ class CheckDisplayAnimRowUnitTest(unittest.TestCase):
         self.assertIn("auto_attack_anim", field_paths)
         self.assertIn("cast_anim_override[skill.sample_burn]", field_paths)
 
+    def test_weapon_style_release_anim_override_missing_resource_is_reported_then_present(self) -> None:
+        # ADR-0174：release_anim_override 的取值与 cast_anim_override 一样要核对资源存在。
+        row = {
+            "id": "display.weapon_style.sample_staff",
+            "release_anim_override": {"skill.sample_burn": "sprite_anim.sample_staff_release"},
+        }
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_weapon_style_row(row, self.assets_root, self.dataset, problems)
+        self.assertIn("release_anim_override[skill.sample_burn]", {p.field_path for p in problems})
+        self._write_sprite_anim("sample_staff_release")
+        problems2: list[check_cmd.CheckIssue] = []
+        check_cmd._check_weapon_style_row(row, self.assets_root, self.dataset, problems2)
+        self.assertEqual([], problems2)
+
     def test_equip_visual_mesh_ref_paperdoll_missing_then_present(self) -> None:
         # ADR-0071 决策 1：sprite 型 mesh_ref 语义变更为"装备层资源集引用"，本域按
         # EQUIP_LAYER_CHECK_DIRECTIONS 三个方向档位各自核对层文件，不再是单个扁平文件；

@@ -330,7 +330,7 @@ python toolchain/font_subset.py --data-root data/_starter_kit --data-root <游�
 - **缺字**：字符集里源字体没有的字符打印清单并以退出码 1 结束（子集仍写出）；`--strict` 下直接失败、不写文件。参数/输入错误退出码 2。
 - **实测（2026-10-07，起步包文案）**：整套 16,437,364 字节 → 起步包文案 + 常用字表 1,831,352 字节（11.1%，3900 字符）；只留数据用字 151,028 字节（0.9%，353 字符）。样板游戏 A 数据叠加起步包后约 1.83 MB。
 - **许可**：子集仍是同一字体的衍生版本，分发时继续附带 `LICENSE-OFL.txt`；字体名表与版权条目原样保留。
-- **确定性**：相同输入产生字节相同的输出。依赖只有 `fontTools`（工具链已安装，不新增依赖）；测试在没有 `fontTools` 的环境整体跳过（`toolchain/tests/test_font_subset.py`）。
+- **确定性**：相同输入产生字节相同的输出。依赖只有 `fontTools`，已写进 `toolchain/requirements.txt`（CI 靠它安装）；测试里是硬导入，缺依赖直接失败，不再整体跳过（2.4.0 起 CI 因跳过被 skipped=0 判红，2.8.1 修）。
 - 子集产物取决于具体游戏的文案，框架不分发；由游戏在发版流程里生成并替换同名字体资源（引用名与布局数据不变）。
 
 ## 生成事件常量（gen_event_constants.py）
@@ -728,10 +728,11 @@ toolchain/tests -q` 一并跑。
 | `data/_sample` 行 | 占位素材来源 | 产物 |
 | --- | --- | --- |
 | `display.map.sample_hero`/`sample_beast` | `assets/_placeholder/sprites/placeholder_{hero,beast}/` 5 个 canonical 方向档位 | `assets/_sample/sprites/creature_sample_{hero,beast}/` |
-| `display.map.sample_blade`/`sample_bolt`（共用精灵集） | `assets/_placeholder/icons/icon_placeholder_blade.png` | `assets/_sample/sprites/item_sample_blade/` |
-| `display.map.sample_chest`/`sample_loot_pile`（共用精灵集） | `assets/_placeholder/sprites/placeholder_chest/closed.png` | `assets/_sample/sprites/gobj_sample_chest/` |
-| `display.map.sample_door` | `assets/_placeholder/sprites/placeholder_door/closed.png` | `assets/_sample/sprites/gobj_sample_door/` |
-| `display.map.sample_save_point` | 脚本用 Pillow 确定性生成的占位立柱图 | `assets/_sample/sprites/gobj_sample_save_point/` |
+| `display.map.sample_blade`（item，整身精灵集，只用图标） | `assets/_placeholder/icons/icon_placeholder_blade.png` | `assets/_sample/sprites/item_sample_blade/` |
+| `display.map.sample_bolt`（projectile，分层精灵集 `body` 层 + `paperdoll_layers`） | `assets/_placeholder/icons/icon_placeholder_blade.png` | `assets/_sample/sprites/projectile_sample_bolt/` |
+| `display.map.sample_chest`/`sample_loot_pile`/`sample_quest_marker`（共用精灵集，分层 `body` 层 + `paperdoll_layers`） | `assets/_placeholder/sprites/placeholder_chest/closed.png` | `assets/_sample/sprites/gobj_sample_chest/` |
+| `display.map.sample_door`（分层 `body` 层 + `paperdoll_layers`） | `assets/_placeholder/sprites/placeholder_door/closed.png` | `assets/_sample/sprites/gobj_sample_door/` |
+| `display.map.sample_save_point`（分层 `body` 层 + `paperdoll_layers`） | 脚本用 Pillow 确定性生成的占位立柱图 | `assets/_sample/sprites/gobj_sample_save_point/` |
 | `vfx.def.sample_cast_circle`/`sample_hit_spark`/`sample_burn` | `assets/_placeholder/vfx/{cast_circle,hit_spark,burn}/frame_*.png` | `assets/_sample/vfx/sample_*/{atlas.png,frames.json}` |
 | `sfx.def.sample_hit`/`sample_cast`/`sample_ui_click` | `assets/_placeholder/sfx/*.wav` | `assets/_sample/sfx/sample_*_v<N>.wav` |
 | `world.map.sample_field` | `assets/_placeholder/maps/placeholder_field/` | `assets/_sample/maps/sample_field/` |

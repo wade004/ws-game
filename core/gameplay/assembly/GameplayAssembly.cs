@@ -149,6 +149,12 @@ namespace Core.Gameplay.Assembly
 
         public QuestHost Quest { get; }
 
+        /// <summary>ADR-0173：任务目标指引（只读查询）。没有任何任务声明 <c>guide</c> 时恒无结果，等价于未启用。</summary>
+        public QuestGuideHost QuestGuide { get; }
+
+        /// <summary>ADR-0173：<see cref="QuestGuide"/> 使用的区域/刷新点定位器；开发期热重载 <c>area.trigger_def</c> 后调其 <c>Invalidate</c>。</summary>
+        public RegistryQuestGuideLocator QuestGuideLocator { get; }
+
         public DialogHost Dialog { get; }
 
         public EncounterHost Encounter { get; }
@@ -956,6 +962,8 @@ namespace Core.Gameplay.Assembly
                 gobjTemplateResolver: id => world.GetEntity(id)?.TemplateId, dayProvider: questDayProvider,
                 exprDiagnostics: null);
             deferredQuestGroup.Bind(new QuestExprGroupProvider(Quest, PlayerUnitProvider));
+            QuestGuideLocator = new RegistryQuestGuideLocator(registry, GameplaySchemaCatalog.FullExprSchema);
+            QuestGuide = new QuestGuideHost(() => Quest.Definitions, ExprHostFactory, WorldState, QuestGuideLocator);
 
             // ---------------------------------------------------------
             // 10) AppStateHost / HookRegistry（DialogHost 的两个必填依赖，本类自行装配——两者均属

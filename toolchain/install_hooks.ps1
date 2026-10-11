@@ -56,7 +56,7 @@ try {
         exit 1
     }
 
-    Write-Host "已安装：core.hooksPath -> .githooks（pre-commit 会在每次 git commit 前自动跑 check.ps1 -SkipUnity -Quick）。" -ForegroundColor Green
+    Write-Host "已安装：core.hooksPath -> .githooks（pre-commit 会在每次 git commit 前自动跑 check.ps1 -SkipUnity -Quick；commit-msg 拦截乱码提交信息，请用 git commit -F <UTF-8 文件>）。" -ForegroundColor Green
     Write-Host "紧急情况需要跳过时用 'git commit --no-verify'（不建议常态化使用）。" -ForegroundColor Yellow
     exit 0
 } finally {

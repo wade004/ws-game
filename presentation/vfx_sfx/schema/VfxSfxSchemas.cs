@@ -94,6 +94,13 @@ namespace Presentation.VfxSfx.Schema
                         new FieldSchema("<anim_clip_id>", FieldKind.Id, required: true,
                             description: "覆盖的施法动作剪辑不透明标识，不对应任何内容表；类别前缀限定 anim/sprite_anim，见 ADR-0038 决策 2/3")
                             .WithAllowedRefCategories("anim", "sprite_anim"))),
+                new FieldSchema("release_anim_override", FieldKind.Object, required: false,
+                    description: "按技能 id 声明释放动作剪辑：{skillId: animClipId}（ADR-0174）。声明后：读条技能读条期间循环播 cast_anim_override 的剪辑、读条完成播一遍本剪辑、被打断直接回落；瞬发技能直接播本剪辑。未声明的技能行为不变")
+                    .WithMap(MapSchema.FreeKeyed(
+                        "键为技能 id，值为释放动作剪辑的不透明标识，由引擎适配层解析；与 cast_anim_override 同样只做格式校验",
+                        new FieldSchema("<anim_clip_id>", FieldKind.Id, required: true,
+                            description: "释放动作剪辑不透明标识，不对应任何内容表；类别前缀限定 anim/sprite_anim，见 ADR-0038 决策 2/3")
+                            .WithAllowedRefCategories("anim", "sprite_anim"))),
                 new FieldSchema("swing_vfx", FieldKind.Id, required: false, description: "挥舞轨迹特效，指向 vfx.def（消费方反馈第 30 条：登记为软引用）")
                     .WithSoftReference(table: "vfx.def"),
                 new FieldSchema("impact_vfx_override", FieldKind.Object, required: false, description: "按技能 id 覆盖命中特效：{skillId: vfxId}")
